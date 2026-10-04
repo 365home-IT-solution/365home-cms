@@ -922,10 +922,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/products')->name
 | nhập) — xem docblock CccdController::scan(). Quét lỗi vẫn trả 200 (scanned=false, data=null) để
 | admin/lễ tân tự nhập tay, không chặn luồng.
 | POST /api/admin/cccd/scan → body multipart {front, back, guest_index?}
+| POST /api/admin/cccd/scan-qr → body multipart {cccd_qr_image, checkin_date?, guest_index?} — bản
+|   1 ảnh mặt có mã QR (tuỳ chọn, không lưu ảnh), xem docblock CccdController::scanQr().
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('api.admin.cccd.')->group(function () {
     Route::post('/scan', [AdminCccdController::class, 'scan'])->name('scan');
+    Route::post('/scan-qr', [AdminCccdController::class, 'scanQr'])->name('scan-qr')->middleware('throttle:cccd-scan-admin');
 });
 
 /*

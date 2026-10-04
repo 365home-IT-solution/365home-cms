@@ -8,18 +8,27 @@
 
 ## 0. Endpoint quét độc lập (ĐÃ CÓ, 04/10/2026)
 
-`POST /api/cccd/scan-qr` — quét 1 ảnh mặt có mã QR và trả dữ liệu đọc được. Là endpoint **tuỳ
-chọn, thêm mới**: không lưu ảnh, không gắn vào đơn/hồ sơ, không thay đổi API nào khác (các API đặt
-phòng/hồ sơ vẫn nhận `cccd_front` + `cccd_back` như cũ). Không cần đăng nhập; có Bearer token thì
-giới hạn lượt quét tính theo tài khoản.
+Quét 1 ảnh mặt có mã QR và trả dữ liệu đọc được. Là các endpoint **tuỳ chọn, thêm mới**: không lưu
+ảnh, không gắn vào đơn/hồ sơ/khách thuê, không thay đổi API nào khác (các API đặt phòng/hồ sơ vẫn
+nhận `cccd_front` + `cccd_back`, khách thuê minihouse vẫn nhận `id_card_front` + `id_card_back`).
+Chỉ đọc QR, không OCR. Mỗi đối tượng có endpoint và giới hạn riêng:
+
+| Đối tượng | Endpoint | Xác thực | Giới hạn |
+|---|---|---|---|
+| App khách - vãng lai | `POST /api/guest/cccd/scan-qr` | không | 15/phút/IP; 30 lượt quét/IP mỗi 10 phút |
+| App khách - đã đăng nhập | `POST /api/cccd/scan-qr` | token khách | 15/phút/tài khoản; 12 lượt quét/tài khoản và 30/IP mỗi 10 phút |
+| Quản trị homestay | `POST /api/admin/cccd/scan-qr` | token quản trị | 30/phút/tài khoản |
+| Quản trị minihouse | `POST /api/admin/minihouse/cccd/scan-qr` | token quản trị + quyền tạo hoặc sửa khách thuê | 30/phút/tài khoản |
 
 Body `multipart/form-data`:
 
 | Trường | Bắt buộc | Ghi chú |
 |---|---|---|
-| `cccd_qr_image` | có | JPG/PNG/WEBP, tối đa 5MB, cạnh ngắn ≥ 300px và cạnh dài ≥ 500px |
-| `checkin_date` | không | `Y-m-d` — mốc tính tuổi, mặc định hôm nay |
-| `guest_index` | không | chỉ echo lại để FE map đúng ô đang nhập |
+| `cccd_qr_image` | có | JPG/PNG/WEBP, cạnh ngắn ≥ 300px và cạnh dài ≥ 500px; tối đa 5MB (app khách), 10MB (quản trị) |
+| `checkin_date` | không | `Y-m-d` - mốc tính tuổi, mặc định hôm nay (không dùng ở minihouse) |
+| `guest_index` | không | chỉ echo lại để FE map đúng ô đang nhập (không dùng ở minihouse) |
+
+### App khách (vãng lai và đã đăng nhập)
 
 Response 200:
 
@@ -32,11 +41,38 @@ Response 200:
   "age": 22, "min_age": 16, "under_age": false }
 ```
 
-- Tuổi **không chặn** ở endpoint này (không biết đơn có qua đêm hay không) — FE tự xử lý theo
-  `under_age`.
-- Lỗi trả theo định dạng ở mục 2 với `field = "cccd_qr_image"`: `cccd_required`,
-  `cccd_image_invalid`, `cccd_qr_unreadable`, `cccd_invalid` (422), `cccd_rate_limited` (429).
-- Giới hạn: 15 request/phút/IP, và 30 lượt quét/IP + 12 lượt/tài khoản mỗi 10 phút.
+Bản đã đăng nhập trả thêm (chỉ đối chiếu, không ghi gì vào hồ sơ):
+
+- `same_as_profile`: CCCD vừa quét có phải của chính chủ tài khoản không; `null` nếu hồ sơ chưa có
+  dữ liệu CCCD.
+- `companion_id`: id người đi cùng đã lưu trong hồ sơ trùng với CCCD này; `null` nếu không có.
+
+Lỗi trả theo định dạng ở mục 2 với `field = "cccd_qr_image"`: `cccd_required`,
+`cccd_image_invalid`, `cccd_qr_unreadable`, `cccd_invalid` (422), `cccd_rate_limited` (429).
+
+### Quản trị homestay
+
+Response giống app khách, thêm `warnings: []`. Khác app khách: **không đọc được QR không phải lỗi
+request** - trả 200 với `scanned: false`, `data: null` và 1 dòng trong `warnings` để lễ tân nhập
+tay. Đọc được nhưng số CCCD sai cấu trúc → vẫn trả `data` kèm `warnings`. Chỉ lỗi 422 khi thiếu
+ảnh (`cccd_required`) hoặc ảnh không hợp lệ (`cccd_image_invalid`).
+
+### Quản trị minihouse
+
+```json
+{ "scanned": true,
+  "data": { "cccd": "087204016918", "full_name": "NGUYỄN VĂN A", "dob": "12/05/2004", "…": "…" },
+  "warnings": [],
+  "tenant_fields": { "fullname": "NGUYỄN VĂN A", "id_card_number": "087204016918", "gender": "nam",
+                     "permanent_address": "…", "date_of_birth": "2004-05-12",
+                     "id_card_issued_date": "2022-01-01" } }
+```
+
+`tenant_fields` đã map sẵn sang đúng tên và định dạng field của `POST /api/admin/minihouse/tenants`
+để FE điền thẳng vào form; chỉ gồm field đọc được. Không đọc được QR → 200 với `scanned: false`,
+`tenant_fields: null` và `warnings`.
+
+Tuổi **không chặn** ở bất kỳ endpoint nào trong mục này - FE tự xử lý theo `under_age`.
 
 Từ 28/09/2026, BE chuyển toàn bộ luồng CCCD sang **1 ảnh mặt có mã QR** (cột mới
 `cccd_qr_image`). Tài liệu này mô tả thay đổi hợp đồng API. App bản cũ đang gửi

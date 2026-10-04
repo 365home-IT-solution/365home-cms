@@ -31,6 +31,12 @@ class CccdIntakeException extends \RuntimeException
         parent::__construct($message);
     }
 
+    // Lỗi nghiệp vụ do ảnh/dữ liệu khách gửi (không phải lỗi hệ thống) — không ghi log ERROR kèm
+    // stack trace cho từng lượt quét hỏng.
+    public function report(): void
+    {
+    }
+
     public function render(): JsonResponse
     {
         return response()->json(array_merge([

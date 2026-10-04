@@ -102,6 +102,19 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(15)->by($request->ip());
         });
 
+        // cccd-scan: 15/phút cho app khách — POST /api/guest/cccd/scan-qr (theo IP) và POST
+        // /api/cccd/scan-qr (theo tài khoản). Limiter RIÊNG để lượt quét CCCD không ăn chung bộ đếm
+        // với hold-slot; khoá kèm tên route để 2 endpoint cũng không dùng chung bộ đếm với nhau.
+        RateLimiter::for('cccd-scan', function (Request $request) {
+            return Limit::perMinute(15)->by($request->route()?->getName() . '|' . ($request->user()?->id ?: $request->ip()));
+        });
+
+        // cccd-scan-admin: 30/phút/tài khoản cho bản quản trị (homestay + minihouse) — khoá kèm tên
+        // route để 2 endpoint không dùng chung bộ đếm, và tách hẳn khỏi trần của app khách.
+        RateLimiter::for('cccd-scan-admin', function (Request $request) {
+            return Limit::perMinute(30)->by($request->route()?->getName() . '|' . ($request->user()?->id ?: $request->ip()));
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

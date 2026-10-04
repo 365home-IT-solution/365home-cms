@@ -310,14 +310,20 @@ Route::middleware('throttle:hold-slot')->group(function () {
 /*
 |--------------------------------------------------------------------------
 | CCCD — Quét độc lập 1 ảnh mặt có mã QR (tuỳ chọn, không lưu ảnh, không gắn vào đơn/hồ sơ nào) —
-| xem docblock CccdController::scanQr(). Không cần đăng nhập; ngoài throttle IP còn có giới hạn
-| lượt quét riêng (config cccd.scan_limit).
-| POST /api/cccd/scan-qr → body multipart {cccd_qr_image, checkin_date?, guest_index?}
+| xem docblock CccdController. Tách riêng theo đối tượng (giống orders / guest/orders); ngoài
+| throttle còn có giới hạn lượt quét riêng (config cccd.scan_limit).
+| POST /api/guest/cccd/scan-qr → khách vãng lai, không đăng nhập
+| POST /api/cccd/scan-qr       → khách đã đăng nhập — trả thêm same_as_profile, companion_id
+| Body multipart (cả 2): {cccd_qr_image, checkin_date?, guest_index?}
 |--------------------------------------------------------------------------
 */
+Route::post('guest/cccd/scan-qr', [\App\Http\Controllers\Api\CccdController::class, 'scanQrGuest'])
+    ->name('api.guest.cccd.scan-qr')
+    ->middleware('throttle:cccd-scan');
+
 Route::post('cccd/scan-qr', [\App\Http\Controllers\Api\CccdController::class, 'scanQr'])
     ->name('api.cccd.scan-qr')
-    ->middleware('throttle:hold-slot');
+    ->middleware(['auth:sanctum', 'customer.active', 'throttle:cccd-scan']);
 
 /*
 |--------------------------------------------------------------------------
