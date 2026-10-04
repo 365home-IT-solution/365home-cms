@@ -32,25 +32,101 @@
         return cas.concat(fill).concat([{ dataLayer: 'roads', minzoom: 11, filter: kind('rail'), symbolizer: new LS({ color: '#8f8f8f', width: wid(0.9), dash: [4, 3] }) }]);
     }
 
+    // Tên quần đảo của Việt Nam — dữ liệu OSM gốc chỉ gắn nhãn tiếng Trung ("三沙市", "Tam Sa", "南沙区"...) nên tự thêm nhãn tiếng Việt.
+    var SOVEREIGN_LABELS = [
+        { lat: 16.45, lng: 112.0, text: 'Quần đảo Hoàng Sa', sub: '(Việt Nam)', min: 4, max: 9, dot: true },
+        { lat: 9.6, lng: 114.2, text: 'Quần đảo Trường Sa', sub: '(Việt Nam)', min: 4, max: 9, dot: true },
+        { lat: 16.835, lng: 112.335, text: 'Đảo Phú Lâm', sub: '(Hoàng Sa, Việt Nam)', min: 10, max: 17, dot: true }
+    ];
+    // Dữ liệu OSM gốc ở Hoàng Sa gắn toàn bộ địa danh/đường/điểm theo hệ thống hành chính nước ngoài (chữ Hán, "Tam Sa", "Tây Sa", "Bắc Kinh"...), còn
+    // một số đảo Trường Sa mang tên tiếng Anh/Philippines (Reef, Cay, Kalayaan...). Bản đồ này chỉ hiển thị địa danh tiếng Việt: bỏ MỌI nhãn (địa danh,
+    // đường, điểm, nước...) có tên gốc chứa chữ Hán hoặc thuộc các tên nước ngoài đó.
+    var FOREIGN_NAME = /[\u3400-\u9fff\uf900-\ufaff]|^Tam Sa$|^Quận Nam Sa$|^Nam Sa$|Sansha|Kalayaan|Xisha|Nansha|Paracel|Spratly|\b(Reef|Shoal|Cay|Atoll|Patches)\b/i;
+
+    var NON_LATIN = /[^\u0000-\u024f\u1e00-\u1eff\u2000-\u206f]/;
+
+    function dropForeignLabels(rules) {
+        return rules.map(function (r) {
+            var old = r.filter;
+            return Object.assign({}, r, {
+                filter: function (z, f) {
+                    var q = (f && f.props) || {};
+                    if (FOREIGN_NAME.test(String(q.name || '')) || FOREIGN_NAME.test(String(q['name:vi'] || ''))) { return false; }
+                    // Không có tên tiếng Việt mà tên gốc dùng chữ không phải Latin (Thái, Lào, Khmer, Miến...) thì ẩn để người Việt không gặp chữ lạ.
+                    if (!q['name:vi'] && NON_LATIN.test(String(q.name || ''))) { return false; }
+                    return old ? old(z, f) : true;
+                }
+            });
+        });
+    }
+
+    function sovereigntyLayer() {
+        var layer = L.layerGroup();
+        var items = [];
+        var sync = function (map) {
+            var z = map.getZoom();
+            items.forEach(function (it) {
+                var el = it.marker.getElement();
+                if (el) { el.style.display = (z >= it.cfg.min && z <= it.cfg.max) ? '' : 'none'; }
+            });
+        };
+        SOVEREIGN_LABELS.forEach(function (c) {
+            var html = '<div class="sov-label' + (c.sea ? ' sov-sea' : '') + '">' + (c.dot ? '<i class="sov-dot"></i>' : '')
+                + '<b>' + c.text + '</b>' + (c.sub ? '<span>' + c.sub + '</span>' : '') + '</div>';
+            var m = L.marker([c.lat, c.lng], { interactive: false, keyboard: false, zIndexOffset: -500,
+                icon: L.divIcon({ className: 'sov-wrap', html: html, iconSize: [0, 0] }) });
+            items.push({ marker: m, cfg: c });
+            layer.addLayer(m);
+        });
+        layer.on('add', function () { if (layer._map) { sync(layer._map); } });
+        var origOnAdd = layer.onAdd;
+        layer.onAdd = function (map) {
+            origOnAdd.call(this, map);
+            map.on('zoomend', function () { sync(map); });
+            sync(map);
+        };
+        if (!document.getElementById('sov-style')) {
+            var st = document.createElement('style');
+            st.id = 'sov-style';
+            st.textContent = '.sov-wrap{background:none;border:0}.sov-label{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;'
+                + 'font:600 12px/1.25 Arial,Helvetica,sans-serif;color:#2b2b2b;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;pointer-events:none}'
+                + '.sov-label span{display:block;font-weight:500;font-size:11px}.sov-label .sov-dot{display:block;width:6px;height:6px;margin:0 auto 2px;border-radius:50%;background:#7a6a55;box-shadow:0 0 0 1.5px #fff}'
+                + '.sov-sea{font-style:italic;font-weight:600;color:#3d7898;letter-spacing:.12em;font-size:13px}';
+            document.head.appendChild(st);
+        }
+        return layer;
+    }
+
+    function withSovereignty(base) { return L.layerGroup([base, sovereigntyLayer()]); }
+
     window.createBaseLayer = function () {
         var p = window.protomapsL;
         if (cfg.pmtilesUrl && p && typeof p.leafletLayer === 'function') {
             try {
                 var opts = { url: cfg.pmtilesUrl, lang: 'vi', attribution: attribution };
                 if (cfg.flavor === 'osm' && typeof p.paintRules === 'function' && typeof p.labelRules === 'function') {
-                    var base = p.paintRules(OSM_FLAVOR).filter(function (r) { return r.dataLayer !== 'roads'; });
+                    var base = p.paintRules(OSM_FLAVOR).filter(function (r) { return r.dataLayer !== 'roads'; }).map(function (r) {
+                        // Ranh giới: chỉ vẽ quốc gia + tỉnh. Bỏ cấp huyện/xã vì dữ liệu gốc vẽ vòng hành chính nước ngoài quanh các đảo Hoàng Sa.
+                        if (r.dataLayer !== 'boundaries') { return r; }
+                        var old = r.filter;
+                        return Object.assign({}, r, { filter: function (z, f) {
+                            var k = f && f.props && f.props.kind;
+                            if (k !== 'country' && k !== 'region') { return false; }
+                            return old ? old(z, f) : true;
+                        } });
+                    });
                     var at = 0;
                     base.forEach(function (r, i) { if (r.dataLayer === 'buildings') { at = i + 1; } });
                     opts.paintRules = base.slice(0, at).concat(roadRules(p), base.slice(at));
-                    opts.labelRules = p.labelRules(OSM_FLAVOR, 'vi');
+                    opts.labelRules = dropForeignLabels(p.labelRules(OSM_FLAVOR, 'vi'));
                     opts.backgroundColor = OSM_FLAVOR.background;
                 } else {
                     opts.flavor = cfg.flavor || 'light';
                 }
-                return p.leafletLayer(opts);
+                return withSovereignty(p.leafletLayer(opts));
             } catch (e) { /* rơi xuống OSM */ }
         }
 
-        return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: attribution });
+        return withSovereignty(L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: attribution }));
     };
 })();
