@@ -5,11 +5,11 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --optimize-autoloader --no-interaction --ignore-platform-reqs
 
-# ─── Stage 1a: QR scanner runtime deps (jsqr + jimp only) ────────────────────
+# ─── Stage 1a: QR scanner runtime deps (qr_scan.cjs + qr_scan_zxing.cjs) ─────
 FROM node:20-alpine AS qr-deps
 
 WORKDIR /app
-RUN echo '{"dependencies":{"jsqr":"^1.4.0","jimp":"^1.6.1"}}' > package.json \
+RUN echo '{"dependencies":{"jsqr":"^1.4.0","jimp":"^1.6.1","@zxing/library":"^0.18.6","zxing-wasm":"^3.1.4"}}' > package.json \
     && npm install --omit=dev
 
 # ─── Stage 1: Build frontend assets ──────────────────────────────────────────
@@ -102,7 +102,7 @@ COPY --from=frontend /app/public /var/www/html/public
 # Copy vendor from composer stage (autoloader paths are relative, safe to copy)
 COPY --from=vendor /app/vendor /var/www/html/vendor
 
-# Copy chỉ jsqr + jimp từ stage qr-deps (~11MB thay vì 86MB)
+# Copy chỉ các gói quét QR từ stage qr-deps (nhẹ hơn nhiều so với toàn bộ node_modules)
 COPY --from=qr-deps /app/node_modules /var/www/html/node_modules
 
 # Nginx config
