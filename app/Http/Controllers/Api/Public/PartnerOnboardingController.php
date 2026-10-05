@@ -99,7 +99,7 @@ class PartnerOnboardingController extends Controller
     public static function scanResponse(Request $request, LegalDocumentScanService $scanner): JsonResponse
     {
         $data = $request->validate([
-            'type' => ['required', Rule::in(array_keys(LegalDocumentFields::FIELDS))],
+            'type' => ['required', Rule::in(LegalDocumentFields::types())],
             'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.'], PartnerOnboardingService::LABELS);
 

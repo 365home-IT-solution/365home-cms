@@ -35,15 +35,13 @@ class PartnerLegalDocument extends Model implements HasMedia
     ];
 
     protected $fillable = [
-        'partner_id', 'building_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at', 'extra',
+        'partner_id', 'building_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at',
         'is_required', 'status', 'review_note', 'submitted_at', 'reviewed_at', 'reviewed_by', 'created_by',
     ];
 
     protected $casts = [
         'issued_at' => 'date',
         'expires_at' => 'date',
-        // Trường riêng theo loại giấy tờ (xem App\Support\LegalDocumentFields).
-        'extra' => 'array',
         'is_required' => 'boolean',
         'submitted_at' => 'datetime',
         'reviewed_at' => 'datetime',
@@ -55,9 +53,23 @@ class PartnerLegalDocument extends Model implements HasMedia
 
     public const HOMESTAY_REGISTRATION_REQUIRED = self::REGISTRATION_REQUIRED;
 
+    // ĐKKD / ANTT / PCCC có BỘ CỘT RIÊNG theo loại (dkkd_* / antt_* / pccc_* — App\Support\LegalDocumentFields): cho phép gán hàng loạt và cast cột ngày.
+    public function getFillable()
+    {
+        return array_merge(parent::getFillable(), \App\Support\LegalDocumentFields::allKeys());
+    }
+
+    public function getCasts()
+    {
+        return parent::getCasts() + array_fill_keys(\App\Support\LegalDocumentFields::dateKeys(), 'date');
+    }
+
     protected static function booted(): void
     {
         static::saving(function (self $document): void {
+            // Mỗi loại một bộ cột riêng: xoá cột của loại khác, chép số/ngày cấp/nơi cấp sang 3 cột tóm tắt chung.
+            \App\Support\LegalDocumentFields::sync($document);
+
             $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
             // MiniHouse đăng ký dùng thử: PCCC/ANTT nộp ở CẤP ĐỐI TÁC (không gắn toà nhà) như Homestay.
             $isMinihouseBuildingDocument = $document->partner?->isMinihouse()

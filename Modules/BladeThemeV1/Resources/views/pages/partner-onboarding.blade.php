@@ -336,7 +336,7 @@
                                 <span class="inline-flex items-center justify-center rounded-full text-white shrink-0" style="width:18px;height:18px;font-size:12px;"
                                     :style="r.uploaded ? 'background:#16a34a;' : 'background:#dc2626;'" x-text="r.uploaded ? '✓' : '!'"></span>
                                 <span><strong x-text="r.label"></strong> — <span :class="r.uploaded ? 'text-green-700' : 'text-red-600'" x-text="r.uploaded ? 'đã gửi' : 'chưa gửi — bắt buộc'"></span></span>
-                                <button type="button" class="ml-auto text-gray-700 underline shrink-0" x-show="!r.uploaded && editable" @click="doc.type = r.type; $refs.docFile && $refs.docFile.focus()">Chọn loại này</button>
+                                <button type="button" class="ml-auto text-gray-700 underline shrink-0" x-show="!r.uploaded && editable" @click="doc.type = r.type; resetDocFields(); $refs.docFile && $refs.docFile.focus()">Chọn loại này</button>
                             </div>
                         </template>
                         <ul class="list-disc pl-5 text-gray-700" x-show="!status">
@@ -373,7 +373,7 @@
                             </div>
                         </div>
 
-                        {{-- ĐKKD / ANTT / PCCC: BỘ Ô RIÊNG theo loại (App\Support\LegalDocumentFields) + nút quét để điền gợi ý. Loại khác dùng form chung bên dưới. --}}
+                        {{-- ĐKKD / ANTT / PCCC: MỖI LOẠI MỘT BỘ Ô + CỘT RIÊNG (dkkd_* / antt_* / pccc_*, kể cả số / ngày cấp / nơi cấp — App\Support\LegalDocumentFields) + nút quét để điền gợi ý. Loại khác dùng form chung bên dưới. --}}
                         <div x-show="docForm()" x-cloak class="space-y-4">
                             <div class="flex flex-wrap items-center gap-3">
                                 <button type="button" :disabled="loading" @click="scanDoc()" class="rounded-lg border border-gray-900 text-gray-900 font-semibold px-4 py-2 hover:bg-gray-50 disabled:opacity-60" x-text="loading ? 'Đang xử lý...' : 'Quét giấy tờ để tự điền'"></button>
@@ -392,7 +392,7 @@
                                         <template x-if="f.input !== 'textarea'">
                                             <input :type="f.input" x-model="doc[f.key]" maxlength="500" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
                                         </template>
-                                        <p class="text-xs text-gray-500 mt-1" x-show="doc.type === 'fire_safety' && f.key === 'document_number'" x-text="fireStage(doc.document_number) || 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).'"></p>
+                                        <p class="text-xs text-gray-500 mt-1" x-show="f.key === 'pccc_document_number'" x-text="fireStage(doc.pccc_document_number) || 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).'"></p>
                                         <p class="text-xs text-red-600 mt-1" x-show="errors[f.key]" x-text="err(f.key)"></p>
                                     </div>
                                 </template>

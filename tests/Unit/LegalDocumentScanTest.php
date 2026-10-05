@@ -6,50 +6,89 @@ use App\Services\LegalDocumentScanService;
 use App\Support\LegalDocumentFields;
 use Tests\TestCase;
 
-// Quét giấy tờ pháp lý: dò giá trị theo NHÃN từ đoạn chữ OCR đã đọc (không gọi OCR thật). Mẫu chữ dưới đây là giả lập theo bố cục thường gặp.
+// Quét giấy tờ pháp lý: dò giá trị từ đoạn chữ OCR đã đọc (không gọi OCR thật).
+// tests/Fixtures/legal-documents/*.txt = chữ OCR.space trả về cho 3 FILE MẪU THẬT (ĐKKD Cần Thơ 2025, GCN ANTT phường 2026, GCN thẩm duyệt PCCC 2019),
+// giữ nguyên lỗi OCR (rụng dấu, tách dòng, dính quốc hiệu); thông tin cá nhân đã được thay bằng dữ liệu giả.
 class LegalDocumentScanTest extends TestCase
 {
-    private function scanner(): LegalDocumentScanService
+    private function scan(string $type, string $fixture): array
     {
-        return new LegalDocumentScanService();
+        return (new LegalDocumentScanService())->suggest($type, (string) file_get_contents(base_path("tests/Fixtures/legal-documents/{$fixture}.txt")));
     }
 
-    public function test_business_license_fields_are_read_from_labels(): void
+    public function test_business_license_sample(): void
     {
-        $text = <<<'TXT'
-        SỞ KẾ HOẠCH VÀ ĐẦU TƯ THÀNH PHỐ CẦN THƠ
-        PHÒNG ĐĂNG KÝ KINH DOANH
-        GIẤY CHỨNG NHẬN ĐĂNG KÝ DOANH NGHIỆP
-        CÔNG TY TRÁCH NHIỆM HỮU HẠN MỘT THÀNH VIÊN
-        Mã số doanh nghiệp: 1801234567
-        Đăng ký lần đầu: ngày 05 tháng 03 năm 2021
-        Đăng ký thay đổi lần thứ: 2, ngày 10 tháng 08 năm 2023
-        1. Tên công ty
-        Tên công ty viết bằng tiếng Việt: CÔNG TY TNHH NHÀ TRỌ AN BÌNH
-        2. Địa chỉ trụ sở chính
-        Địa chỉ trụ sở chính: 12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, Thành phố Cần Thơ
-        Điện thoại: 0912 345 678
-        Ngành, nghề kinh doanh: Dịch vụ lưu trú ngắn ngày (5510)
-        4. Người đại diện theo pháp luật của công ty
-        * Họ và tên: NGUYỄN VĂN AN
-        Chức danh: Giám đốc
-        Số giấy tờ pháp lý của cá nhân: 092081001234
-        TXT;
+        $result = $this->scan('business_license', 'dkkd');
 
-        $fields = $this->scanner()->parse('business_license', $text);
-
-        $this->assertSame('1801234567', $fields['document_number']);
-        $this->assertSame('2021-03-05', $fields['issued_at']);
-        $this->assertStringContainsString('PHÒNG ĐĂNG KÝ KINH DOANH', $fields['issuer']);
-        $this->assertSame('12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, Thành phố Cần Thơ', $fields['business_address']);
-        $this->assertSame('Dịch vụ lưu trú ngắn ngày (5510)', $fields['business_lines']);
-        $this->assertSame('NGUYỄN VĂN AN', $fields['legal_representative']);
-        $this->assertSame('092081001234', $fields['representative_id_number']);
-        $this->assertSame('0912345678', $fields['phone']);
-        $this->assertSame('business_license', $this->scanner()->detectType($text));
+        $this->assertSame([
+            'dkkd_document_number'          => '1800000047',
+            // "Đăng ký lần đầu", không lấy ngày đăng ký thay đổi.
+            'dkkd_issued_at'                => '2021-09-28',
+            // Khối tiêu đề, đơn vị cấp dưới đứng trước; OCR đọc "THÀNH PHÔ CÂN THƠ" được sửa dấu.
+            'dkkd_issuer'                   => 'PHÒNG ĐĂNG KÝ KINH DOANH, SỞ TÀI CHÍNH, THÀNH PHỐ CẦN THƠ',
+            // Mục "2. Địa chỉ trụ sở chính": giá trị ở 2 dòng dưới tiêu đề mục.
+            'dkkd_business_address'         => 'Số 252-254 Đường Xuân Thủy, KDC Cái Sơn Hàng Bàng, Phường An Bình, Thành phố Cần Thơ, Việt Nam',
+            // Giấy mẫu không in ngành nghề → để trống.
+            'dkkd_business_lines'           => null,
+            // "Họ, chữ đệm và tên" trong mục người đại diện theo pháp luật.
+            'dkkd_legal_representative'     => 'NGUYỄN VĂN AN',
+            'dkkd_representative_id_number' => '092088000001',
+            'dkkd_phone'                    => '0900000188',
+        ], $result['fields']);
+        $this->assertTrue($result['type_matches']);
+        $this->assertSame(7, $result['found']);
+        $this->assertStringContainsString('Ngành, nghề kinh doanh', implode(' ', $result['warnings']));
     }
 
-    public function test_security_order_fields_are_read_from_labels(): void
+    public function test_security_order_sample(): void
+    {
+        $result = $this->scan('security_order', 'antt');
+
+        $this->assertSame([
+            'antt_document_number'       => '31/GCN',
+            // Dòng địa danh + ngày cuối giấy. KHÔNG lấy "cấp ngày 06 tháng 11 năm 2025" (ngày của ĐKKD) hay ngày cấp CCCD / ngày sinh trong thân giấy.
+            'antt_issued_at'             => '2026-06-10',
+            'antt_issuer'                => 'CÔNG AN PHƯỜNG AN BÌNH, THÀNH PHỐ CẦN THƠ',
+            'antt_business_name'         => 'Công ty TNHH truyền thông và dịch vụ vận tải CẦN THƠ EXPRESS',
+            'antt_business_address'      => 'Số 252-254 đường Xuân Thủy, KDC Cái Sơn Hàng Bàng, Phường An Bình, Thành phố Cần Thơ',
+            'antt_responsible_person'    => 'Nguyễn Văn An',
+            'antt_responsible_id_number' => '092088000001',
+        ], $result['fields']);
+        $this->assertTrue($result['type_matches']);
+        $this->assertSame([], $result['warnings']);
+    }
+
+    public function test_security_order_issue_date_is_left_empty_when_only_quoted_dates_exist(): void
+    {
+        // Bỏ dòng ngày ký cuối giấy: chỉ còn các ngày được dẫn lại trong thân giấy → ngày cấp phải để trống, không lấy nhầm.
+        $text = preg_replace('/^.*10 tháng 06 năm 2026.*$/mu', '', (string) file_get_contents(base_path('tests/Fixtures/legal-documents/antt.txt')));
+        $fields = (new LegalDocumentScanService())->parse('security_order', $text);
+
+        $this->assertNull($fields['antt_issued_at']);
+        $this->assertSame('31/GCN', $fields['antt_document_number']);
+    }
+
+    public function test_fire_safety_sample(): void
+    {
+        $result = $this->scan('fire_safety', 'pccc');
+        $fields = $result['fields'];
+
+        // OCR tách "Số:" và "82 TD-PCCC" thành 2 dòng, rụng dấu "/" → ghép lại.
+        $this->assertSame('82/TD-PCCC', $fields['pccc_document_number']);
+        $this->assertSame('design_approved', $result['fire_safety_stage']['code']);
+        // Dòng "Lâm Đồng, ngày 16 tháng 4 năm 2019" (không lấy 31/7/2014, 16/12/2014 của các căn cứ pháp lý).
+        $this->assertSame('2019-04-16', $fields['pccc_issued_at']);
+        // Tên cơ quan/tỉnh được sửa dấu; quốc hiệu dính cùng dòng bị cắt bỏ.
+        $this->assertSame('PHÒNG CẢNH SÁT PCCC & CNCH, CÔNG AN TỈNH LÂM ĐỒNG', $fields['pccc_issuer']);
+        $this->assertSame('Tiều khu 156, lố 60 Đặng Thái Thân, P. 3, Đà Lạt, Lâm Đồng', $fields['pccc_site_address']);
+        // Chữ viết tay: giữ đúng những gì OCR đọc được (người nhập kiểm tra lại).
+        $this->assertSame('Công ty TNHH Lậm Phần', $fields['pccc_investor']);
+        $this->assertSame('Lê Ich Phần', $fields['pccc_representative']);
+        $this->assertSame('Giám độc', $fields['pccc_representative_title']);
+        $this->assertTrue($result['type_matches']);
+    }
+
+    public function test_older_label_layout_is_still_read(): void
     {
         $text = <<<'TXT'
         CÔNG AN THÀNH PHỐ CẦN THƠ
@@ -62,49 +101,17 @@ class LegalDocumentScanTest extends TestCase
         Người chịu trách nhiệm về an ninh, trật tự của cơ sở kinh doanh:
         Họ và tên: TRẦN THỊ BÌNH
         Số CCCD: 092185004321
-        Đủ điều kiện về an ninh, trật tự để làm ngành, nghề: Kinh doanh dịch vụ lưu trú
         TXT;
 
-        $result = $this->scanner()->suggest('security_order', $text);
-        $fields = $result['fields'];
+        $fields = (new LegalDocumentScanService())->parse('security_order', $text);
 
-        $this->assertSame('125/GCN', $fields['document_number']);
-        $this->assertSame('2022-06-14', $fields['issued_at']);
-        $this->assertStringContainsString('PHÒNG CẢNH SÁT', $fields['issuer']);
-        $this->assertSame('NHÀ TRỌ AN BÌNH', $fields['business_name']);
-        $this->assertSame('12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, TP Cần Thơ', $fields['business_address']);
-        $this->assertSame('TRẦN THỊ BÌNH', $fields['responsible_person']);
-        $this->assertSame('092185004321', $fields['responsible_id_number']);
-        $this->assertTrue($result['type_matches']);
-        $this->assertSame(7, $result['total']);
-    }
-
-    public function test_fire_safety_fields_and_stage_are_read(): void
-    {
-        $text = <<<'TXT'
-        CÔNG AN THÀNH PHỐ CẦN THƠ
-        PHÒNG CẢNH SÁT PCCC VÀ CNCH
-        Số: 48/TD-PCCC
-        Cần Thơ, ngày 02 tháng 11 năm 2023
-        GIẤY CHỨNG NHẬN THẨM DUYỆT THIẾT KẾ VỀ PHÒNG CHÁY VÀ CHỮA CHÁY
-        Chủ đầu tư/chủ phương tiện: CÔNG TY TNHH NHÀ TRỌ AN BÌNH
-        Người đại diện: Ông Nguyễn Văn An
-        Chức danh: Giám đốc
-        Địa điểm xây dựng: 12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, TP Cần Thơ
-        TXT;
-
-        $result = $this->scanner()->suggest('fire_safety', $text);
-        $fields = $result['fields'];
-
-        $this->assertSame('48/TD-PCCC', $fields['document_number']);
-        $this->assertSame('2023-11-02', $fields['issued_at']);
-        $this->assertStringContainsString('PHÒNG CẢNH SÁT PCCC', $fields['issuer']);
-        $this->assertSame('CÔNG TY TNHH NHÀ TRỌ AN BÌNH', $fields['investor']);
-        $this->assertSame('Ông Nguyễn Văn An', $fields['representative']);
-        $this->assertSame('Giám đốc', $fields['representative_title']);
-        $this->assertSame('12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, TP Cần Thơ', $fields['site_address']);
-        $this->assertSame('design_approved', $result['fire_safety_stage']['code']);
-        $this->assertSame([], $result['warnings']);
+        $this->assertSame('125/GCN', $fields['antt_document_number']);
+        $this->assertSame('2022-06-14', $fields['antt_issued_at']);
+        $this->assertSame('PHÒNG CẢNH SÁT QLHC VỀ TTXH, CÔNG AN THÀNH PHỐ CẦN THƠ', $fields['antt_issuer']);
+        $this->assertSame('NHÀ TRỌ AN BÌNH', $fields['antt_business_name']);
+        $this->assertSame('12 Lê Lợi, Phường Cái Khế, Quận Ninh Kiều, TP Cần Thơ', $fields['antt_business_address']);
+        $this->assertSame('TRẦN THỊ BÌNH', $fields['antt_responsible_person']);
+        $this->assertSame('092185004321', $fields['antt_responsible_id_number']);
     }
 
     public function test_fire_safety_stage_follows_the_document_number(): void
@@ -120,17 +127,15 @@ class LegalDocumentScanTest extends TestCase
 
     public function test_mismatched_or_unreadable_file_returns_warnings_not_values(): void
     {
-        $antt = "GIẤY CHỨNG NHẬN ĐỦ ĐIỀU KIỆN VỀ AN NINH, TRẬT TỰ\nSố: 9/GCN";
-
-        $wrong = $this->scanner()->suggest('fire_safety', $antt);
+        $wrong = $this->scan('fire_safety', 'antt');
         $this->assertSame('security_order', $wrong['detected_type']);
         $this->assertFalse($wrong['type_matches']);
-        $this->assertNotEmpty($wrong['warnings']);
+        $this->assertStringContainsString('kiểm tra lại loại giấy tờ', $wrong['warnings'][0]);
 
-        $empty = $this->scanner()->suggest('business_license', '');
+        $empty = (new LegalDocumentScanService())->suggest('business_license', '');
         $this->assertFalse($empty['text_found']);
         $this->assertSame(0, $empty['found']);
         $this->assertSame(8, $empty['total']);
-        $this->assertNull($empty['fields']['document_number']);
+        $this->assertNull($empty['fields']['dkkd_document_number']);
     }
 }

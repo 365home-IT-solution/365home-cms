@@ -59,8 +59,9 @@ class PartnerLegalDocumentController extends Controller
 
         $document = DB::transaction(function () use ($request, $partner, $data, $isSuperAdmin) {
             $document = $partner->legalDocuments()->create([
-                ...collect($data)->except('file', 'is_required', ...LegalDocumentFields::allExtraKeys())->all(),
-                'extra' => LegalDocumentFields::extraFrom($data['type'], $data),
+                ...collect($data)->except('file', 'is_required', ...LegalDocumentFields::allKeys())->all(),
+                // Cột riêng của đúng loại giấy tờ (dkkd_* / antt_* / pccc_*); ô của loại khác gửi kèm bị bỏ qua.
+                ...LegalDocumentFields::valuesFrom($data['type'], $data),
                 'is_required' => $data['type'] === 'business_license'
                     ? true
                     : ($isSuperAdmin ? (bool) ($data['is_required'] ?? false) : false),
@@ -93,9 +94,9 @@ class PartnerLegalDocumentController extends Controller
 
         DB::transaction(function () use ($request, $document, $data) {
             $document->update([
-                ...collect($data)->except('file', ...LegalDocumentFields::allExtraKeys())->all(),
-                // Ô riêng: gửi ô nào cập nhật ô đó (gửi rỗng = xoá); đổi loại thì chỉ giữ các ô thuộc loại mới.
-                'extra' => LegalDocumentFields::extraFrom($data['type'] ?? $document->type, array_merge($document->extra ?? [], $data)),
+                ...collect($data)->except('file', ...LegalDocumentFields::allKeys())->all(),
+                // Cột riêng: gửi ô nào cập nhật ô đó (gửi rỗng = xoá); đổi loại thì cột của loại cũ tự bị xoá khi lưu.
+                ...LegalDocumentFields::valuesFrom($data['type'] ?? $document->type, $data, true),
                 'status' => 'draft',
                 'review_note' => null,
                 'reviewed_at' => null,
@@ -249,8 +250,7 @@ class PartnerLegalDocumentController extends Controller
             'issuer' => $document->issuer,
             'issued_at' => $document->issued_at?->toDateString(),
             'expires_at' => $document->expires_at?->toDateString(),
-            // Trường riêng theo loại (ĐKKD/ANTT/PCCC): `extra` = giá trị thô, `fields` = đủ các ô theo thứ tự form kèm nhãn để hiển thị.
-            'extra' => $document->extra ?? (object) [],
+            // Ô riêng theo loại (ĐKKD/ANTT/PCCC — mỗi loại một bộ cột riêng): đủ các ô theo thứ tự form kèm nhãn và giá trị.
             'fields' => LegalDocumentFields::display($document),
             'fire_safety_stage' => $document->type === 'fire_safety' ? LegalDocumentFields::fireSafetyStage($document->document_number) : null,
             'is_expired' => $document->isExpired(),

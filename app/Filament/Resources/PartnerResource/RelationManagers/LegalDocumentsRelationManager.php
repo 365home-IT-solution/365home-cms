@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\PartnerResource\RelationManagers;
 
 use App\Models\PartnerLegalDocument;
+use App\Services\LegalDocumentScanService;
 use App\Services\PartnerLegalDocumentService;
 use App\Support\LegalDocumentFields;
 use Filament\Forms;
@@ -15,6 +16,8 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 
 class LegalDocumentsRelationManager extends RelationManager
 {
@@ -48,24 +51,39 @@ class LegalDocumentsRelationManager extends RelationManager
                 ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse() && ! $this->getOwnerRecord()->minihouseDocumentsFlow()
                     && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
                 ->searchable()->preload(),
-            // ĐKKD / ANTT / PCCC có BỘ Ô RIÊNG (App\Support\LegalDocumentFields): nhãn 3 ô chung đổi theo loại, các ô còn lại lưu ở cột `extra`.
-            // Loại khác giữ form chung (tên, số, cơ quan cấp, ngày cấp, ngày hết hạn).
+            SpatieMediaLibraryFileUpload::make('file')->label('Tệp giấy tờ')
+                ->collection('file')->disk('local')->required()
+                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+                ->maxSize(10240)->columnSpanFull()
+                // Quét tệp vừa chọn (hoặc tệp đã lưu của giấy tờ đang sửa) → điền gợi ý vào các ô CÒN TRỐNG của loại đó; không lưu gì cho tới khi bấm lưu.
+                ->hintAction(Forms\Components\Actions\Action::make('scan')->label('Quét giấy tờ để tự điền')->icon('heroicon-o-viewfinder-circle')
+                    ->visible(fn (Forms\Get $get, string $operation) => $operation !== 'view' && LegalDocumentFields::has($get('type')))
+                    ->action(fn (Forms\Get $get, Forms\Set $set, ?PartnerLegalDocument $record) => $this->scanIntoForm($get, $set, $record))),
+            // ĐKKD / ANTT / PCCC: MỖI LOẠI MỘT BỘ CỘT RIÊNG (dkkd_* / antt_* / pccc_* — App\Support\LegalDocumentFields), kể cả số / ngày cấp / nơi cấp.
+            // Loại khác giữ form chung (tên, số, cơ quan cấp, ngày cấp, ngày hết hạn) trên các cột chung.
+            ...array_merge(...array_map(fn (string $type) => array_map(function (string $key, array $definition) use ($type) {
+                [$label, $input] = $definition;
+                $field = match ($input) {
+                    'date'     => Forms\Components\DatePicker::make($key)->native(false)->maxDate(now()),
+                    'textarea' => Forms\Components\Textarea::make($key)->rows(2)->maxLength(2000),
+                    default    => Forms\Components\TextInput::make($key)->rules(LegalDocumentFields::rules()[$key])
+                        ->validationMessages(['regex' => LegalDocumentFields::messages()["{$key}.regex"] ?? 'Giá trị không hợp lệ.']),
+                };
+                if ($key === 'pccc_document_number') {
+                    $field->live(onBlur: true)->helperText(fn (Forms\Get $get) => LegalDocumentFields::fireSafetyStage($get($key))['label']
+                        ?? 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).');
+                }
+
+                return $field->label($label)->visible(fn (Forms\Get $get) => $get('type') === $type);
+            }, LegalDocumentFields::keys($type), array_values(LegalDocumentFields::for($type))), LegalDocumentFields::types())),
             Forms\Components\TextInput::make('name')->label('Tên giấy tờ')->maxLength(255)
                 ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
-            Forms\Components\TextInput::make('document_number')->maxLength(100)
-                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))['document_number'][0] ?? 'Số giấy tờ')
-                ->live(onBlur: true)
-                ->helperText(fn (Forms\Get $get) => $get('type') === 'fire_safety'
-                    ? (LegalDocumentFields::fireSafetyStage($get('document_number'))['label'] ?? 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).')
-                    : null),
-            Forms\Components\DatePicker::make('issued_at')->label('Ngày cấp')->native(false)->maxDate(now()),
-            Forms\Components\TextInput::make('issuer')->maxLength(255)
-                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))['issuer'][0] ?? 'Cơ quan cấp'),
-            ...array_map(fn (string $key) => ($key === 'business_lines' ? Forms\Components\Textarea::make("extra.{$key}")->rows(2)->maxLength(2000) : Forms\Components\TextInput::make("extra.{$key}")->maxLength(500))
-                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))[$key][0] ?? $key)
-                ->visible(fn (Forms\Get $get) => in_array($key, LegalDocumentFields::extraKeys($get('type')), true))
-                ->rules(LegalDocumentFields::rules()[$key])
-                ->validationMessages(['regex' => str_ends_with($key, '_id_number') ? 'Phải gồm 9 hoặc 12 chữ số.' : 'Số điện thoại không hợp lệ.']), LegalDocumentFields::allExtraKeys()),
+            Forms\Components\TextInput::make('document_number')->label('Số giấy tờ')->maxLength(100)
+                ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
+            Forms\Components\TextInput::make('issuer')->label('Cơ quan cấp')->maxLength(255)
+                ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
+            Forms\Components\DatePicker::make('issued_at')->label('Ngày cấp')->native(false)
+                ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
             Forms\Components\DatePicker::make('expires_at')->label('Ngày hết hạn')->native(false)->afterOrEqual('issued_at')
                 ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
             Forms\Components\Toggle::make('is_required')->label('Bắt buộc')->default(false)
@@ -73,11 +91,44 @@ class LegalDocumentsRelationManager extends RelationManager
                 ->dehydrated(),
             Forms\Components\Hidden::make('status')->default('draft'),
             Forms\Components\Hidden::make('created_by')->default(fn () => auth()->id()),
-            SpatieMediaLibraryFileUpload::make('file')->label('Tệp giấy tờ')
-                ->collection('file')->disk('local')->required()
-                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
-                ->maxSize(10240)->columnSpanFull(),
         ])->columns(2);
+    }
+
+    /** Nút "Quét giấy tờ để tự điền" trên form: dùng chung bộ quét với API (LegalDocumentScanService). */
+    private function scanIntoForm(Forms\Get $get, Forms\Set $set, ?PartnerLegalDocument $record): void
+    {
+        $scanner = app(LegalDocumentScanService::class);
+        if (! $scanner->isConfigured()) {
+            Notification::make()->title('Chức năng quét giấy tờ chưa được cấu hình')->body('Vui lòng tự nhập thông tin.')->warning()->send();
+
+            return;
+        }
+
+        // Tệp vừa chọn trên form (chưa lưu) → ưu tiên; không có thì dùng tệp đã lưu của giấy tờ đang sửa.
+        $file = collect(Arr::wrap($get('file')))->first(fn ($item) => $item instanceof UploadedFile);
+        if (! $file && ($media = $record?->getFirstMedia('file')) && is_file($media->getPath())) {
+            $file = new UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true);
+        }
+        if (! $file) {
+            Notification::make()->title('Chưa có tệp để quét')->body('Chọn tệp giấy tờ trước, chờ tải lên xong rồi bấm quét.')->warning()->send();
+
+            return;
+        }
+
+        $result = $scanner->scan($file, (string) $get('type'));
+        $filled = 0;
+        foreach ($result['fields'] as $key => $value) {
+            // Không ghi đè ô đã nhập.
+            if (filled($value) && blank($get($key))) {
+                $set($key, $value);
+                $filled++;
+            }
+        }
+
+        Notification::make()
+            ->title($result['text_found'] ? "Đã đọc được {$result['found']}/{$result['total']} ô, điền {$filled} ô còn trống" : 'Không đọc được nội dung tệp')
+            ->body(implode("\n", [...$result['warnings'], 'Vui lòng đối chiếu lại với giấy tờ trước khi lưu.']))
+            ->{$result['found'] > 0 ? 'success' : 'warning'}()->persistent()->send();
     }
 
     public function table(Table $table): Table
@@ -133,6 +184,8 @@ class LegalDocumentsRelationManager extends RelationManager
 
                         return $media ? response()->download($media->getPath(), $media->file_name) : null;
                     }),
+                // Xem đủ các ô riêng theo loại của MỌI giấy tờ (kể cả đang chờ duyệt / đã duyệt) để đối chiếu với tệp khi duyệt.
+                Tables\Actions\ViewAction::make()->label('Xem')->modalHeading(fn (PartnerLegalDocument $record) => PartnerLegalDocument::TYPES[$record->type] ?? 'Giấy tờ'),
                 Tables\Actions\EditAction::make()
                     ->visible(fn (PartnerLegalDocument $record) => in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
                 Tables\Actions\Action::make('approve')->label('Duyệt')->icon('heroicon-o-check')->color('success')

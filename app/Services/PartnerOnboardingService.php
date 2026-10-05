@@ -317,7 +317,8 @@ class PartnerOnboardingService
                 'issuer'          => $data['issuer'] ?? null,
                 'issued_at'       => $data['issued_at'] ?? null,
                 'expires_at'      => $data['expires_at'] ?? null,
-                'extra'           => \App\Support\LegalDocumentFields::extraFrom($data['type'], $data),
+                // Cột riêng của đúng loại giấy tờ (dkkd_* / antt_* / pccc_*); 3 cột chung ở trên tự đồng bộ khi lưu.
+                ...\App\Support\LegalDocumentFields::valuesFrom($data['type'], $data),
                 'status'          => 'draft',
             ]);
             $document->addMedia($file)->toMediaCollection('file');
@@ -902,8 +903,7 @@ class PartnerOnboardingService
             'issuer'          => $document->issuer,
             'issued_at'       => $document->issued_at?->toDateString(),
             'expires_at'      => $document->expires_at?->toDateString(),
-            // Trường riêng theo loại (ĐKKD/ANTT/PCCC): `extra` = giá trị thô, `fields` = đủ các ô theo thứ tự form kèm nhãn để hiển thị.
-            'extra'           => $document->extra ?? (object) [],
+            // Ô riêng theo loại (ĐKKD/ANTT/PCCC — mỗi loại một bộ cột riêng): đủ các ô theo thứ tự form kèm nhãn và giá trị.
             'fields'          => \App\Support\LegalDocumentFields::display($document),
             'fire_safety_stage' => $document->type === 'fire_safety' ? \App\Support\LegalDocumentFields::fireSafetyStage($document->document_number) : null,
             'status'          => $document->status,

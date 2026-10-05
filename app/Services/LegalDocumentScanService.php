@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\PartnerLegalDocument;
+use App\Models\Province;
 use App\Support\LegalDocumentFields;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -13,7 +14,11 @@ use Illuminate\Support\Str;
 
 // QUÉT giấy tờ pháp lý (ĐKKD / ANTT / PCCC) để GỢI Ý giá trị cho các ô nhập theo loại (App\Support\LegalDocumentFields).
 // Chỉ gợi ý: không lưu gì, không tự duyệt — người nhập kiểm tra lại rồi mới nộp. Đọc chữ bằng OCR.space (cùng API key với quét CCCD),
-// rồi dò theo NHÃN trên giấy ("Mã số doanh nghiệp:", "Người chịu trách nhiệm...:"). Giấy tờ không có mẫu cố định như CCCD nên có ô không đọc được → trả null.
+// rồi dò theo BỐ CỤC + NHÃN trên giấy. Quy tắc dò được chỉnh theo 3 file mẫu thật (ĐKKD Cần Thơ 2025, GCN ANTT phường 2026, GCN thẩm duyệt PCCC 2019):
+//  - Nơi cấp  = khối tiêu đề góc trái, đơn vị cấp dưới đứng trước: "PHÒNG ĐĂNG KÝ KINH DOANH, SỞ TÀI CHÍNH, THÀNH PHỐ CẦN THƠ".
+//  - Ngày cấp = ĐKKD lấy "Đăng ký lần đầu"; ANTT/PCCC CHỈ lấy dòng địa danh + ngày ở cuối giấy ("An Bình, ngày 10 tháng 06 năm 2026").
+//               KHÔNG lấy ngày nằm trong câu ("... cấp ngày 06 tháng 11 năm 2025" là ngày của ĐKKD/CCCD được dẫn lại) — không thấy thì để trống.
+//  - Ô nào không đọc được → null (để trống cho người nhập), không đoán.
 class LegalDocumentScanService
 {
     private const API_URL = 'https://api.ocr.space/parse/image';
@@ -22,40 +27,51 @@ class LegalDocumentScanService
 
     // Từ khoá nhận diện loại giấy tờ (đã bỏ dấu, chữ thường) — để cảnh báo khi tệp không khớp loại đã chọn.
     private const TYPE_KEYWORDS = [
-        'business_license' => ['dang ky doanh nghiep', 'dang ky ho kinh doanh', 'dang ky kinh doanh', 'ma so doanh nghiep', 'ma so ho kinh doanh'],
+        'business_license' => ['dang ky doanh nghiep', 'ma so doanh nghiep', 'ma so ho kinh doanh', 'von dieu le', 'dang ky lan dau'],
         'security_order'   => ['an ninh, trat tu', 'an ninh trat tu', 'du dieu kien ve an ninh'],
         'fire_safety'      => ['phong chay', 'chua chay', 'pccc', 'tham duyet thiet ke', 'nghiem thu ve phong chay'],
     ];
 
-    // Nhãn của từng ô trên giấy (đã bỏ dấu, chữ thường), ưu tiên từ trên xuống.
-    private const LABELS = [
-        'business_license' => [
-            'document_number'          => ['ma so doanh nghiep', 'ma so ho kinh doanh', 'ma so dang ky ho kinh doanh', 'ma so chi nhanh', 'ma so thue', 'ma so'],
-            'business_address'         => ['dia chi tru so chinh', 'dia chi tru so', 'dia diem kinh doanh', 'dia chi kinh doanh', 'dia chi chi nhanh'],
-            'business_lines'           => ['nganh, nghe kinh doanh', 'nganh nghe kinh doanh', 'nganh, nghe', 'nganh nghe'],
-            'representative_id_number' => ['so dinh danh ca nhan', 'so giay to phap ly cua ca nhan', 'so giay to phap ly', 'so giay chung thuc ca nhan', 'so the can cuoc', 'so can cuoc', 'so cccd', 'so cmnd'],
-            'phone'                    => ['dien thoai', 'so dien thoai'],
-        ],
-        'security_order' => [
-            'business_name'         => ['ten co so kinh doanh', 'ten co so', 'co so kinh doanh'],
-            'business_address'      => ['dia chi co so kinh doanh', 'dia chi kinh doanh', 'dia diem kinh doanh', 'dia chi'],
-            'responsible_person'    => ['nguoi chiu trach nhiem ve an ninh, trat tu', 'nguoi chiu trach nhiem ve an ninh trat tu', 'nguoi chiu trach nhiem', 'ho va ten nguoi dung ten', 'nguoi dung ten'],
-            'responsible_id_number' => ['so dinh danh ca nhan', 'so the can cuoc', 'so can cuoc', 'so cccd', 'so cmnd', 'cccd', 'cmnd'],
-        ],
-        'fire_safety' => [
-            'investor'             => ['chu dau tu/chu phuong tien', 'chu dau tu', 'chu phuong tien', 'ten co so', 'don vi de nghi'],
-            'representative'       => ['nguoi dai dien theo phap luat', 'nguoi dai dien', 'dai dien la ong/ba', 'dai dien'],
-            'representative_title' => ['chuc danh', 'chuc vu'],
-            'site_address'         => ['dia diem xay dung', 'dia diem kinh doanh', 'dia diem', 'dia chi'],
-        ],
+    // Tên cơ quan viết chuẩn (OCR hay rụng dấu ở chữ in hoa): cụm đã bỏ dấu => cách viết đúng. Cụm dài xếp trước.
+    private const AGENCY_PHRASES = [
+        'phong canh sat pccc va cnch' => 'Phòng Cảnh sát PCCC và CNCH',
+        'phong canh sat pccc & cnch'  => 'Phòng Cảnh sát PCCC & CNCH',
+        'phong dang ky kinh doanh'    => 'Phòng Đăng ký kinh doanh',
+        'phong tai chinh - ke hoach'  => 'Phòng Tài chính - Kế hoạch',
+        'so ke hoach va dau tu'       => 'Sở Kế hoạch và Đầu tư',
+        'uy ban nhan dan'             => 'Ủy ban nhân dân',
+        'cong an thanh pho'           => 'Công an thành phố',
+        'cong an phuong'              => 'Công an phường',
+        'cong an huyen'               => 'Công an huyện',
+        'cong an quan'                => 'Công an quận',
+        'cong an tinh'                => 'Công an tỉnh',
+        'cong an xa'                  => 'Công an xã',
+        'so tai chinh'                => 'Sở Tài chính',
+        'thanh pho'                   => 'Thành phố',
     ];
 
-    // Dòng tên cơ quan cấp (đã bỏ dấu), theo loại.
-    private const ISSUER_HINTS = [
-        'business_license' => ['phong dang ky kinh doanh', 'phong tai chinh', 'so ke hoach va dau tu', 'so tai chinh', 'uy ban nhan dan'],
-        'security_order'   => ['phong canh sat', 'cong an'],
-        'fire_safety'      => ['phong canh sat pccc', 'canh sat phong chay', 'phong canh sat', 'cong an'],
+    // Tên tỉnh/thành để sửa dấu trong tên cơ quan cấp. Gồm cả tên TRƯỚC sáp nhập 2025 vì giấy tờ cũ (vd PCCC 2019) vẫn ghi tên cũ;
+    // bảng provinces hiện hành được nối thêm lúc chạy.
+    private const PROVINCES = [
+        'An Giang', 'Bà Rịa - Vũng Tàu', 'Bắc Giang', 'Bắc Kạn', 'Bạc Liêu', 'Bắc Ninh', 'Bến Tre', 'Bình Định', 'Bình Dương', 'Bình Phước', 'Bình Thuận',
+        'Cà Mau', 'Cần Thơ', 'Cao Bằng', 'Đà Nẵng', 'Đắk Lắk', 'Đắk Nông', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Giang', 'Hà Nam', 'Hà Nội',
+        'Hà Tĩnh', 'Hải Dương', 'Hải Phòng', 'Hậu Giang', 'Hòa Bình', 'Hồ Chí Minh', 'Huế', 'Hưng Yên', 'Khánh Hòa', 'Kiên Giang', 'Kon Tum', 'Lai Châu',
+        'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Long An', 'Nam Định', 'Nghệ An', 'Ninh Bình', 'Ninh Thuận', 'Phú Thọ', 'Phú Yên', 'Quảng Bình', 'Quảng Nam',
+        'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sóc Trăng', 'Sơn La', 'Tây Ninh', 'Thái Bình', 'Thái Nguyên', 'Thanh Hóa', 'Thừa Thiên Huế', 'Tiền Giang',
+        'Trà Vinh', 'Tuyên Quang', 'Vĩnh Long', 'Vĩnh Phúc', 'Yên Bái',
     ];
+
+    /** @var array<int, string>|null tên tỉnh/thành viết chuẩn (không kèm "Tỉnh"/"Thành phố") */
+    private static ?array $provinceNames = null;
+
+    /** @var array<int, string> dòng chữ đã làm sạch */
+    private array $lines = [];
+
+    /** @var array<int, string> các dòng đó, bỏ dấu + chữ thường (cùng số ký tự để tra vị trí) */
+    private array $folded = [];
+
+    /** Vị trí dòng tiêu đề "GIẤY CHỨNG NHẬN ..." (khối phía trên là tiêu đề cơ quan + số). */
+    private int $titleIndex = 0;
 
     public function isConfigured(): bool
     {
@@ -85,7 +101,8 @@ class LegalDocumentScanService
             $warnings[] = 'Nội dung tệp giống "' . PartnerLegalDocument::TYPES[$detected] . '" hơn loại đã chọn. Vui lòng kiểm tra lại loại giấy tờ.';
         }
         if (trim($text) !== '' && $found < count($fields)) {
-            $warnings[] = 'Một số ô chưa đọc được — vui lòng kiểm tra và nhập bổ sung.';
+            $missing = array_map(fn ($key) => LegalDocumentFields::for($type)[$key][0], array_keys(array_filter($fields, fn ($value) => blank($value))));
+            $warnings[] = 'Chưa đọc được: ' . implode(', ', $missing) . '. Vui lòng kiểm tra giấy tờ và tự nhập các ô này (ô không có trên giấy thì để trống).';
         }
 
         return [
@@ -96,47 +113,31 @@ class LegalDocumentScanService
             'fields'            => $fields,
             'found'             => $found,
             'total'             => count($fields),
-            'fire_safety_stage' => $type === 'fire_safety' ? LegalDocumentFields::fireSafetyStage($fields['document_number'] ?? null) : null,
+            'fire_safety_stage' => $type === 'fire_safety' ? LegalDocumentFields::fireSafetyStage($fields[LegalDocumentFields::key($type, 'document_number')] ?? null) : null,
             'warnings'          => $warnings,
         ];
     }
 
-    /** @return array<string, ?string> mọi ô của loại giấy tờ; ô không đọc được = null */
+    /** @return array<string, ?string> mọi ô của loại giấy tờ theo TÊN CỘT RIÊNG (dkkd_* / antt_* / pccc_*); ô không đọc được = null */
     public function parse(string $type, string $text): array
     {
-        $fields = array_fill_keys(array_keys(LegalDocumentFields::for($type)), null);
-        if ($fields === [] || trim($text) === '') {
-            return $fields;
+        $values = array_fill_keys(LegalDocumentFields::names($type), null);
+        if ($values !== [] && trim($text) !== '') {
+            $this->load($text);
+            $values = array_merge($values, match ($type) {
+                'business_license' => $this->businessLicense(),
+                'security_order'   => $this->securityOrder(),
+                'fire_safety'      => $this->fireSafety(),
+                default            => [],
+            });
         }
 
-        $lines = array_values(array_filter(array_map(fn ($line) => trim(preg_replace('/\s+/u', ' ', $line)), preg_split('/\R/u', $text)), fn ($line) => $line !== ''));
-        $folded = array_map(fn ($line) => $this->fold($line), $lines);
-
-        foreach (self::LABELS[$type] ?? [] as $key => $labels) {
-            $fields[$key] = $this->valueAfterLabel($lines, $folded, $labels);
+        $fields = [];
+        foreach ($values as $name => $value) {
+            $fields[LegalDocumentFields::key($type, $name)] = $this->clean($name, $value);
         }
 
-        $fields['issued_at'] = $this->issuedAt($type, $folded);
-        $fields['issuer'] = $this->issuer($type, $lines, $folded);
-
-        match ($type) {
-            'business_license' => $this->refineBusinessLicense($fields, $lines, $folded),
-            'security_order'   => $this->refineSecurityOrder($fields, $lines, $folded),
-            'fire_safety'      => $fields['document_number'] = $this->numberLine($lines, $folded, '/\S*(PCCC|TD|NT|GXN|BB)\S*/iu'),
-            default            => null,
-        };
-
-        foreach (['representative_id_number', 'responsible_id_number'] as $key) {
-            if (array_key_exists($key, $fields)) {
-                $fields[$key] = preg_match('/\b(\d{12}|\d{9})\b/', (string) $fields[$key], $m) ? $m[1] : null;
-            }
-        }
-        if (array_key_exists('phone', $fields)) {
-            $digits = preg_replace('/[^\d+]/', '', (string) $fields['phone']);
-            $fields['phone'] = preg_match('/^(0|\+84)\d{9}$/', $digits) ? $digits : null;
-        }
-
-        return array_map(fn ($value) => filled($value) ? Str::limit(trim((string) $value, " \t:.-–"), 480, '') : null, $fields);
+        return $fields;
     }
 
     /** Loại giấy tờ mà nội dung giống nhất (theo từ khoá); không đủ dấu hiệu → null. */
@@ -149,122 +150,331 @@ class LegalDocumentScanService
         return reset($scores) > 0 ? array_key_first($scores) : null;
     }
 
-    private function refineBusinessLicense(array &$fields, array $lines, array $folded): void
-    {
-        // Mã số: 10 số (hoặc 10-3 cho đơn vị phụ thuộc); hộ kinh doanh có thể kèm chữ → giữ nguyên cụm đầu tiên.
-        $number = (string) $fields['document_number'];
-        $fields['document_number'] = preg_match('/\b\d{10}(-\d{3})?\b/', $number, $m) ? $m[0]
-            : (preg_match('/[0-9A-Z][0-9A-Z.\-]{5,}/u', mb_strtoupper($number), $m) ? $m[0] : null);
+    // ───────────────────────── Từng loại giấy tờ ─────────────────────────
 
-        // Người đại diện: dòng "Họ và tên" đầu tiên SAU mục người đại diện / chủ hộ.
-        $from = $this->firstLine($folded, ['nguoi dai dien theo phap luat', 'dai dien ho kinh doanh', 'chu ho kinh doanh', 'nguoi dai dien']);
-        $fields['legal_representative'] = $this->valueAfterLabel($lines, $folded, ['ho va ten', 'ho ten'], $from ?? 0)
-            ?? ($from !== null ? $this->afterColon($lines[$from]) : null);
+    private function businessLicense(): array
+    {
+        // Người đại diện + số định danh: lấy trong MỤC "Người đại diện theo pháp luật" (mục chủ sở hữu phía trên có cùng nhãn).
+        $section = $this->firstLine(['nguoi dai dien theo phap luat', 'dai dien ho kinh doanh', 'chu ho kinh doanh']) ?? 0;
+        $number = (string) $this->after(['ma so doanh nghiep', 'ma so ho kinh doanh', 'ma so dang ky ho kinh doanh', 'ma so chi nhanh', 'ma so thue']);
+
+        return [
+            // 10 số (hoặc 10-3 cho đơn vị phụ thuộc); hộ kinh doanh có thể kèm chữ → giữ cụm đầu tiên.
+            'document_number' => preg_match('/\b\d{10}(-\d{3})?\b/', $number, $m) ? $m[0] : (preg_match('/[0-9A-Z][0-9A-Z.\-]{5,}/u', mb_strtoupper($number), $m) ? $m[0] : null),
+            'issued_at'       => $this->dateIn($this->after(['dang ky lan dau'])) ?? $this->signatureDate(),
+            'issuer'          => $this->issuer(),
+            // Mục "2. Địa chỉ trụ sở chính": giá trị nằm ở (các) dòng ngay dưới tiêu đề mục.
+            'business_address'         => $this->after(['dia chi tru so chinh', 'dia chi tru so', 'dia diem kinh doanh', 'dia chi kinh doanh', 'dia chi chi nhanh'], multiline: true),
+            'business_lines'           => $this->after(['nganh, nghe kinh doanh', 'nganh nghe kinh doanh'], multiline: true),
+            'legal_representative'     => $this->after(['ho, chu dem va ten', 'ho va ten', 'ho ten'], $section, stops: ['gioi tinh', 'ngay, thang', 'quoc tich']),
+            'representative_id_number' => $this->after(['so dinh danh ca nhan', 'so giay to phap ly cua ca nhan', 'so giay to phap ly', 'so the can cuoc', 'so can cuoc', 'so cccd', 'so cmnd'], $section),
+            'phone'                    => $this->after(['dien thoai'], stops: ['so fax', 'fax', 'thu dien tu', 'email', 'website']),
+        ];
     }
 
-    private function refineSecurityOrder(array &$fields, array $lines, array $folded): void
+    private function securityOrder(): array
     {
-        $fields['document_number'] = $this->numberLine($lines, $folded, '/\S*GCN\S*|\d+\s*\/\s*\S+/iu');
-
-        // "Người chịu trách nhiệm về ANTT của cơ sở kinh doanh:" thường xuống dòng "Họ và tên: ..." → lấy họ tên sau mục đó.
-        $from = $this->firstLine($folded, ['nguoi chiu trach nhiem', 'nguoi dung ten']);
-        if ($from !== null) {
-            $fields['responsible_person'] = $this->valueAfterLabel($lines, $folded, ['ho va ten', 'ho ten'], $from) ?? $fields['responsible_person'];
-        }
+        return [
+            'document_number' => $this->headerNumber(),
+            'issued_at'       => $this->signatureDate(),
+            'issuer'          => $this->issuer(),
+            // Tên cơ sở: "... hồ sơ của cơ sở kinh doanh: <tên>" (thường tràn 2 dòng); mẫu cũ ghi "Tên cơ sở kinh doanh: ...".
+            'business_name'      => $this->after(['ho so cua co so kinh doanh', 'ten co so kinh doanh', 'ten co so'], multiline: true) ?? $this->certifiedName(),
+            'business_address'   => $this->after(['dia chi co so kinh doanh', 'dia diem kinh doanh', 'dia chi kinh doanh', 'dia chi tru so', 'dia chi'], $this->titleIndex, multiline: true),
+            // "Họ và tên người chịu trách nhiệm về ANTT của cơ sở kinh doanh (ông, bà): Nguyễn An Khoa; Quốc tịch: ..." — nhãn tràn 2 dòng.
+            'responsible_person' => $this->flatAfter('/nguoi (chiu trach nhiem|dung ten)[^:]{0,110}:\s*(ho( va)? ten\s*:\s*)?/', stops: [';', 'quoc tich', 'ngay, thang', 'sinh ngay', 'chuc danh', 'so cccd', 'so cmnd', 'so can cuoc', 'so dinh danh', 'so the can cuoc']),
+            'responsible_id_number' => $this->after(['so can cuoc cong dan', 'can cuoc cong dan', 'so dinh danh ca nhan', 'so the can cuoc', 'so can cuoc', 'so cccd', 'so cmnd', 'cccd', 'cmnd']),
+        ];
     }
 
-    /** Dòng "Số: ..." đầu tiên; ưu tiên cụm khớp $prefer (vd có "PCCC", "GCN"). */
-    private function numberLine(array $lines, array $folded, string $prefer): ?string
+    private function fireSafety(): array
     {
-        foreach ($folded as $i => $line) {
-            if (! preg_match('/^so\s*[:.]/', $line)) {
+        return [
+            'document_number'      => $this->headerNumber(),
+            'issued_at'            => $this->signatureDate(),
+            'issuer'               => $this->issuer(),
+            'investor'             => $this->after(['chu dau tu/chu phuong tien', 'chu dau tu/ chu phuong tien', 'chu dau tu', 'chu phuong tien']),
+            'representative'       => $this->after(['nguoi dai dien'], stops: ['chuc danh', 'chuc vu']),
+            'representative_title' => $this->after(['chuc danh', 'chuc vu']),
+            'site_address'         => $this->after(['dia diem xay dung', 'dia diem kinh doanh', 'dia diem'], multiline: true),
+        ];
+    }
+
+    // ───────────────────────── Công cụ dò ─────────────────────────
+
+    /** Làm sạch chữ OCR thành các dòng: bỏ dãy chấm kẻ dòng, bỏ quốc hiệu/tiêu ngữ (cột phải của tiêu đề hay dính vào tên cơ quan). */
+    private function load(string $text): void
+    {
+        $this->lines = $this->folded = [];
+        foreach (preg_split('/\R/u', $text) as $raw) {
+            $line = trim(preg_replace('/\s+/u', ' ', preg_replace('/\.{2,}|…+/u', ' ', $raw)));
+            $fold = $this->fold($line);
+            if (($pos = strpos($fold, 'cong hoa xa h')) !== false && mb_strlen($fold) === mb_strlen($line)) {
+                $line = trim(mb_substr($line, 0, $pos));
+                $fold = $this->fold($line);
+            }
+            if ($line === '' || str_starts_with($fold, 'doc lap') || str_starts_with($fold, 'cong hoa xa h')) {
                 continue;
             }
-            $value = (string) $this->afterColon($lines[$i]);
-            if ($value === '') {
-                continue;
-            }
-
-            return preg_match($prefer, $value, $m) ? trim($m[0]) : (preg_split('/\s{2,}|\s+ngay\s+/iu', $value)[0] ?? $value);
+            $this->lines[] = $line;
+            $this->folded[] = $fold;
         }
 
-        return null;
+        $this->titleIndex = $this->firstLine(['giay chung nhan', 'bien ban', 'van ban']) ?? min(3, count($this->lines));
     }
 
-    /** Ngày cấp: ĐKKD ưu tiên "Đăng ký lần đầu"; còn lại lấy ngày ở dòng địa danh ("..., ngày dd tháng mm năm yyyy"). Trả YYYY-MM-DD. */
-    private function issuedAt(string $type, array $folded): ?string
-    {
-        $candidates = $folded;
-        if ($type === 'business_license') {
-            $first = $this->firstLine($folded, ['dang ky lan dau']);
-            if ($first !== null) {
-                $candidates = array_slice($folded, $first, 2);
-            }
-        }
-
-        foreach ($candidates as $line) {
-            if (preg_match('/ngay\s*(\d{1,2})\s*thang\s*(\d{1,2})\s*nam\s*(\d{4})/', $line, $m) || preg_match('/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/', $line, $m)) {
-                if (checkdate((int) $m[2], (int) $m[1], (int) $m[3])) {
-                    return sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /** Cơ quan cấp: dòng tiêu đề cơ quan (kèm dòng cơ quan cấp trên ngay phía trên, nếu có). */
-    private function issuer(string $type, array $lines, array $folded): ?string
-    {
-        $index = $this->firstLine($folded, self::ISSUER_HINTS[$type] ?? []);
-        if ($index === null) {
-            return null;
-        }
-        $parent = $index > 0 && preg_match('/^(so |cong an|uy ban|ubnd)/', $folded[$index - 1]) && ! str_contains($folded[$index - 1], ':') ? $lines[$index - 1] . ' — ' : '';
-
-        return $parent . ($this->afterColon($lines[$index]) ?: $lines[$index]);
-    }
-
-    /** Giá trị sau nhãn: phần sau dấu ":" trên cùng dòng, không có thì lấy dòng kế tiếp (không phải một nhãn khác). */
-    private function valueAfterLabel(array $lines, array $folded, array $labels, int $from = 0): ?string
+    /**
+     * Giá trị đứng SAU nhãn: phần sau dấu ":" đi liền nhãn; nhãn đứng riêng một dòng (tiêu đề mục) thì lấy dòng dưới.
+     * $multiline: nối thêm (tối đa 2) dòng tràn xuống — dừng khi gặp dòng là một nhãn/mục khác hoặc giá trị đã kết thúc bằng dấu chấm.
+     * $stops: cắt giá trị trước các cụm này (nhiều ô nằm chung một dòng: "Họ tên: X  Giới tính: Nam").
+     */
+    private function after(array $labels, int $from = 0, bool $multiline = false, array $stops = []): ?string
     {
         foreach ($labels as $label) {
-            for ($i = $from; $i < count($folded); $i++) {
-                $pos = strpos($folded[$i], $label);
+            for ($i = $from; $i < count($this->lines); $i++) {
+                $pos = strpos($this->folded[$i], $label);
                 if ($pos === false) {
                     continue;
                 }
-                $value = $this->afterColon($lines[$i]);
-                if (filled($value)) {
-                    return $value;
+
+                $rest = $this->tail($i, $pos + strlen($label));
+                // Dấu ":" ngay sau nhãn (cho phép vài chữ chen giữa, vd "là Ông/Bà:", "(nếu có):").
+                if (($colon = mb_strpos($rest, ':')) !== false && $colon <= 45) {
+                    $rest = mb_substr($rest, $colon + 1);
                 }
-                // Không có dấu ":" nhưng giá trị nằm ngay sau nhãn trên cùng dòng ("Mã số doanh nghiệp 0312345678").
-                $rest = trim(mb_substr($lines[$i], $pos + strlen($label)), " \t:.-–");
-                if ($rest !== '' && ! str_contains($lines[$i], ':')) {
-                    return $rest;
+                $value = trim($rest, " \t:.,;-–");
+                $next = $i + 1;
+                if ($value === '') {
+                    if (! isset($this->lines[$next]) || $this->looksLikeLabel($next)) {
+                        continue;
+                    }
+                    $value = $this->lines[$next++];
                 }
-                // Nhãn đứng riêng một dòng → giá trị ở dòng dưới, miễn dòng đó không phải một nhãn khác ("xxx: yyy" hoặc kết thúc bằng ":").
-                $next = $lines[$i + 1] ?? null;
-                if ($rest === '' && $next !== null && ! preg_match('/:\s*$/u', $next) && ! preg_match('/^[^:]{0,40}:\s*\S/u', $next)) {
-                    return $next;
+                for ($extra = 0; $multiline && $extra < 2 && isset($this->lines[$next]) && ! $this->looksLikeLabel($next) && ! str_ends_with(rtrim($value), '.'); $extra++) {
+                    $value .= ' ' . $this->lines[$next++];
                 }
+
+                return $this->cut($value, $stops);
             }
         }
 
         return null;
     }
 
-    private function afterColon(string $line): ?string
+    /** Như after() nhưng nhãn có thể tràn sang dòng sau: ghép 3 dòng thành một rồi dò bằng regex (trên chữ đã bỏ dấu). */
+    private function flatAfter(string $pattern, array $stops = []): ?string
     {
-        $pos = mb_strpos($line, ':');
+        for ($i = $this->titleIndex; $i < count($this->lines); $i++) {
+            $flat = implode(' ', array_slice($this->lines, $i, 3));
+            $fold = $this->fold($flat);
+            if (mb_strlen($fold) !== mb_strlen($flat) || ! preg_match($pattern, $fold, $m, PREG_OFFSET_CAPTURE) || $m[0][1] > mb_strlen($this->lines[$i])) {
+                continue;
+            }
+            $value = $this->cut(mb_substr($flat, $m[0][1] + strlen($m[0][0])), $stops);
+            if (filled($value)) {
+                return $value;
+            }
+        }
 
-        return $pos === false ? null : (trim(mb_substr($line, $pos + 1)) ?: null);
+        return null;
     }
 
-    private function firstLine(array $folded, array $needles): ?int
+    /** Số giấy ở khối tiêu đề: "Số: 31/GCN". OCR hay tách dòng / rụng dấu "/" ("Số:" ↵ "82 TD-PCCC") → ghép lại "82/TD-PCCC". */
+    private function headerNumber(): ?string
+    {
+        for ($i = 0; $i < min(count($this->lines), $this->titleIndex + 1); $i++) {
+            if (! preg_match('/^so\s*[:.]\s*(.*)$/', $this->folded[$i], $m)) {
+                continue;
+            }
+            $value = trim($this->tail($i, strlen($this->folded[$i]) - strlen($m[1])));
+            if ($value === '' && isset($this->lines[$i + 1]) && preg_match('/^\d/', $this->lines[$i + 1])) {
+                $value = $this->lines[$i + 1];
+            }
+            $value = preg_replace('/\s*\/\s*/', '/', trim($value));
+            $value = preg_replace('/^(\d+)\s+(?=[A-Za-zĐđ])/u', '$1/', $value);
+
+            return $value !== '' && preg_match('/\d/', $value) ? (preg_split('/\s/', $value)[0] ?? $value) : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Ngày ký/cấp: dòng CHỈ gồm địa danh + ngày ở cuối giấy ("An Bình, ngày 10 tháng 06 năm 2026"; OCR có thể rụng chữ "ngày").
+     * Ngày nằm giữa câu văn ("... cấp ngày 06 tháng 11 năm 2025, cơ quan cấp ...") là ngày của giấy tờ KHÁC được dẫn lại → bỏ qua.
+     */
+    private function signatureDate(): ?string
+    {
+        // Dò từ cuối giấy lên; mẫu cũ đặt dòng địa danh + ngày ngay dưới số ở khối tiêu đề nên xét hết các dòng.
+        for ($i = count($this->lines) - 1; $i >= 0; $i--) {
+            if (str_contains($this->folded[$i], 'cap ngay') || str_contains($this->folded[$i], ':')) {
+                continue;
+            }
+            if (preg_match('/^\W*(?:[a-z][a-z .\-]{0,40}?[,.]?\s*)?(?:ngay\s*)?(\d{1,2})\s*thang\s*(\d{1,2})\s*nam\s*(\d{4})\d?\W*$/', $this->folded[$i], $m)) {
+                return $this->isoDate((int) $m[1], (int) $m[2], (int) $m[3]);
+            }
+        }
+
+        return null;
+    }
+
+    /** Ngày trong một đoạn chữ ("ngày 28 tháng 09 năm 2021" hoặc 28/09/2021) → YYYY-MM-DD. */
+    private function dateIn(?string $text): ?string
+    {
+        $fold = $this->fold((string) $text);
+        if (preg_match('/(\d{1,2})\s*thang\s*(\d{1,2})\s*nam\s*(\d{4})/', $fold, $m) || preg_match('/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/', $fold, $m)) {
+            return $this->isoDate((int) $m[1], (int) $m[2], (int) $m[3]);
+        }
+
+        return null;
+    }
+
+    private function isoDate(int $day, int $month, int $year): ?string
+    {
+        return checkdate($month, $day, $year) && $year >= 1990 && $year <= (int) date('Y') + 1 ? sprintf('%04d-%02d-%02d', $year, $month, $day) : null;
+    }
+
+    /**
+     * Nơi cấp/Cơ quan cấp từ khối tiêu đề góc trái, đơn vị cấp dưới đứng trước:
+     *  "SỞ TÀI CHÍNH / THÀNH PHỐ CẦN THƠ / PHÒNG ĐĂNG KÝ KINH DOANH" → "PHÒNG ĐĂNG KÝ KINH DOANH, SỞ TÀI CHÍNH, THÀNH PHỐ CẦN THƠ"
+     *  "CÔNG AN THÀNH PHỐ CẦN THƠ / CÔNG AN PHƯỜNG AN BÌNH"          → "CÔNG AN PHƯỜNG AN BÌNH, THÀNH PHỐ CẦN THƠ"
+     */
+    private function issuer(): ?string
+    {
+        $header = [];
+        for ($i = 0; $i < min($this->titleIndex, 6); $i++) {
+            // Bỏ dòng số ("Số: 31/GCN", "82 TD-PCCC"), dòng địa danh + ngày ("Cần Thơ, ngày 14 tháng 6 năm 2022") và rác OCR quá ngắn.
+            if (preg_match('/^so\s*[:.]|^so\s+\d|^\W*\d|thang\s*\d{1,2}\s*nam\s*\d{4}/', $this->folded[$i]) || mb_strlen($this->lines[$i]) < 6) {
+                continue;
+            }
+            $header[] = $i;
+        }
+        if ($header === []) {
+            return null;
+        }
+
+        $child = array_pop($header);
+        $childFold = $this->folded[$child];
+
+        // Thân giấy thường in lại đầy đủ tên cơ quan (rõ dấu hơn tiêu đề): "CÔNG AN PHƯỜNG AN BÌNH, THÀNH PHỐ CẦN THƠ".
+        for ($i = $this->titleIndex; $i < count($this->lines); $i++) {
+            if (str_starts_with($this->folded[$i], $childFold . ',') && ! str_contains($this->lines[$i], ':')) {
+                return $this->canonical($this->lines[$i]);
+            }
+        }
+
+        $parts = [$this->lines[$child]];
+        foreach ($header as $i) {
+            // Cấp trên cùng ngành công an: "CÔNG AN THÀNH PHỐ CẦN THƠ" → "THÀNH PHỐ CẦN THƠ" khi cấp dưới đã là "CÔNG AN ...".
+            $parts[] = str_starts_with($childFold, 'cong an ') && str_starts_with($this->folded[$i], 'cong an ') ? mb_substr($this->lines[$i], 8) : $this->lines[$i];
+        }
+
+        return $this->canonical(implode(', ', array_map(fn ($part) => trim($part, " \t,.;:=-–"), $parts)));
+    }
+
+    /** ANTT: tên cơ sở in ở khối "CHỨNG NHẬN" (dùng khi không có nhãn tên cơ sở). */
+    private function certifiedName(): ?string
+    {
+        foreach ($this->folded as $i => $line) {
+            if ($i <= $this->titleIndex || ! preg_match('/^chung nh[a-z]n\W*$/', $line)) {
+                continue;
+            }
+            $name = [];
+            for ($j = $i + 1; $j < count($this->lines) && count($name) < 3 && ! str_starts_with($this->folded[$j], 'du dieu kien'); $j++) {
+                $name[] = $this->lines[$j];
+            }
+
+            return $name === [] ? null : implode(' ', $name);
+        }
+
+        return null;
+    }
+
+    /** Sửa tên cơ quan và tên tỉnh/thành về cách viết chuẩn (OCR chữ in hoa hay rụng dấu: "THÀNH PHÔ CÂN THƠ" → "THÀNH PHỐ CẦN THƠ"). */
+    private function canonical(string $text): string
+    {
+        $replacements = self::AGENCY_PHRASES;
+        foreach (self::provinceNames() as $name) {
+            $replacements[$this->fold($name)] = $name;
+        }
+
+        foreach ($replacements as $needle => $proper) {
+            $fold = $this->fold($text);
+            if (mb_strlen($fold) !== mb_strlen($text) || ! preg_match('/(?<![a-z])' . preg_quote($needle, '/') . '(?![a-z])/', $fold, $m, PREG_OFFSET_CAPTURE)) {
+                continue;
+            }
+            $at = (int) $m[0][1];
+            $segment = mb_substr($text, $at, strlen($needle));
+            $text = mb_substr($text, 0, $at) . (mb_strtoupper($segment) === $segment ? mb_strtoupper($proper) : $proper) . mb_substr($text, $at + strlen($needle));
+        }
+
+        return $text;
+    }
+
+    /** @return array<int, string> */
+    private static function provinceNames(): array
+    {
+        if (self::$provinceNames === null) {
+            try {
+                $current = Province::query()->pluck('name')->map(fn ($name) => trim((string) preg_replace('/^(Thành phố|Tỉnh|TP\.?)\s+/iu', '', (string) $name)))->all();
+            } catch (\Throwable) {
+                $current = [];
+            }
+            // Tên dài xét trước ("Thừa Thiên Huế" trước "Huế").
+            self::$provinceNames = collect([...self::PROVINCES, ...$current])->filter(fn ($name) => mb_strlen($name) >= 3)->unique()
+                ->sortByDesc(fn ($name) => mb_strlen($name))->values()->all();
+        }
+
+        return self::$provinceNames;
+    }
+
+    /** Phần chữ gốc của dòng $i kể từ vị trí $offset (vị trí tính trên dòng đã bỏ dấu — hai dòng cùng số ký tự). */
+    private function tail(int $i, int $offset): string
+    {
+        return mb_strlen($this->folded[$i]) === mb_strlen($this->lines[$i]) ? mb_substr($this->lines[$i], $offset) : (string) Str::after($this->lines[$i], ':');
+    }
+
+    /** Dòng này có phải một nhãn/mục khác không ("Điện thoại: ...", "3. Vốn điều lệ", dòng kết thúc bằng ":"). */
+    private function looksLikeLabel(int $i): bool
+    {
+        // Dòng tràn của một giá trị (địa chỉ, tên) không chứa ":" — có ":" là đã sang ô khác, kể cả nhãn dài.
+        return (bool) preg_match('/:|^\W*\d+\.\s|^\*/u', $this->lines[$i]);
+    }
+
+    private function cut(string $value, array $stops): ?string
+    {
+        $fold = $this->fold($value);
+        if (mb_strlen($fold) === mb_strlen($value)) {
+            foreach ($stops as $stop) {
+                if (($pos = strpos($fold, $stop)) !== false) {
+                    $value = mb_substr($value, 0, $pos);
+                    $fold = substr($fold, 0, $pos);
+                }
+            }
+        }
+        $value = trim($value, " \t:.,;-–*");
+
+        return $value === '' ? null : $value;
+    }
+
+    private function clean(string $name, ?string $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+        $value = trim((string) $value, " \t:.,;-–*");
+
+        return match (true) {
+            str_ends_with($name, '_id_number') => preg_match('/\b(\d{12}|\d{9})\b/', $value, $m) ? $m[1] : null,
+            $name === 'phone'                  => preg_match('/^(0|\+84)\d{9}$/', $digits = (string) preg_replace('/[^\d+]/', '', $value)) ? $digits : null,
+            default                            => $value === '' ? null : Str::limit($value, 480, ''),
+        };
+    }
+
+    private function firstLine(array $needles): ?int
     {
         foreach ($needles as $needle) {
-            foreach ($folded as $i => $line) {
+            foreach ($this->folded as $i => $line) {
                 if (str_contains($line, $needle)) {
                     return $i;
                 }
