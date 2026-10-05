@@ -14,15 +14,18 @@ class LinkRegisteredGuests extends Command
 
     public function handle(): int
     {
-        $affected = DB::affectingStatement('
-            UPDATE `guest_customers` g
-            INNER JOIN `customers` c
+        // SQL thô không tự gắn tiền tố bảng (cms_) như query builder → phải ghép tay, nếu không sẽ lỗi "Table guest_customers doesn't exist".
+        $prefix = DB::getTablePrefix();
+
+        $affected = DB::affectingStatement("
+            UPDATE `{$prefix}guest_customers` g
+            INNER JOIN `{$prefix}customers` c
                 ON c.token_device = g.device_token
                AND c.deleted_at IS NULL
             SET g.customer_id = c.id
             WHERE g.customer_id IS NULL
               AND g.device_token IS NOT NULL
-        ');
+        ");
 
         $this->info("Đã liên kết {$affected} khách vãng lai.");
 
