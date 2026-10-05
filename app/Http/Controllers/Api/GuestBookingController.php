@@ -176,11 +176,15 @@ class GuestBookingController extends Controller
             $guestCount     = (int) $request->input('guest_count');
             $companionCount = max(0, $guestCount - 1);
 
+            // Web gửi guests[0], app gửi guests[2] cho cùng người đi cùng đầu tiên → dò độ lệch từ request (xem CompanionCccdKeys).
+            $keyOffset = \App\Support\CompanionCccdKeys::offset($request);
+
             for ($position = 0; $position < $companionCount; $position++) {
                 $guestIndex = $position + 2; // số thứ tự khách (2, 3, 4...) — chỉ dùng để lưu DB/hiện thông báo
-                $frontKey   = "guests.{$position}.front";
-                $backKey    = "guests.{$position}.back";
-                $qrKey      = "guests.{$position}.qr_image";
+                $slot       = $position + $keyOffset;
+                $frontKey   = "guests.{$slot}.front";
+                $backKey    = "guests.{$slot}.back";
+                $qrKey      = "guests.{$slot}.qr_image";
 
                 // Người đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
                 if ($request->hasFile($qrKey)) {
@@ -666,11 +670,15 @@ class GuestBookingController extends Controller
                 $newGuestRows         = [];
                 $newCompanionsNeeded  = max(0, $newGuestCount - $declaredMax);
 
+                // Web gửi guests[0], app có thể gửi guests[2]... cho khách mới đầu tiên → dò độ lệch từ request (xem CompanionCccdKeys).
+                $keyOffset = \App\Support\CompanionCccdKeys::offset($request);
+
                 for ($position = 0; $position < $newCompanionsNeeded; $position++) {
                     $guestIndex = $declaredMax + 1 + $position;
-                    $frontKey   = "guests.{$position}.front";
-                    $backKey    = "guests.{$position}.back";
-                    $qrKey      = "guests.{$position}.qr_image";
+                    $slot       = $position + $keyOffset;
+                    $frontKey   = "guests.{$slot}.front";
+                    $backKey    = "guests.{$slot}.back";
+                    $qrKey      = "guests.{$slot}.qr_image";
 
                     // Khách mới gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
                     if ($request->hasFile($qrKey)) {

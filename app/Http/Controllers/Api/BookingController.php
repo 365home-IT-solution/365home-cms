@@ -153,6 +153,8 @@ class BookingController extends Controller
 
             if ($companionCount > 0) {
                 $existingCompanions = $customer->companions()->orderBy('id')->get();
+                // Web gửi guests[{vị trí}], app gửi guests[{số thứ tự khách}] → dò độ lệch từ request, tính từ người đi cùng đầu tiên CHƯA có trong hồ sơ.
+                $keyOffset = \App\Support\CompanionCccdKeys::offset($request, min($existingCompanions->count(), $companionCount));
 
                 for ($i = 0; $i < $companionCount; $i++) {
                     $guestIndex = $i + 2;
@@ -171,9 +173,10 @@ class BookingController extends Controller
 
                     // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này, key
                     // theo vị trí 0-based $i (KHÔNG phải $guestIndex — xem comment ở trên).
-                    $frontKey = "guests.{$i}.front";
-                    $backKey  = "guests.{$i}.back";
-                    $qrKey    = "guests.{$i}.qr_image";
+                    $slot     = $i + $keyOffset;
+                    $frontKey = "guests.{$slot}.front";
+                    $backKey  = "guests.{$slot}.back";
+                    $qrKey    = "guests.{$slot}.qr_image";
 
                     // Người đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
                     if ($request->hasFile($qrKey)) {
