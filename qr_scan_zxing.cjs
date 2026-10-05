@@ -93,11 +93,132 @@ function cppStrategies() {
     return list;
 }
 
+// Dò vùng "trông giống QR" trên ảnh gốc: chia ảnh thành ô vuông nhỏ, ô nào tương phản mạnh, đen/trắng xấp xỉ cân bằng và đổi màu
+// dày theo CẢ hai chiều thì đánh dấu; cụm ô liền nhau gần vuông và đặc là ứng viên. Chỉ vài chục ms cho cả ảnh.
+// Nhờ đó cắt sát được QR dù thẻ nằm ở đâu / xoay hướng nào trong ảnh (vd ảnh chụp dọc, thẻ nằm ngang giữa ảnh) — lưới vùng cắt cố định
+// ở cppStrategies() chỉ nhắm góc trên-phải nên trượt các ảnh này, còn phóng cả ảnh thì vượt trần điểm ảnh.
+function locateQrCandidates(img) {
+    const { data, width: W, height: H } = img.bitmap;
+    const B = Math.max(8, Math.round(Math.min(W, H) / 70)); // cạnh ô
+    const bw = Math.floor(W / B), bh = Math.floor(H / B);
+    if (bw < 3 || bh < 3) return [];
+
+    const lum = new Uint8Array(W * H);
+    for (let i = 0, p = 0; i < lum.length; i++, p += 4) {
+        lum[i] = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+    }
+
+    const flag = new Uint8Array(bw * bh);
+    for (let by = 0; by < bh; by++) {
+        for (let bx = 0; bx < bw; bx++) {
+            const x0 = bx * B, y0 = by * B;
+            let min = 255, max = 0;
+            for (let y = y0; y < y0 + B; y++) {
+                for (let x = x0; x < x0 + B; x++) {
+                    const v = lum[y * W + x];
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                }
+            }
+            if (max - min < 60) continue;
+
+            const mid = (min + max) >> 1;
+            let dark = 0, flipsX = 0, flipsY = 0;
+            for (let y = y0; y < y0 + B; y++) {
+                for (let x = x0; x < x0 + B; x++) {
+                    const d = lum[y * W + x] < mid;
+                    if (d) dark++;
+                    if (x > x0 && (lum[y * W + x - 1] < mid) !== d) flipsX++;
+                    if (y > y0 && (lum[(y - 1) * W + x] < mid) !== d) flipsY++;
+                }
+            }
+            const darkRatio = dark / (B * B);
+            if (darkRatio > 0.25 && darkRatio < 0.75 && flipsX >= B * 1.5 && flipsY >= B * 1.5) flag[by * bw + bx] = 1;
+        }
+    }
+
+    const seen = new Uint8Array(bw * bh);
+    const found = [];
+    for (let start = 0; start < flag.length; start++) {
+        if (!flag[start] || seen[start]) continue;
+
+        const stack = [start];
+        seen[start] = 1;
+        let count = 0, minX = bw, maxX = 0, minY = bh, maxY = 0;
+        while (stack.length) {
+            const cur = stack.pop();
+            const cx = cur % bw, cy = (cur - cx) / bw;
+            count++;
+            if (cx < minX) minX = cx;
+            if (cx > maxX) maxX = cx;
+            if (cy < minY) minY = cy;
+            if (cy > maxY) maxY = cy;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+                    const k = ny * bw + nx;
+                    if (flag[k] && !seen[k]) {
+                        seen[k] = 1;
+                        stack.push(k);
+                    }
+                }
+            }
+        }
+
+        const w = maxX - minX + 1, h = maxY - minY + 1;
+        if (count < 9 || w / h < 0.6 || w / h > 1.67 || count / (w * h) < 0.55) continue; // quá nhỏ / không vuông / rỗng (chữ, hoa văn)
+        found.push({ x: minX * B, y: minY * B, w: w * B, h: h * B, count });
+    }
+
+    return found.sort((a, b) => b.count - a.count).slice(0, 3);
+}
+
+async function decodeCppPiece(base, x, y, w, h, z) {
+    let piece = base;
+    if (w !== base.width || h !== base.height) piece = base.clone().crop({ x, y, w, h });
+    if (z !== 1) piece = (piece === base ? base.clone() : piece).resize({ w: w * z, h: h * z });
+
+    const text = await decodeCpp(piece);
+    return isCccd(text) ? text : null;
+}
+
+// Cắt quanh từng ứng viên rồi phóng to. Lề rộng trước (thực nghiệm: QR ~2.6px/ô đọc ổn nhất khi chừa lề ~50% mỗi phía), vùng cắt nhỏ
+// nên mỗi lần phóng + giải mã chỉ vài chục ms.
+async function scanLocatedCpp(base) {
+    const W = base.width, H = base.height;
+    for (const c of locateQrCandidates(base)) {
+        for (const margin of [0.5, 0.3, 0.15]) {
+            const mx = Math.round(c.w * margin), my = Math.round(c.h * margin);
+            const x = Math.max(0, c.x - mx), y = Math.max(0, c.y - my);
+            const w = Math.min(W - x, c.w + 2 * mx), h = Math.min(H - y, c.h + 2 * my);
+
+            for (const z of [3, 4, 2, 5]) {
+                if (timeUp()) return null;
+                if (Math.max(w, h) * z > 2000) continue; // QR đã đủ lớn thì toàn ảnh x1 đã thử rồi, không cần phóng thêm
+
+                const text = await decodeCppPiece(base, x, y, w, h, z);
+                if (text) return text;
+            }
+        }
+    }
+
+    return null;
+}
+
 async function scanImageCpp(base) {
     if (!(await loadCppReader())) return null;
 
     const W = base.width, H = base.height;
-    for (const s of cppStrategies()) {
+    const [whole, ...grid] = cppStrategies();
+
+    const direct = await decodeCppPiece(base, 0, 0, W, H, whole.z);
+    if (direct) return direct;
+
+    const located = await scanLocatedCpp(base);
+    if (located) return located;
+
+    for (const s of grid) {
         if (timeUp()) return null;
 
         const cx = Math.round(W * s.x), cy = Math.round(H * s.y);
@@ -105,12 +226,8 @@ async function scanImageCpp(base) {
         if (cw < 24 || ch < 24) continue;
         if (cw * s.z * ch * s.z > MAX_CPP_PIXELS) continue; // ảnh gốc đã lớn thì không cần (và không nên) phóng thêm
 
-        let piece = base;
-        if (cw !== W || ch !== H) piece = base.clone().crop({ x: cx, y: cy, w: cw, h: ch });
-        if (s.z !== 1) piece = (piece === base ? base.clone() : piece).resize({ w: cw * s.z, h: ch * s.z });
-
-        const text = await decodeCpp(piece);
-        if (isCccd(text)) return text;
+        const text = await decodeCppPiece(base, cx, cy, cw, ch, s.z);
+        if (text) return text;
     }
 
     return null;

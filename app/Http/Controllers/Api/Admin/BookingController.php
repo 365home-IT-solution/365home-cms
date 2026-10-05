@@ -383,7 +383,7 @@ class BookingController extends Controller
             $room, $finalAmount, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $depositPercentToSave,
-            $admin, $initialStatus, $cccdFront, $cccdBack, $cccdData, $guestCccdRows
+            $admin, $initialStatus, $cccdFront, $cccdBack, $cccdData, $guestCccdRows, $cccdQr
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 

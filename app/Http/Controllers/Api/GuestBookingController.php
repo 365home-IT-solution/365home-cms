@@ -355,7 +355,7 @@ class GuestBookingController extends Controller
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $deviceToken, $guestCccdRows
+            $deviceToken, $guestCccdRows, $cccdQr
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
