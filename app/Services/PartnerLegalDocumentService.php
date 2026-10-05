@@ -18,8 +18,8 @@ class PartnerLegalDocumentService
         $documents = $partner->legalDocuments()->with('media')->get();
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
-        // Homestay đăng ký trên website: bắt buộc cả An toàn an ninh và Phòng cháy chữa cháy; còn lại chỉ Giấy phép kinh doanh.
-        $requiredTypes = (! $partner->isMinihouse() && filled($partner->onboarding_token)) ? PartnerLegalDocument::HOMESTAY_REGISTRATION_REQUIRED : ['business_license'];
+        // Đăng ký trên website (Homestay, MiniHouse đăng ký dùng thử): bắt buộc cả An toàn an ninh và Phòng cháy chữa cháy; còn lại chỉ Giấy phép kinh doanh.
+        $requiredTypes = $partner->requiresRegistrationDocuments() ? PartnerLegalDocument::REGISTRATION_REQUIRED : ['business_license'];
 
         foreach ($requiredTypes as $requiredType) {
             $matching = $documents->where('type', $requiredType)->whereNull('building_id');
@@ -32,8 +32,10 @@ class PartnerLegalDocumentService
 
         // Hồ sơ đăng ký hợp tác công khai (chưa có tài khoản/toà nhà): chỉ xét Giấy phép kinh doanh; giấy tờ cấp toà nhà bổ sung sau khi có toà nhà.
         $preAccount = filled($partner->onboarding_token) && ! $partner->users()->exists();
+        // MiniHouse đăng ký dùng thử: PCCC/ANTT nộp ở cấp đối tác, không đòi thêm theo từng toà nhà.
+        $perBuilding = $partner->isMinihouse() && ! $preAccount && ! $partner->minihouseDocumentsFlow();
 
-        if ($partner->isMinihouse() && ! $preAccount) {
+        if ($perBuilding) {
             $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
             $buildings = $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->get(['id', 'name']);
 
@@ -64,7 +66,7 @@ class PartnerLegalDocumentService
         return [
             'ready' => $problems === [],
             'approved' => $required->filter(fn ($document) => $this->isUsable($document))->count(),
-            'required' => max(count($requiredTypes) + ($partner->isMinihouse() && ! $preAccount
+            'required' => max(count($requiredTypes) + ($perBuilding
                 ? max(1, $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->count()) * 3
                 : 0), $required->count()),
             'problems' => array_values(array_unique($problems)),
@@ -108,6 +110,9 @@ class PartnerLegalDocumentService
                 'reviewed_at' => null,
                 'reviewed_by' => null,
             ]);
+            if ($this->keepsPartnerStatus($partner)) {
+                return;
+            }
             $this->changePartnerStatus($partner, 'pending', 'Đối tác đã gửi hồ sơ pháp lý để xét duyệt.');
             $partner->update(['verification_submitted_at' => now(), 'verified_at' => null, 'verified_by' => null]);
         });
@@ -143,7 +148,7 @@ class PartnerLegalDocumentService
             $document->partner->update(['verification_submitted_at' => null]);
         }
 
-        if ($status !== 'approved' && $document->partner->verification_status === 'approved') {
+        if ($status !== 'approved' && $document->partner->verification_status === 'approved' && ! $this->keepsPartnerStatus($document->partner)) {
             $this->changePartnerStatus($document->partner, 'pending', 'Giấy tờ pháp lý cần được xác minh lại.');
         }
     }
@@ -156,6 +161,15 @@ class PartnerLegalDocumentService
         $readiness = $this->readiness($partner);
         if (! $readiness['ready']) {
             throw ValidationException::withMessages(['legal_documents' => $readiness['problems']]);
+        }
+
+        if ($partner->minihouseDocumentsFlow()) {
+            // MiniHouse đăng ký dùng thử: giấy tờ đã duyệt đủ → tặng dùng thử, kích hoạt đối tác, cấp tài khoản và gửi email đăng nhập.
+            if (app(PartnerOnboardingService::class)->awaitingSignupApproval($partner)) {
+                app(PartnerOnboardingService::class)->approveSignup($partner, $reviewer);
+            }
+
+            return;
         }
 
         DB::transaction(function () use ($partner, $reviewer, $note) {
@@ -222,6 +236,12 @@ class PartnerLegalDocumentService
                 ? hash_file('sha256', $media->getPath()) : null,
             'approved_at' => $document->reviewed_at?->toIso8601String(),
         ])->all();
+    }
+
+    // MiniHouse ĐÃ có tài khoản: bổ sung/duyệt lại giấy tờ không đổi trạng thái đối tác (pending sẽ khoá đăng nhập của tài khoản đang dùng).
+    private function keepsPartnerStatus(Partner $partner): bool
+    {
+        return $partner->minihouseDocumentsFlow() && $partner->users()->exists();
     }
 
     private function isUsable(PartnerLegalDocument $document): bool

@@ -182,6 +182,28 @@ class Partner extends Model implements HasMedia
         return ! $this->isMinihouse() || (bool) config('partner_flow.minihouse_contract_enabled');
     }
 
+    /**
+     * MiniHouse ĐĂNG KÝ DÙNG THỬ trên website có bước giấy tờ pháp lý (không ký hợp đồng): nộp + được duyệt đủ giấy tờ rồi mới tặng dùng thử/cấp tài khoản.
+     * signup_plan_id chỉ được ghi ở nhánh đăng ký dùng thử (MinihousePurchaseController::purchase) nên dùng để nhận diện nhánh này.
+     */
+    public function minihouseDocumentsFlow(): bool
+    {
+        return $this->isMinihouse() && ! $this->usesContract() && (bool) config('partner_flow.minihouse_trial_documents_required')
+            && filled($this->onboarding_token) && filled($this->signup_plan_id);
+    }
+
+    /** Có dùng hồ sơ pháp lý (nộp + duyệt giấy tờ) không: mọi đối tác có hợp đồng, và MiniHouse đăng ký dùng thử có bước giấy tờ. */
+    public function usesLegalDocuments(): bool
+    {
+        return $this->usesContract() || $this->minihouseDocumentsFlow();
+    }
+
+    /** Đăng ký trên website phải nộp đủ giấy tờ cấp đối tác (PartnerLegalDocument::REGISTRATION_REQUIRED): Homestay và MiniHouse đăng ký dùng thử. */
+    public function requiresRegistrationDocuments(): bool
+    {
+        return filled($this->onboarding_token) && (! $this->isMinihouse() || $this->minihouseDocumentsFlow());
+    }
+
     public function isMinihouse(): bool
     {
         return $this->partner_type === self::TYPE_MINIHOUSE;

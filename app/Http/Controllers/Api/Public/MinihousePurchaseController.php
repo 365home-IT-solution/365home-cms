@@ -15,6 +15,9 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 // MiniHouse: MUA GÓI RỒI DÙNG — không đăng ký đối tác, không ký hợp đồng.
+// ĐĂNG KÝ DÙNG THỬ (lần đầu) có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED, mặc định bật): nộp Giấy phép kinh doanh + ANTT + PCCC → gửi duyệt
+// → Super Admin duyệt giấy tờ → tặng dùng thử + cấp tài khoản. Nộp/xoá giấy tờ, gửi duyệt, rút hồ sơ dùng chung API
+// /api/public/partner-onboarding/{token}/documents|submit|withdraw với token = purchase_token. Nhánh thanh toán gói ngay không đổi.
 // Khách chọn gói + số tháng, nhập thông tin liên hệ → hệ thống tạo hồ sơ chờ thanh toán + giao dịch PayOS (QR/link).
 // Thanh toán xong (webhook PayOS hoặc Super Admin xác nhận) → tự kích hoạt gói, tạo tài khoản quản lý MiniHouse và gửi email đăng nhập.
 class MinihousePurchaseController extends Controller
@@ -94,7 +97,9 @@ class MinihousePurchaseController extends Controller
 
         return response()->json([
             'message' => $pendingApproval
-                ? 'Đã xác nhận đăng ký MiniHouse. Sau khi 365 Home duyệt, tài khoản dùng thử và mật khẩu sẽ được gửi về email của bạn.'
+                ? ($result['partner']->minihouseDocumentsFlow()
+                    ? 'Đã tạo hồ sơ đăng ký MiniHouse. Tiếp theo, nộp đủ giấy tờ pháp lý và gửi duyệt; giấy tờ được duyệt, tài khoản dùng thử sẽ được gửi về email của bạn.'
+                    : 'Đã xác nhận đăng ký MiniHouse. Sau khi 365 Home duyệt, tài khoản dùng thử và mật khẩu sẽ được gửi về email của bạn.')
                 : 'Đã tạo đơn mua gói. Quét QR hoặc mở link để thanh toán; sau khi thanh toán, tài khoản đăng nhập sẽ được gửi về email của bạn.',
             'data'    => ['purchase_token' => $result['token'], ...($acceptance ? ['terms_acceptance' => ['id' => $acceptance->id, 'version' => $acceptance->terms_version_label, 'accepted_at' => $acceptance->accepted_at->toIso8601String()]] : []), ...$this->status($result['partner'], $payment)],
         ], 201);
@@ -111,18 +116,29 @@ class MinihousePurchaseController extends Controller
         $payment ??= Pay::query()->with('plan')->where('partner_id', $partner->id)->latest('id')->first();
         $paid = $payment?->status === Pay::STATUS_PAID;
         $hasAccount = $partner->users()->exists();
+        // Đăng ký dùng thử có bước giấy tờ: trước khi có tài khoản, giai đoạn đi theo hồ sơ pháp lý (nộp → chờ duyệt → cần bổ sung / bị từ chối).
+        $dossier = $partner->minihouseDocumentsFlow() && ! $hasAccount && $payment === null ? $this->onboarding->status($partner) : null;
 
         return [
             'stage'        => match (true) {
                 $paid && $hasAccount => 'active',
                 $paid                => 'paid',
                 $hasAccount && $partner->subscription?->state() === \App\Models\PartnerSubscription::STATE_TRIAL => 'trial',
+                $dossier !== null && in_array($dossier['stage'], ['registered', 'documents_uploaded', 'ready_to_submit'], true) => 'documents',
+                $dossier !== null && in_array($dossier['stage'], ['changes_requested', 'pending_review', 'rejected'], true) => $dossier['stage'],
                 $this->onboarding->awaitingSignupApproval($partner) && ! in_array($payment?->status, [Pay::STATUS_CANCELLED, Pay::STATUS_EXPIRED], true) => 'pending_approval',
                 $payment?->status === Pay::STATUS_CANCELLED => 'cancelled',
                 $payment?->status === Pay::STATUS_EXPIRED   => 'expired',
                 default              => 'pending_payment',
             },
             'partner'      => $partner->only(['name', 'phone', 'email', 'address']),
+            'documents_required' => $partner->minihouseDocumentsFlow(),
+            'dossier'      => $dossier ? [
+                'required_documents' => $dossier['required_documents'],
+                'documents'          => $dossier['documents'],
+                'can_submit'         => $dossier['stage'] === 'ready_to_submit',
+                'note'               => $dossier['verification']['note'],
+            ] : null,
             'payment'      => $payment?->loadMissing('plan')->toApi(),
             'subscription' => $partner->subscription ? [
                 'expires_at' => $partner->subscription->expires_at?->toIso8601String(),

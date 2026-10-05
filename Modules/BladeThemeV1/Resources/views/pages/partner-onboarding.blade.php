@@ -8,6 +8,8 @@
 
     @php
         $docTypes = collect(\App\Models\PartnerLegalDocument::TYPES)->map(fn ($label, $key) => ['value' => $key, 'label' => $label])->values();
+        // MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp 3 giấy tờ → gửi duyệt → duyệt xong mới tặng dùng thử.
+        $mhDocs = (bool) config('partner_flow.minihouse_trial_documents_required') && ! config('partner_flow.minihouse_contract_enabled');
         $provinceOptions = \App\Models\Province::query()->whereNotNull('code')->orderBy('name')->get(['code', 'name'])->map(fn ($p) => ['code' => $p->code, 'name' => $p->name])->values();
     @endphp
 
@@ -163,7 +165,7 @@
                     {{-- Lần đầu được TẶNG dùng thử: không chọn gói, không thanh toán lúc đăng ký — chọn gói/thanh toán sau khi đăng nhập. --}}
                     <div x-show="minihouseMode && trialMonths > 0" x-cloak class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 space-y-1">
                         <p class="font-semibold">Tặng dùng thử <span x-text="trialMonths"></span> tháng cho lần đăng ký đầu tiên.</p>
-                        <p>Bạn không cần chọn gói hay thanh toán lúc đăng ký. Sau khi 365 Home duyệt, tài khoản và mật khẩu sẽ gửi về email; hết thời gian dùng thử, đăng nhập để chọn gói và thanh toán.</p>
+                        <p>Bạn không cần chọn gói hay thanh toán lúc đăng ký. @if ($mhDocs) Bước tiếp theo là nộp 3 giấy tờ pháp lý (giấy phép kinh doanh, an ninh trật tự, phòng cháy chữa cháy); sau khi 365 Home duyệt giấy tờ, @else Sau khi 365 Home duyệt, @endif tài khoản và mật khẩu sẽ gửi về email; hết thời gian dùng thử, đăng nhập để chọn gói và thanh toán.</p>
                     </div>
                     <div x-show="minihouseMode && trialMonths === 0" x-cloak class="space-y-4">
                         <div class="text-sm font-medium text-gray-700">Gói dịch vụ MiniHouse <span class="text-red-500">*</span></div>
@@ -264,6 +266,23 @@
                             <p class="text-gray-600">Sau khi được duyệt, tài khoản dùng thử và mật khẩu sẽ gửi về email của bạn. Bạn chưa cần thanh toán lúc này.</p>
                         </div>
                     </template>
+                    {{-- Đăng ký dùng thử có bước giấy tờ: chờ duyệt / bị từ chối. Nộp + sửa giấy tờ dùng khối "Giấy tờ pháp lý" bên dưới. --}}
+                    <template x-if="purchase && purchase.stage === 'pending_review'">
+                        <div class="space-y-2">
+                            <div class="text-5xl">⏳</div>
+                            <h2 class="text-xl font-bold text-gray-900">Giấy tờ đang chờ 365 HOME duyệt</h2>
+                            <p class="text-gray-600">Khi giấy tờ được duyệt, tài khoản dùng thử và mật khẩu sẽ được gửi về email <strong x-text="purchase.partner && purchase.partner.email"></strong>. Trang này tự cập nhật.</p>
+                            <p class="text-sm text-gray-500">Cần sửa lại giấy tờ? Rút hồ sơ về bản nháp, chỉnh sửa rồi gửi duyệt lại.</p>
+                            <button type="button" class="rounded-lg border border-gray-300 px-5 py-2.5 hover:bg-gray-50 disabled:opacity-60" :disabled="loading" @click="withdraw()">Rút hồ sơ để chỉnh sửa</button>
+                        </div>
+                    </template>
+                    <template x-if="purchase && purchase.stage === 'rejected'">
+                        <div class="space-y-2">
+                            <div class="text-5xl">⚠️</div>
+                            <h2 class="text-xl font-bold text-gray-900">Hồ sơ chưa được chấp thuận</h2>
+                            <p class="text-gray-600" x-text="(purchase.dossier && purchase.dossier.note) || 'Vui lòng liên hệ 365 HOME để biết thêm chi tiết.'"></p>
+                        </div>
+                    </template>
                     <template x-if="purchase && purchase.stage === 'paid'">
                         <div class="space-y-2">
                             <div class="text-5xl">⏳</div>
@@ -299,7 +318,7 @@
                 </div>
 
                 {{-- B2. Giấy tờ pháp lý --}}
-                <div x-show="step === 1" class="space-y-5">
+                <div x-show="step === 1 || mhDocsStage" x-cloak class="space-y-5">
                     <div>
                         <h2 class="text-lg font-bold text-gray-900">Giấy tờ pháp lý</h2>
                         <p class="text-sm text-gray-600 mt-1">Tệp PDF hoặc ảnh (jpg, png, webp), tối đa 10 MB. Loại giấy tờ trùng với danh mục 365 HOME dùng khi duyệt hồ sơ.</p>
@@ -320,7 +339,7 @@
                         </ul>
                         <p class="text-gray-600">Giấy tờ cần còn hiệu lực (nếu có ngày hết hạn). Chọn đúng <strong>Loại giấy tờ</strong> khi tải lên để 365 HOME duyệt nhanh. Hồ sơ chỉ được phê duyệt khi mọi giấy tờ bắt buộc đã được duyệt.</p>
                         <p class="text-gray-500">Giấy tờ khác (đăng ký thuế, giấy phép/công nhận cơ sở lưu trú, giấy uỷ quyền người ký...) không bắt buộc nhưng nên nộp.</p>
-                        <p class="text-gray-500" x-show="(status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.</p>
+                        <p class="text-gray-500" x-show="!purchase && (status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.</p>
                     </div>
                     <ul class="divide-y divide-gray-100 rounded-lg border border-gray-200" x-show="status && status.documents.length">
                         <template x-for="d in (status ? status.documents : [])" :key="d.id">
@@ -373,7 +392,10 @@
                     </form>
                     <div class="flex justify-end">
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
-                            :disabled="!status || !status.steps.documents_uploaded" @click="go(2)">Tiếp tục</button>
+                            x-show="!purchase" :disabled="!status || !status.steps.documents_uploaded" @click="go(2)">Tiếp tục</button>
+                        {{-- MiniHouse đăng ký dùng thử: không có bước thông tin hợp đồng — đủ 3 giấy tờ bắt buộc là gửi duyệt luôn. --}}
+                        <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
+                            x-show="purchase" x-cloak :disabled="loading || !status || !status.steps.documents_uploaded" @click="submitDossier()" x-text="loading ? 'Đang gửi...' : 'Gửi giấy tờ chờ duyệt'"></button>
                     </div>
                 </div>
 
@@ -508,6 +530,7 @@
     <script>
         function partnerOnboarding(initialType, docTypes, provinces, termsRequired) {
             const KEY = '365home_partner_onboarding';
+            const MH_KEY = '365home_minihouse_purchase';
             const API = '/api/public/partner-onboarding';
             const store = {
                 get() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } },
@@ -550,7 +573,8 @@
                 flash(msg, ok = false) { this.message = msg; this.messageOk = ok; },
                 allowedDocTypes() {
                     const mh = (this.status ? this.status.partner_type : this.reg.partner_type) === 'minihouse';
-                    return docTypes.filter((t) => !(mh && BUILDING_TYPES.includes(t.value)));
+                    // MiniHouse đăng ký dùng thử nộp PCCC/ANTT ở cấp đối tác như Homestay → không lọc bỏ.
+                    return docTypes.filter((t) => !(mh && !this.purchase && BUILDING_TYPES.includes(t.value)));
                 },
 
                 async call(method, url, body, isForm = false) {
@@ -579,20 +603,25 @@
                     this.loadPlans();
                     this.loadTerms();
                     this.$watch('reg.partner_type', () => { this.reg.accept_terms = false; this.loadTerms(); });
+                    // Link từ email: ?ma=<mã hồ sơ> (đăng ký hợp tác) hoặc ?mh=<mã đơn> (MiniHouse) → lưu lại rồi bỏ khỏi URL.
+                    const qs = new URLSearchParams(window.location.search);
+                    if (qs.get('mh')) {
+                        store.clear();
+                        try { localStorage.setItem(MH_KEY, qs.get('mh')); } catch (e) {}
+                        window.history.replaceState({}, '', window.location.pathname);
+                    } else if (qs.get('ma')) {
+                        try { localStorage.removeItem(MH_KEY); } catch (e) {}
+                        store.set({ token: qs.get('ma') });
+                        window.history.replaceState({}, '', window.location.pathname);
+                    }
                     try {
-                        if (localStorage.getItem('365home_minihouse_purchase') && !store.get().token) {
+                        if (localStorage.getItem(MH_KEY) && !store.get().token) {
                             this.reg.partner_type = 'minihouse';
                             this.purchase = { stage: 'pending_payment' };
                             this.pollPurchase();
                             return;
                         }
                     } catch (e) {}
-                    // Link khôi phục từ email: ?ma=<mã hồ sơ mới> → lưu lại rồi bỏ khỏi URL.
-                    const qs = new URLSearchParams(window.location.search);
-                    if (qs.get('ma')) {
-                        store.set({ token: qs.get('ma') });
-                        window.history.replaceState({}, '', window.location.pathname);
-                    }
                     const saved = store.get();
                                         if (!saved.token) return;
                     this.token = saved.token;
@@ -602,7 +631,7 @@
                     await this.syncContract();
                 },
                 save() { store.set({ token: this.token }); },
-                reset() { store.clear(); Object.assign(this, { token: null, signingToken: null, status: null, contract: null, step: 0, message: '', errors: {} }); },
+                reset() { store.clear(); this.resetPurchase(); Object.assign(this, { token: null, signingToken: null, status: null, contract: null, step: 0, message: '', errors: {} }); },
 
                 async refresh() {
                     const data = await this.call('GET', `${API}/${this.token}`);
@@ -636,6 +665,8 @@
                 },
 
                 get minihouseMode() { return !!this.purchase || (!this.status && this.reg.partner_type === 'minihouse'); },
+                // MiniHouse đăng ký dùng thử: đang nộp / cần bổ sung giấy tờ → hiện khối "Giấy tờ pháp lý".
+                get mhDocsStage() { return !!this.purchase && ['documents', 'changes_requested'].includes(this.purchase.stage); },
                 get selectedPlan() { return this.plans.find((p) => p.id === Number(this.planId)) || null; },
                 get selectedPeriod() { return this.selectedPlan ? (this.selectedPlan.periods.find((o) => o.periods === Number(this.periods)) || null) : null; },
                 vnd(n) { return new Intl.NumberFormat('vi-VN').format(Number(n) || 0) + 'đ'; },
@@ -659,25 +690,42 @@
                     const data = await this.call('POST', '/api/public/minihouse-purchase', body);
                     if (!data || data._status) return;
                     this.purchase = data.data;
-                    try { localStorage.setItem('365home_minihouse_purchase', data.data.purchase_token); } catch (e) {}
-                    this.flash('', true); this.pollPurchase();
+                    try { localStorage.setItem(MH_KEY, data.data.purchase_token); } catch (e) {}
+                    if (data.data.dossier) {
+                        this.token = data.data.purchase_token;
+                        await this.refresh();
+                        this.flash('Đã tạo hồ sơ. Tiếp theo, tải lên 3 giấy tờ pháp lý rồi gửi duyệt.', true);
+                    } else {
+                        this.flash('', true);
+                    }
+                    this.pollPurchase();
                 },
                 pollPurchase() {
                     clearInterval(this.pollTimer);
+                    let n = 0;
                     const tick = async () => {
-                        let token = null; try { token = localStorage.getItem('365home_minihouse_purchase'); } catch (e) {}
+                        let token = null; try { token = localStorage.getItem(MH_KEY); } catch (e) {}
                         if (!token) return;
+                        // Chờ duyệt giấy tờ có thể kéo dài: hỏi lại thưa hơn (30 giây/lần) so với lúc chờ thanh toán (5 giây/lần).
+                        if (n++ && this.purchase && this.purchase.stage === 'pending_review' && n % 6) return;
                         try {
                             const res = await fetch(`/api/public/minihouse-purchase/${token}`, { headers: { Accept: 'application/json' } });
-                            if (res.ok) { this.purchase = { ...this.purchase, ...(await res.json()).data }; }
+                            if (res.ok) { this.purchase = { ...this.purchase, ...(await res.json()).data }; await this.syncDossier(token); }
                         } catch (e) {}
-                        if (this.purchase && ['active', 'cancelled', 'expired'].includes(this.purchase.stage)) clearInterval(this.pollTimer);
+                        // Đang nộp/bổ sung giấy tờ thì khách tự thao tác — không cần hỏi lại; gửi duyệt/rút hồ sơ sẽ bật lại.
+                        if (this.purchase && ['active', 'cancelled', 'expired', 'documents', 'changes_requested', 'rejected'].includes(this.purchase.stage)) clearInterval(this.pollTimer);
                     };
                     this.pollTimer = setInterval(tick, 5000); tick();
                 },
+                // Đăng ký dùng thử có bước giấy tờ: dùng chung API hồ sơ (/api/public/partner-onboarding/{mã}) để nộp/xoá giấy tờ, gửi duyệt, rút hồ sơ.
+                async syncDossier(token) {
+                    if (!this.purchase.dossier) return;
+                    this.token = token;
+                    if (this.mhDocsStage && (!this.status || this.status.stage === 'pending_review')) await this.refresh();
+                },
                 resetPurchase() {
                     clearInterval(this.pollTimer); this.purchase = null;
-                    try { localStorage.removeItem('365home_minihouse_purchase'); } catch (e) {}
+                    try { localStorage.removeItem(MH_KEY); } catch (e) {}
                 },
 
                 async suggest() {
@@ -782,6 +830,7 @@
                     if (!data || data._status) return;
                     this.applyStatus(data.data);
                     this.flash(data.message, true);
+                    if (this.purchase) { this.pollPurchase(); return; }
                     this.step = 1;
                 },
                 async submitDossier() {
@@ -789,6 +838,7 @@
                     if (!data || data._status) return;
                     this.applyStatus(data.data);
                     this.flash(data.message, true);
+                    if (this.purchase) { this.pollPurchase(); return; }
                     this.step = 3;
                 },
             };

@@ -47,15 +47,20 @@ class PartnerLegalDocument extends Model implements HasMedia
         'reviewed_at' => 'datetime',
     ];
 
-    // Đối tác HOMESTAY đăng ký hợp tác trên website BẮT BUỘC nộp đủ 3 loại: Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC).
-    public const HOMESTAY_REGISTRATION_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
+    // Đối tác đăng ký trên website (Homestay, và MiniHouse đăng ký dùng thử) BẮT BUỘC nộp đủ 3 loại cấp đối tác:
+    // Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC). Xem Partner::requiresRegistrationDocuments().
+    public const REGISTRATION_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
+
+    public const HOMESTAY_REGISTRATION_REQUIRED = self::REGISTRATION_REQUIRED;
 
     protected static function booted(): void
     {
         static::saving(function (self $document): void {
             $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+            // MiniHouse đăng ký dùng thử: PCCC/ANTT nộp ở CẤP ĐỐI TÁC (không gắn toà nhà) như Homestay.
             $isMinihouseBuildingDocument = $document->partner?->isMinihouse()
-                && in_array($document->type, $buildingTypes, true);
+                && in_array($document->type, $buildingTypes, true)
+                && ! ($document->partner->minihouseDocumentsFlow() && ! $document->building_id);
 
             if ($isMinihouseBuildingDocument) {
                 if (! $document->building_id || ! $document->partner->categories()
@@ -66,10 +71,10 @@ class PartnerLegalDocument extends Model implements HasMedia
                 $document->building_id = null;
             }
 
-            $isHomestayRegistrationRequired = $document->partner && ! $document->partner->isMinihouse() && filled($document->partner->onboarding_token)
-                && in_array($document->type, self::HOMESTAY_REGISTRATION_REQUIRED, true);
+            $isRegistrationRequired = $document->partner?->requiresRegistrationDocuments() && ! $document->building_id
+                && in_array($document->type, self::REGISTRATION_REQUIRED, true);
 
-            if ($document->type === 'business_license' || $isMinihouseBuildingDocument || $isHomestayRegistrationRequired) {
+            if ($document->type === 'business_license' || $isMinihouseBuildingDocument || $isRegistrationRequired) {
                 $document->is_required = true;
             }
         });

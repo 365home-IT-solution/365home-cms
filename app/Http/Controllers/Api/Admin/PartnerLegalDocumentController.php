@@ -179,7 +179,8 @@ class PartnerLegalDocumentController extends Controller
         $buildingId = array_key_exists('building_id', $data) ? $data['building_id'] : $document?->building_id;
         $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
 
-        if ($partner->isMinihouse() && in_array($type, $buildingTypes, true)) {
+        // MiniHouse đăng ký dùng thử: PCCC/ANTT không gắn toà nhà là giấy tờ CẤP ĐỐI TÁC (như Homestay).
+        if ($partner->isMinihouse() && in_array($type, $buildingTypes, true) && ! ($partner->minihouseDocumentsFlow() && blank($buildingId))) {
             abort_if(blank($buildingId), 422, 'Giấy tờ PCCC, ANTT và quyền khai thác phải chọn tòa nhà.');
             abort_unless($partner->categories()->whereKey($buildingId)->where('category_type', 'product')->whereNull('parent_id')->exists(), 422, 'Tòa nhà không thuộc đối tác MiniHouse này.');
         } else {
@@ -191,7 +192,7 @@ class PartnerLegalDocumentController extends Controller
     {
         $user = $request->user();
         abort_unless($user->isSuperAdmin() || $user->partner_id === $partner->id, 403, 'Bạn không có quyền truy cập hồ sơ đối tác này.');
-        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hồ sơ pháp lý/hợp đồng đối tác (mua gói để sử dụng).');
+        abort_unless($partner->usesLegalDocuments(), 404, 'MiniHouse không dùng hồ sơ pháp lý/hợp đồng đối tác (mua gói để sử dụng).');
     }
 
     private function authorizeDocument(Request $request, Partner $partner, PartnerLegalDocument $document): void

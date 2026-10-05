@@ -49,12 +49,12 @@ class EditPartner extends EditRecord
                 ->visible($pending)
                 ->requiresConfirmation()
                 ->modalHeading('Duyệt đăng ký MiniHouse')
-                ->modalDescription('Tặng dùng thử, kích hoạt đối tác, tạo tài khoản đăng nhập và gửi email tài khoản + mật khẩu cho đối tác.')
+                ->modalDescription('Tặng dùng thử, kích hoạt đối tác, tạo tài khoản đăng nhập và gửi email tài khoản + mật khẩu cho đối tác. Đăng ký có bước giấy tờ: chỉ duyệt được khi đủ 3 giấy tờ bắt buộc ở bảng Hồ sơ pháp lý đã được duyệt.')
                 ->action(function () use ($onboarding): void {
                     try {
                         $result = $onboarding->approveSignup($this->record, auth()->user());
                     } catch (ValidationException $e) {
-                        Notification::make()->title('Không duyệt được')->body(collect($e->errors())->flatten()->first())->danger()->send();
+                        Notification::make()->title('Không duyệt được')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->persistent()->send();
 
                         return;
                     }

@@ -1,0 +1,201 @@
+<?php
+
+namespace Tests\Feature\Api;
+
+use App\Models\Partner;
+use App\Models\PartnerLegalDocument;
+use App\Models\SubscriptionPayment;
+use App\Models\SubscriptionPlan;
+use App\Models\TermsVersion;
+use App\Models\User;
+use App\Services\PartnerLegalDocumentService;
+use App\Services\PartnerOnboardingService;
+use App\Services\TermsService;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Models\Role;
+use Tests\TestCase;
+
+// MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp Giấy phép kinh doanh + ANTT + PCCC (cấp đối tác,
+// như Homestay) → gửi duyệt → Super Admin duyệt → tặng dùng thử + cấp tài khoản. Nhánh thanh toán gói ngay KHÔNG đổi.
+// Gói test có giá 0đ nên nhánh thanh toán chỉ ghi nhận yêu cầu, KHÔNG gọi PayOS thật.
+class MinihouseTrialDocumentsTest extends TestCase
+{
+    use DatabaseTransactions;
+
+    private SubscriptionPlan $plan;
+
+    private User $admin;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'partner_flow.minihouse_trial_documents_required' => true,
+            'partner_flow.minihouse_contract_enabled' => false,
+            'partner_flow.minihouse_signup_trial_months' => 1,
+        ]);
+        Storage::fake('local');
+        $this->withoutMiddleware(ThrottleRequests::class);
+        app(TermsService::class)->setRequired(TermsVersion::TYPE_MINIHOUSE, false);
+        Role::firstOrCreate(['name' => 'Quản lý MiniHouse', 'guard_name' => 'web']);
+
+        $this->plan = SubscriptionPlan::create([
+            'code' => 'mh-docs-test', 'name' => 'Gói test giấy tờ', 'partner_type' => Partner::TYPE_MINIHOUSE,
+            'price_vnd' => 0, 'period_months' => 1, 'is_active' => true,
+        ]);
+        $this->admin = User::create(['fullname' => 'Super Admin Test', 'email' => 'mh-docs-admin@example.test', 'password' => 'secret-secret']);
+        $this->admin->assignRole(config('filament-shield.super_admin.name'));
+    }
+
+    public function test_trial_signup_requires_three_approved_documents_before_account_is_issued(): void
+    {
+        [$token, $partner] = $this->register('0970000101', 'mh-docs-trial@example.test');
+
+        // Mới đăng ký: chưa có đơn thanh toán, chưa có tài khoản, phải nộp 3 giấy tờ.
+        $this->getJson("/api/public/minihouse-purchase/{$token}")
+            ->assertOk()
+            ->assertJsonPath('data.stage', 'documents')
+            ->assertJsonPath('data.documents_required', true)
+            ->assertJsonPath('data.payment', null)
+            ->assertJsonPath('data.account.created', false)
+            ->assertJsonCount(3, 'data.dossier.required_documents');
+
+        // Chưa đủ giấy tờ bắt buộc thì không gửi duyệt được.
+        $this->upload($token, 'business_license');
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertStatus(422)->assertJsonValidationErrors('documents');
+
+        // PCCC + ANTT nộp ở CẤP ĐỐI TÁC (không cần toà nhà) như Homestay.
+        $this->upload($token, 'security_order');
+        $this->upload($token, 'fire_safety');
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.dossier.can_submit', true);
+
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.stage', 'pending_review');
+
+        // Giấy tờ chưa được duyệt → không duyệt đăng ký / tặng dùng thử được.
+        try {
+            app(PartnerOnboardingService::class)->approveSignup($partner->fresh(), $this->admin);
+            $this->fail('Duyệt đăng ký phải bị chặn khi giấy tờ chưa được duyệt.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('legal_documents', $e->errors());
+        }
+        $this->assertFalse($partner->users()->exists());
+
+        $this->approveAllDocuments($partner);
+        app(PartnerLegalDocumentService::class)->approveDossier($partner->fresh(), $this->admin);
+
+        $partner->refresh();
+        $this->assertSame('approved', $partner->verification_status);
+        $this->assertTrue((bool) $partner->status);
+        $this->assertTrue($partner->users()->exists());
+        $this->assertTrue((bool) $partner->subscription?->is_trial);
+        $this->getJson("/api/public/minihouse-purchase/{$token}")
+            ->assertJsonPath('data.stage', 'trial')
+            ->assertJsonPath('data.account.created', true)
+            ->assertJsonPath('data.dossier', null);
+    }
+
+    public function test_changes_requested_reopens_the_dossier_for_editing(): void
+    {
+        [$token, $partner] = $this->register('0970000103', 'mh-docs-changes@example.test');
+        foreach (PartnerLegalDocument::REGISTRATION_REQUIRED as $type) {
+            $this->upload($token, $type);
+        }
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
+
+        // Đang chờ duyệt: không sửa được.
+        $this->upload($token, 'other', 422);
+
+        $fire = $partner->legalDocuments()->where('type', 'fire_safety')->firstOrFail();
+        app(PartnerLegalDocumentService::class)->review($fire, 'changes_requested', 'Ảnh mờ, vui lòng chụp lại.', $this->admin);
+
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.stage', 'changes_requested');
+        $this->deleteJson("/api/public/partner-onboarding/{$token}/documents/{$fire->id}")->assertOk();
+        $this->upload($token, 'fire_safety');
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.stage', 'pending_review');
+    }
+
+    public function test_paid_signup_is_unchanged_and_needs_no_documents(): void
+    {
+        // Tắt dùng thử → mọi đăng ký đi nhánh thanh toán: tạo đơn ngay như cũ, không có bước giấy tờ.
+        config(['partner_flow.minihouse_signup_trial_months' => 0]);
+        [$token, $partner] = $this->register('0970000102', 'mh-docs-pay@example.test');
+
+        $this->assertSame(1, SubscriptionPayment::query()->where('partner_id', $partner->id)->count());
+        $this->getJson("/api/public/minihouse-purchase/{$token}")
+            ->assertJsonPath('data.stage', 'pending_payment')
+            ->assertJsonPath('data.documents_required', false)
+            ->assertJsonPath('data.dossier', null);
+    }
+
+    public function test_flag_off_keeps_trial_approval_without_documents(): void
+    {
+        config(['partner_flow.minihouse_trial_documents_required' => false]);
+        [$token, $partner] = $this->register('0970000104', 'mh-docs-off@example.test');
+
+        $this->getJson("/api/public/minihouse-purchase/{$token}")
+            ->assertJsonPath('data.stage', 'pending_approval')
+            ->assertJsonPath('data.documents_required', false)
+            ->assertJsonPath('data.dossier', null);
+
+        $result = app(PartnerOnboardingService::class)->approveSignup($partner->fresh(), $this->admin);
+        $this->assertTrue($result['created']);
+    }
+
+    public function test_documents_of_an_active_minihouse_account_never_lock_its_login(): void
+    {
+        [$token, $partner] = $this->register('0970000105', 'mh-docs-active@example.test');
+        foreach (PartnerLegalDocument::REGISTRATION_REQUIRED as $type) {
+            $this->upload($token, $type);
+        }
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
+        $this->approveAllDocuments($partner);
+        app(PartnerLegalDocumentService::class)->approveDossier($partner->fresh(), $this->admin);
+        $partner->refresh();
+        $this->assertTrue($partner->users()->exists());
+
+        // Đã có tài khoản: bổ sung giấy tờ mới rồi gửi duyệt / bị yêu cầu bổ sung KHÔNG đưa đối tác về "pending" (sẽ khoá đăng nhập).
+        $extra = $partner->legalDocuments()->create(['type' => 'tax_registration', 'status' => 'draft']);
+        $extra->addMedia(UploadedFile::fake()->create('thue.pdf', 50, 'application/pdf'))->toMediaCollection('file');
+        app(PartnerLegalDocumentService::class)->submit($partner);
+        $this->assertSame('approved', $partner->fresh()->verification_status);
+
+        app(PartnerLegalDocumentService::class)->review($extra->fresh(), 'changes_requested', 'Thiếu trang 2.', $this->admin);
+        $this->assertSame('approved', $partner->fresh()->verification_status);
+    }
+
+    /** @return array{0: string, 1: Partner} */
+    private function register(string $phone, string $email): array
+    {
+        $response = $this->postJson('/api/public/minihouse-purchase', [
+            'plan_id' => $this->plan->id, 'periods' => 1,
+            'full_name' => 'Nguyễn Văn Test', 'phone' => $phone, 'email' => $email,
+            'business_name' => 'Nhà trọ Test ' . $phone, 'address' => '12 Lê Lợi, Cần Thơ',
+        ])->assertCreated();
+
+        $token = $response->json('data.purchase_token');
+
+        return [$token, app(PartnerOnboardingService::class)->findByToken($token)];
+    }
+
+    private function upload(string $token, string $type, int $status = 201): void
+    {
+        $this->post("/api/public/partner-onboarding/{$token}/documents", [
+            'type' => $type,
+            'file' => UploadedFile::fake()->create("{$type}.pdf", 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus($status);
+    }
+
+    private function approveAllDocuments(Partner $partner): void
+    {
+        foreach ($partner->legalDocuments()->get() as $document) {
+            app(PartnerLegalDocumentService::class)->review($document, 'approved', null, $this->admin);
+        }
+    }
+}

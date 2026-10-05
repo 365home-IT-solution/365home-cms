@@ -41,9 +41,10 @@ class LegalDocumentsRelationManager extends RelationManager
             Forms\Components\Select::make('building_id')->label('Tòa nhà áp dụng')
                 ->options(fn () => $this->getOwnerRecord()->categories()
                     ->where('category_type', 'product')->whereNull('parent_id')->orderBy('name')->pluck('name', 'id'))
-                ->required(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse()
+                // MiniHouse đăng ký dùng thử: PCCC/ANTT nộp ở cấp đối tác như Homestay → không chọn toà nhà.
+                ->required(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse() && ! $this->getOwnerRecord()->minihouseDocumentsFlow()
                     && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
-                ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse()
+                ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse() && ! $this->getOwnerRecord()->minihouseDocumentsFlow()
                     && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
                 ->searchable()->preload(),
             Forms\Components\TextInput::make('name')->label('Tên giấy tờ')->maxLength(255),
@@ -147,6 +148,6 @@ class LegalDocumentsRelationManager extends RelationManager
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
-        return (auth()->user()?->isSuperAdmin() ?? false) && ($ownerRecord->usesContract());
+        return (auth()->user()?->isSuperAdmin() ?? false) && ($ownerRecord->usesLegalDocuments());
     }
 }

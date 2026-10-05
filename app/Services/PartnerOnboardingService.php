@@ -161,7 +161,12 @@ class PartnerOnboardingService
                 : 'MiniHouse mua gói trên website (chờ thanh toán).']);
             if ($needsApproval) {
                 $this->notifyAdmins($partner, 'Có đăng ký MiniHouse chờ duyệt', $this->partnerLabel($partner) . ' vừa đăng ký MiniHouse — duyệt để tặng dùng thử và gửi tài khoản đăng nhập.', 'minihouse_signup_pending', 'info', 'heroicon-o-user-plus');
-                $this->mailPartner($partner, 'Đã nhận đăng ký MiniHouse — chờ 365 Home duyệt', '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p><p>365 Home đã nhận đăng ký MiniHouse của <strong>' . e($partner->name) . '</strong>. Sau khi được duyệt, tài khoản đăng nhập và mật khẩu sẽ được gửi về email này.</p>');
+                $url = route('partner-onboarding.page') . '?mh=' . $token;
+                $this->mailPartner($partner, 'Đã nhận đăng ký MiniHouse — chờ 365 Home duyệt', '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p><p>365 Home đã nhận đăng ký MiniHouse của <strong>' . e($partner->name) . '</strong>. '
+                    . (config('partner_flow.minihouse_trial_documents_required') && ! config('partner_flow.minihouse_contract_enabled')
+                        ? "Để được duyệt dùng thử, vui lòng nộp đủ giấy tờ pháp lý (Giấy phép kinh doanh, Giấy chứng nhận an ninh trật tự, Hồ sơ phòng cháy chữa cháy) rồi gửi duyệt tại: <a href=\"{$url}\">{$url}</a></p><p>"
+                        : '')
+                    . 'Sau khi được duyệt, tài khoản đăng nhập và mật khẩu sẽ được gửi về email này.</p>');
             }
         }
 
@@ -197,6 +202,13 @@ class PartnerOnboardingService
     {
         if (! $this->awaitingSignupApproval($partner)) {
             throw ValidationException::withMessages(['partner' => 'Đăng ký này không ở trạng thái chờ duyệt.']);
+        }
+        // Đăng ký dùng thử có bước giấy tờ: chỉ duyệt khi đủ 3 giấy tờ bắt buộc đã được duyệt và còn hạn.
+        if ($partner->minihouseDocumentsFlow()) {
+            $readiness = $this->documents->readiness($partner);
+            if (! $readiness['ready']) {
+                throw ValidationException::withMessages(['legal_documents' => $readiness['problems']]);
+            }
         }
         $months = (int) config('partner_flow.minihouse_signup_trial_months', 0);
         if ($months < 1) {
@@ -293,7 +305,7 @@ class PartnerOnboardingService
     {
         $this->assertEditable($partner);
 
-        if ($partner->isMinihouse() && in_array($data['type'], self::BUILDING_TYPES, true)) {
+        if ($partner->isMinihouse() && ! $partner->minihouseDocumentsFlow() && in_array($data['type'], self::BUILDING_TYPES, true)) {
             throw ValidationException::withMessages(['type' => 'Giấy tờ PCCC, ANTT và quyền khai thác toà nhà được bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.']);
         }
 
@@ -457,6 +469,18 @@ class PartnerOnboardingService
         // Gửi các giấy tờ mới/bổ sung sang "chờ duyệt"; không còn giấy tờ mới (đã gửi trước đó) → báo lỗi như API hồ sơ pháp lý.
         $this->documents->submit($partner);
 
+        // MiniHouse đăng ký dùng thử: không có hợp đồng — duyệt giấy tờ xong là tặng dùng thử và cấp tài khoản.
+        if ($partner->minihouseDocumentsFlow()) {
+            $this->notifyAdmins($partner, 'Hồ sơ MiniHouse chờ duyệt giấy tờ', $this->partnerLabel($partner) . ' đã nộp giấy tờ pháp lý để đăng ký dùng thử. Vào MiniHouse → Đối tác → bảng Hồ sơ pháp lý để duyệt từng giấy tờ, rồi bấm “Duyệt toàn bộ hồ sơ”.', 'partner_onboarding', 'info', 'heroicon-o-document-check');
+            $this->mailPartner(
+                $partner,
+                'Đã nhận giấy tờ MiniHouse — chờ 365 Home duyệt',
+                '<p>365 Home đã nhận giấy tờ pháp lý của <strong>' . e($partner->legal_name ?: $partner->name) . '</strong>. Chúng tôi sẽ xem xét; nếu hợp lệ, tài khoản dùng thử sẽ được gửi về email này. Nếu cần bổ sung, chúng tôi sẽ báo lý do qua email.</p>'
+            );
+
+            return $partner->fresh();
+        }
+
         try {
             app(AdminNotificationService::class)->notify(
                 User::role(config('filament-shield.super_admin.name'))->get(),
@@ -499,7 +523,8 @@ class PartnerOnboardingService
 
         $token = Str::random(48);
         $partner->forceFill(['onboarding_token' => self::hashToken($token)])->save();
-        $url = route('partner-onboarding.page') . '?ma=' . $token;
+        // MiniHouse mua gói mở lại bằng ?mh=<mã đơn>; hồ sơ đăng ký hợp tác dùng ?ma=<mã hồ sơ>.
+        $url = route('partner-onboarding.page') . ($partner->usesContract() ? '?ma=' : '?mh=') . $token;
 
         try {
             Mail::to($partner->email)->send(new LockNotificationMail(
@@ -720,7 +745,9 @@ class PartnerOnboardingService
         $name = e($partner->legal_name ?: $partner->name);
         $trial = $partner->isMinihouse() && (bool) $partner->subscription?->is_trial;
         $next = $partner->isMinihouse()
-            ? 'Sau khi đăng nhập, bạn tạo toà nhà, phòng và bổ sung giấy tờ cấp toà nhà (PCCC, an ninh trật tự, quyền khai thác) để bắt đầu vận hành.'
+            ? ($partner->usesContract()
+                ? 'Sau khi đăng nhập, bạn tạo toà nhà, phòng và bổ sung giấy tờ cấp toà nhà (PCCC, an ninh trật tự, quyền khai thác) để bắt đầu vận hành.'
+                : 'Sau khi đăng nhập, bạn tạo toà nhà và phòng để bắt đầu vận hành.')
             : 'Sau khi đăng nhập, bạn tạo chi nhánh, phòng và bảng giá để bắt đầu nhận khách.';
 
         if ($partner->isMinihouse()) {
@@ -889,13 +916,21 @@ class PartnerOnboardingService
 
     private function missingContractFields(Partner $partner): array
     {
+        // MiniHouse mua gói không ký hợp đồng → không đòi thông tin ký hợp đồng.
+        if (! $partner->usesContract()) {
+            return [];
+        }
+
         return array_values(array_filter(self::CONTRACT_REQUIRED, fn ($f) => blank($partner->{$f})));
     }
 
-    /** Loại giấy tờ BẮT BUỘC khi đăng ký: Homestay = Giấy phép kinh doanh + An toàn an ninh + Phòng cháy chữa cháy; MiniHouse chỉ Giấy phép kinh doanh (giấy tờ toà nhà bổ sung sau). */
+    /**
+     * Loại giấy tờ BẮT BUỘC khi đăng ký: Homestay và MiniHouse đăng ký dùng thử = Giấy phép kinh doanh + An toàn an ninh + Phòng cháy chữa cháy;
+     * MiniHouse đăng ký kiểu hợp đồng (MINIHOUSE_CONTRACT_ENABLED) chỉ Giấy phép kinh doanh (giấy tờ toà nhà bổ sung sau).
+     */
     private function requiredDocumentTypes(Partner $partner): array
     {
-        return $partner->isMinihouse() ? ['business_license'] : PartnerLegalDocument::HOMESTAY_REGISTRATION_REQUIRED;
+        return $partner->isMinihouse() && ! $partner->minihouseDocumentsFlow() ? ['business_license'] : PartnerLegalDocument::REGISTRATION_REQUIRED;
     }
 
     /** @return array<int, string> loại giấy tờ bắt buộc còn thiếu (chưa có tệp hoặc đã bị từ chối) */

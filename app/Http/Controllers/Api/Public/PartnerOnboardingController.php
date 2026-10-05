@@ -143,7 +143,9 @@ class PartnerOnboardingController extends Controller
         $partner = $this->service->submit($this->service->findByToken($token));
 
         return response()->json([
-            'message' => 'Đã gửi hồ sơ cho 365 Home. Sau khi giấy tờ được duyệt, hợp đồng sẽ được gửi về email của bạn để ký.',
+            'message' => $partner->usesContract()
+                ? 'Đã gửi hồ sơ cho 365 Home. Sau khi giấy tờ được duyệt, hợp đồng sẽ được gửi về email của bạn để ký.'
+                : 'Đã gửi giấy tờ cho 365 Home. Sau khi giấy tờ được duyệt, tài khoản dùng thử sẽ được gửi về email của bạn.',
             'data'    => $this->service->status($partner),
         ]);
     }

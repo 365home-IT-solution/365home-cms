@@ -99,7 +99,7 @@ class PartnerTable
                         try {
                             $result = app(\App\Services\PartnerOnboardingService::class)->approveSignup($record, auth()->user());
                         } catch (\Illuminate\Validation\ValidationException $e) {
-                            \Filament\Notifications\Notification::make()->title('Không duyệt được')->body(collect($e->errors())->flatten()->first())->danger()->send();
+                            \Filament\Notifications\Notification::make()->title('Không duyệt được')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->persistent()->send();
 
                             return;
                         }
