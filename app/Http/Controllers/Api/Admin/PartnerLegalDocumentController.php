@@ -7,7 +7,10 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Partner;
 use App\Models\PartnerLegalDocument;
+use App\Http\Controllers\Api\Public\PartnerOnboardingController;
+use App\Services\LegalDocumentScanService;
 use App\Services\PartnerLegalDocumentService;
+use App\Support\LegalDocumentFields;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +30,17 @@ class PartnerLegalDocumentController extends Controller
             'data' => $documents->map(fn ($document) => $this->format($document)),
             'verification' => $this->verification($partner),
             'document_types' => PartnerLegalDocument::TYPES,
+            // Bộ ô nhập riêng của ĐKKD / ANTT / PCCC (loại khác dùng form chung).
+            'document_forms' => LegalDocumentFields::schema(),
         ]);
+    }
+
+    // POST .../legal-documents/scan (multipart: type, file) — quét giấy tờ, trả giá trị GỢI Ý cho các ô của loại đó; không lưu gì.
+    public function scan(Request $request, Partner $partner, LegalDocumentScanService $scanner): JsonResponse
+    {
+        $this->authorizePartner($request, $partner);
+
+        return PartnerOnboardingController::scanResponse($request, $scanner);
     }
 
     public function show(Request $request, Partner $partner, PartnerLegalDocument $document): JsonResponse
@@ -46,7 +59,8 @@ class PartnerLegalDocumentController extends Controller
 
         $document = DB::transaction(function () use ($request, $partner, $data, $isSuperAdmin) {
             $document = $partner->legalDocuments()->create([
-                ...collect($data)->except('file', 'is_required')->all(),
+                ...collect($data)->except('file', 'is_required', ...LegalDocumentFields::allExtraKeys())->all(),
+                'extra' => LegalDocumentFields::extraFrom($data['type'], $data),
                 'is_required' => $data['type'] === 'business_license'
                     ? true
                     : ($isSuperAdmin ? (bool) ($data['is_required'] ?? false) : false),
@@ -79,7 +93,9 @@ class PartnerLegalDocumentController extends Controller
 
         DB::transaction(function () use ($request, $document, $data) {
             $document->update([
-                ...collect($data)->except('file')->all(),
+                ...collect($data)->except('file', ...LegalDocumentFields::allExtraKeys())->all(),
+                // Ô riêng: gửi ô nào cập nhật ô đó (gửi rỗng = xoá); đổi loại thì chỉ giữ các ô thuộc loại mới.
+                'extra' => LegalDocumentFields::extraFrom($data['type'] ?? $document->type, array_merge($document->extra ?? [], $data)),
                 'status' => 'draft',
                 'review_note' => null,
                 'reviewed_at' => null,
@@ -160,7 +176,7 @@ class PartnerLegalDocumentController extends Controller
 
     private function validateDocument(Request $request, bool $fileRequired = true): array
     {
-        return $request->validate([
+        return $request->validate(LegalDocumentFields::rules() + [
             'type' => [$fileRequired ? 'required' : 'sometimes', Rule::in(array_keys(PartnerLegalDocument::TYPES))],
             'building_id' => ['nullable', 'integer', Rule::exists('categories', 'id')],
             'name' => ['nullable', 'string', 'max:255'],
@@ -170,7 +186,7 @@ class PartnerLegalDocumentController extends Controller
             'expires_at' => ['nullable', 'date', 'after_or_equal:issued_at'],
             'is_required' => ['sometimes', 'boolean'],
             'file' => [$fileRequired ? 'required' : 'sometimes', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-        ]);
+        ], LegalDocumentFields::messages(), LegalDocumentFields::attributes());
     }
 
     private function validateBuildingScope(Partner $partner, array $data, ?PartnerLegalDocument $document = null): void
@@ -233,6 +249,10 @@ class PartnerLegalDocumentController extends Controller
             'issuer' => $document->issuer,
             'issued_at' => $document->issued_at?->toDateString(),
             'expires_at' => $document->expires_at?->toDateString(),
+            // Trường riêng theo loại (ĐKKD/ANTT/PCCC): `extra` = giá trị thô, `fields` = đủ các ô theo thứ tự form kèm nhãn để hiển thị.
+            'extra' => $document->extra ?? (object) [],
+            'fields' => LegalDocumentFields::display($document),
+            'fire_safety_stage' => $document->type === 'fire_safety' ? LegalDocumentFields::fireSafetyStage($document->document_number) : null,
             'is_expired' => $document->isExpired(),
             'is_required' => $document->is_required,
             'status' => $document->status,

@@ -6,6 +6,7 @@ namespace App\Filament\Resources\PartnerResource\RelationManagers;
 
 use App\Models\PartnerLegalDocument;
 use App\Services\PartnerLegalDocumentService;
+use App\Support\LegalDocumentFields;
 use Filament\Forms;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Forms\Form;
@@ -47,11 +48,26 @@ class LegalDocumentsRelationManager extends RelationManager
                 ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse() && ! $this->getOwnerRecord()->minihouseDocumentsFlow()
                     && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
                 ->searchable()->preload(),
-            Forms\Components\TextInput::make('name')->label('Tên giấy tờ')->maxLength(255),
-            Forms\Components\TextInput::make('document_number')->label('Số giấy tờ')->maxLength(100),
-            Forms\Components\TextInput::make('issuer')->label('Cơ quan cấp')->maxLength(255),
-            Forms\Components\DatePicker::make('issued_at')->label('Ngày cấp')->native(false),
-            Forms\Components\DatePicker::make('expires_at')->label('Ngày hết hạn')->native(false)->afterOrEqual('issued_at'),
+            // ĐKKD / ANTT / PCCC có BỘ Ô RIÊNG (App\Support\LegalDocumentFields): nhãn 3 ô chung đổi theo loại, các ô còn lại lưu ở cột `extra`.
+            // Loại khác giữ form chung (tên, số, cơ quan cấp, ngày cấp, ngày hết hạn).
+            Forms\Components\TextInput::make('name')->label('Tên giấy tờ')->maxLength(255)
+                ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
+            Forms\Components\TextInput::make('document_number')->maxLength(100)
+                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))['document_number'][0] ?? 'Số giấy tờ')
+                ->live(onBlur: true)
+                ->helperText(fn (Forms\Get $get) => $get('type') === 'fire_safety'
+                    ? (LegalDocumentFields::fireSafetyStage($get('document_number'))['label'] ?? 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).')
+                    : null),
+            Forms\Components\DatePicker::make('issued_at')->label('Ngày cấp')->native(false)->maxDate(now()),
+            Forms\Components\TextInput::make('issuer')->maxLength(255)
+                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))['issuer'][0] ?? 'Cơ quan cấp'),
+            ...array_map(fn (string $key) => ($key === 'business_lines' ? Forms\Components\Textarea::make("extra.{$key}")->rows(2)->maxLength(2000) : Forms\Components\TextInput::make("extra.{$key}")->maxLength(500))
+                ->label(fn (Forms\Get $get) => LegalDocumentFields::for($get('type'))[$key][0] ?? $key)
+                ->visible(fn (Forms\Get $get) => in_array($key, LegalDocumentFields::extraKeys($get('type')), true))
+                ->rules(LegalDocumentFields::rules()[$key])
+                ->validationMessages(['regex' => str_ends_with($key, '_id_number') ? 'Phải gồm 9 hoặc 12 chữ số.' : 'Số điện thoại không hợp lệ.']), LegalDocumentFields::allExtraKeys()),
+            Forms\Components\DatePicker::make('expires_at')->label('Ngày hết hạn')->native(false)->afterOrEqual('issued_at')
+                ->visible(fn (Forms\Get $get) => ! LegalDocumentFields::has($get('type'))),
             Forms\Components\Toggle::make('is_required')->label('Bắt buộc')->default(false)
                 ->disabled(fn (Forms\Get $get) => $get('type') === 'business_license')
                 ->dehydrated(),

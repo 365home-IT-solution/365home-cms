@@ -35,13 +35,15 @@ class PartnerLegalDocument extends Model implements HasMedia
     ];
 
     protected $fillable = [
-        'partner_id', 'building_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at',
+        'partner_id', 'building_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at', 'extra',
         'is_required', 'status', 'review_note', 'submitted_at', 'reviewed_at', 'reviewed_by', 'created_by',
     ];
 
     protected $casts = [
         'issued_at' => 'date',
         'expires_at' => 'date',
+        // Trường riêng theo loại giấy tờ (xem App\Support\LegalDocumentFields).
+        'extra' => 'array',
         'is_required' => 'boolean',
         'submitted_at' => 'datetime',
         'reviewed_at' => 'datetime',
