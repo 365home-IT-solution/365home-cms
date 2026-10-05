@@ -16,7 +16,7 @@
     {{-- Đăng ký hợp tác (Homestay / MiniHouse) — gọi API công khai /api/public/partner-onboarding. Mã hồ sơ lưu ở localStorage để quay lại làm tiếp. --}}
     <div class="bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-3xl"
-            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]))"
+            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]), @js(\App\Support\LegalDocumentFields::schema()))"
             x-init="init()">
 
             <div class="mb-6">
@@ -362,10 +362,44 @@
                         <div class="grid sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Loại giấy tờ <span class="text-red-500">*</span></label>
-                                <select x-model="doc.type" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
+                                <select x-model="doc.type" @change="resetDocFields()" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
                                     <template x-for="t in allowedDocTypes()" :key="t.value"><option :value="t.value" x-text="t.label"></option></template>
                                 </select>
                             </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Tệp <span class="text-red-500">*</span></label>
+                                <input type="file" x-ref="docFile" accept=".pdf,.jpg,.jpeg,.png,.webp" class="w-full text-sm">
+                                <p class="text-xs text-red-600 mt-1" x-show="errors.file || errors.type" x-text="err('file') || err('type')"></p>
+                            </div>
+                        </div>
+
+                        {{-- ĐKKD / ANTT / PCCC: BỘ Ô RIÊNG theo loại (App\Support\LegalDocumentFields) + nút quét để điền gợi ý. Loại khác dùng form chung bên dưới. --}}
+                        <div x-show="docForm()" x-cloak class="space-y-4">
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" :disabled="loading" @click="scanDoc()" class="rounded-lg border border-gray-900 text-gray-900 font-semibold px-4 py-2 hover:bg-gray-50 disabled:opacity-60" x-text="loading ? 'Đang xử lý...' : 'Quét giấy tờ để tự điền'"></button>
+                                <span class="text-xs text-gray-500">Hệ thống đọc tệp đã chọn và điền gợi ý vào các ô còn trống. Bạn cần kiểm tra lại trước khi tải lên.</span>
+                            </div>
+                            <ul class="list-disc pl-5 text-xs text-amber-700" x-show="scanWarnings.length">
+                                <template x-for="(w, i) in scanWarnings" :key="i"><li x-text="w"></li></template>
+                            </ul>
+                            <div class="grid sm:grid-cols-2 gap-4">
+                                <template x-for="f in (docForm() ? docForm().fields : [])" :key="doc.type + ':' + f.key">
+                                    <div :class="f.input === 'textarea' ? 'sm:col-span-2' : ''">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1" x-text="f.label"></label>
+                                        <template x-if="f.input === 'textarea'">
+                                            <textarea x-model="doc[f.key]" rows="2" maxlength="2000" class="w-full rounded-lg border border-gray-300 px-3 py-2.5"></textarea>
+                                        </template>
+                                        <template x-if="f.input !== 'textarea'">
+                                            <input :type="f.input" x-model="doc[f.key]" maxlength="500" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
+                                        </template>
+                                        <p class="text-xs text-gray-500 mt-1" x-show="doc.type === 'fire_safety' && f.key === 'document_number'" x-text="fireStage(doc.document_number) || 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).'"></p>
+                                        <p class="text-xs text-red-600 mt-1" x-show="errors[f.key]" x-text="err(f.key)"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="grid sm:grid-cols-2 gap-4" x-show="!docForm()">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Số giấy tờ</label>
                                 <input type="text" x-model="doc.document_number" maxlength="100" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
@@ -384,14 +418,9 @@
                                 <p class="text-xs text-red-600 mt-1" x-show="errors.expires_at" x-text="err('expires_at')"></p>
                             </div>
                         </div>
-                        <div>
+                        <div x-show="!docForm()">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Tên giấy tờ <span class="text-gray-400 font-normal" x-show="doc.type !== 'other'">(không bắt buộc)</span></label>
                             <input type="text" x-model="doc.name" maxlength="255" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tệp <span class="text-red-500">*</span></label>
-                            <input type="file" x-ref="docFile" accept=".pdf,.jpg,.jpeg,.png,.webp" class="w-full text-sm">
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.file || errors.type" x-text="err('file') || err('type')"></p>
                         </div>
                         <button type="submit" :disabled="loading" class="rounded-lg border border-gray-900 text-gray-900 font-semibold px-4 py-2 hover:bg-gray-50 disabled:opacity-60" x-text="loading ? 'Đang tải lên...' : 'Tải lên giấy tờ'"></button>
                     </form>
@@ -533,7 +562,7 @@
     </div>
 
     <script>
-        function partnerOnboarding(initialType, docTypes, provinces, termsRequired) {
+        function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms) {
             const KEY = '365home_partner_onboarding';
             const MH_KEY = '365home_minihouse_purchase';
             const API = '/api/public/partner-onboarding';
@@ -556,6 +585,7 @@
                 addrQuery: '', suggestions: [], suggestOpen: false, suggestLoading: false,
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
                 doc: { type: 'business_license', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' },
+                scanWarnings: [],
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 infoFields: [
@@ -785,6 +815,29 @@
                     if (this.errors.terms_version_id) { this.reg.accept_terms = false; await this.loadTerms(); }
                 },
 
+                // Bộ ô riêng của loại đang chọn (ĐKKD / ANTT / PCCC); loại khác → null = form chung.
+                docForm() { return (docForms || []).find((f) => f.type === this.doc.type) || null; },
+                // Đổi loại giấy tờ: xoá các ô đã nhập (mỗi loại có bộ ô khác nhau), giữ tệp đã chọn.
+                resetDocFields() { this.doc = { type: this.doc.type, name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' }; this.scanWarnings = []; },
+                // PCCC: tình trạng suy ra từ số văn bản (cùng quy tắc với server).
+                fireStage(number) {
+                    const t = String(number || '').toUpperCase().split(/[^A-Z0-9]+/);
+                    if (t.some((x) => ['NT', 'BB', 'GXN'].includes(x))) return 'Đã nghiệm thu: Chuẩn bị hoạt động';
+                    return t.includes('TD') ? 'Thẩm duyệt: Chưa hoạt động' : '';
+                },
+                // Quét tệp đã chọn → điền gợi ý vào các ô CÒN TRỐNG (không ghi đè ô khách đã nhập); không lưu gì cho tới khi bấm "Tải lên giấy tờ".
+                async scanDoc() {
+                    const file = this.$refs.docFile.files[0];
+                    if (!file) { this.errors = { file: ['Vui lòng chọn tệp trước khi quét.'] }; return; }
+                    const fd = new FormData();
+                    fd.append('type', this.doc.type); fd.append('file', file);
+                    const data = await this.call('POST', `${API}/${this.token}/documents/scan`, fd, true);
+                    if (!data || data._status) return;
+                    Object.entries(data.data.fields || {}).forEach(([k, v]) => { if (v && !this.doc[k]) this.doc[k] = v; });
+                    this.scanWarnings = data.data.warnings || [];
+                    this.flash(data.message, (data.data.found || 0) > 0);
+                },
+
                 async uploadDoc() {
                     const file = this.$refs.docFile.files[0];
                     if (!file) { this.errors = { file: ['Vui lòng chọn tệp.'] }; return; }
@@ -794,7 +847,7 @@
                     const data = await this.call('POST', `${API}/${this.token}/documents`, fd, true);
                     if (!data || data._status) return;
                     this.$refs.docFile.value = '';
-                    this.doc = { type: 'other', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' };
+                    this.doc = { type: 'other', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' }; this.scanWarnings = [];
                     await this.refresh();
                     this.flash('Đã tải lên giấy tờ.', true);
                 },

@@ -108,6 +108,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
             Route::get('/', [MinihousePartnerLegalDocumentController::class, 'index'])->name('index');
             Route::post('/', [MinihousePartnerLegalDocumentController::class, 'store'])->name('store');
             Route::post('submit', [MinihousePartnerLegalDocumentController::class, 'submit'])->name('submit');
+        // Quét giấy tờ để gợi ý giá trị các ô theo loại (không lưu) — khai báo TRƯỚC {document} để không bị bắt nhầm.
+        Route::post('scan', [MinihousePartnerLegalDocumentController::class, 'scan'])->middleware('throttle:20,1')->name('scan');
             Route::post('approve-dossier', [MinihousePartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
             Route::post('reject-dossier', [MinihousePartnerLegalDocumentController::class, 'rejectDossier'])->name('reject-dossier');
             Route::get('{document}', [MinihousePartnerLegalDocumentController::class, 'show'])->name('show');

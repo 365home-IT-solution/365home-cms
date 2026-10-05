@@ -48,12 +48,17 @@ Route::prefix('public')->name('api.minihouse-purchase.')->group(function () {
 // Điều khoản dịch vụ hiệu lực (hiển thị trước khi khách tick đồng ý khi đăng ký): slug = homestay | minihouse.
 Route::get('public/terms/{slug}', [\App\Http\Controllers\Api\Public\TermsController::class, 'current'])->middleware('throttle:public-api')->name('api.terms.current');
 
+// Loại giấy tờ pháp lý + bộ ô nhập riêng theo loại (ĐKKD / ANTT / PCCC) để client dựng form.
+Route::get('public/legal-document-types', [PartnerOnboardingController::class, 'documentTypes'])->middleware('throttle:public-api')->name('api.legal-document-types');
+
 Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->group(function () {
     Route::post('/', [PartnerOnboardingController::class, 'register'])->middleware('throttle:partner-onboarding-register')->name('register');
     Route::post('recover', [PartnerOnboardingController::class, 'recover'])->middleware('throttle:partner-onboarding-register')->name('recover');
     Route::middleware('throttle:partner-onboarding')->prefix('{token}')->group(function () {
         Route::get('/', [PartnerOnboardingController::class, 'show'])->name('show');
         Route::post('documents', [PartnerOnboardingController::class, 'storeDocument'])->name('documents.store');
+        // Quét giấy tờ để gợi ý giá trị các ô (gọi dịch vụ OCR bên ngoài → giới hạn riêng 10 lượt/phút).
+        Route::post('documents/scan', [PartnerOnboardingController::class, 'scanDocument'])->middleware('throttle:10,1')->name('documents.scan');
         Route::delete('documents/{document}', [PartnerOnboardingController::class, 'destroyDocument'])->name('documents.destroy');
         Route::put('contract-info', [PartnerOnboardingController::class, 'updateContractInfo'])->name('contract-info');
         Route::post('submit', [PartnerOnboardingController::class, 'submit'])->name('submit');

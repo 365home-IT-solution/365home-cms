@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Api\Public;
 use App\Http\Controllers\Controller;
 use App\Models\Partner;
 use App\Models\PartnerLegalDocument;
+use App\Services\LegalDocumentScanService;
 use App\Services\PartnerOnboardingService;
+use App\Support\LegalDocumentFields;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -74,11 +76,52 @@ class PartnerOnboardingController extends Controller
         return response()->json(['data' => $this->service->status($this->service->findByToken($token))]);
     }
 
+    // GET /api/public/legal-document-types — loại giấy tờ + BỘ Ô NHẬP RIÊNG của ĐKKD / ANTT / PCCC để client dựng form (loại khác dùng form chung).
+    public function documentTypes(): JsonResponse
+    {
+        return response()->json(['data' => [
+            'types'              => collect(PartnerLegalDocument::TYPES)->map(fn ($label, $type) => ['type' => $type, 'label' => $label, 'has_form' => LegalDocumentFields::has($type)])->values(),
+            'forms'              => LegalDocumentFields::schema(),
+            'fire_safety_stages' => LegalDocumentFields::FIRE_SAFETY_STAGES,
+        ]]);
+    }
+
+    // POST /api/public/partner-onboarding/{token}/documents/scan (multipart: type, file) — QUÉT giấy tờ, trả giá trị GỢI Ý cho các ô của loại đó.
+    // Không lưu gì: client điền vào form cho khách kiểm tra/sửa rồi mới gọi POST .../documents.
+    public function scanDocument(Request $request, string $token, LegalDocumentScanService $scanner): JsonResponse
+    {
+        $this->service->findByToken($token);
+
+        return self::scanResponse($request, $scanner);
+    }
+
+    /** Dùng chung cho API quét công khai và admin. */
+    public static function scanResponse(Request $request, LegalDocumentScanService $scanner): JsonResponse
+    {
+        $data = $request->validate([
+            'type' => ['required', Rule::in(array_keys(LegalDocumentFields::FIELDS))],
+            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.'], PartnerOnboardingService::LABELS);
+
+        abort_unless($scanner->isConfigured(), 503, 'Chức năng quét giấy tờ chưa được cấu hình. Vui lòng tự nhập thông tin.');
+
+        $result = $scanner->scan($request->file('file'), $data['type']);
+
+        return response()->json([
+            'message' => match (true) {
+                ! $result['text_found'] => 'Không đọc được nội dung tệp. Vui lòng tự nhập thông tin.',
+                $result['found'] === 0  => 'Chưa nhận ra thông tin nào trên giấy tờ. Vui lòng tự nhập.',
+                default                 => "Đã đọc được {$result['found']}/{$result['total']} ô. Vui lòng kiểm tra lại trước khi nộp.",
+            },
+            'data' => collect($result)->except('text_found')->all(),
+        ]);
+    }
+
     // POST /api/public/partner-onboarding/{token}/documents (multipart)
     public function storeDocument(Request $request, string $token): JsonResponse
     {
         $partner = $this->service->findByToken($token);
-        $data = $request->validate([
+        $data = $request->validate(LegalDocumentFields::rules() + [
             'type'            => ['required', Rule::in(array_keys(PartnerLegalDocument::TYPES))],
             'name'            => ['nullable', 'string', 'max:255'],
             'document_number' => ['nullable', 'string', 'max:100'],
@@ -86,11 +129,11 @@ class PartnerOnboardingController extends Controller
             'issued_at'       => ['nullable', 'date', 'before_or_equal:today'],
             'expires_at'      => ['nullable', 'date', 'after_or_equal:issued_at', 'after:today'],
             'file'            => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-        ], [
+        ], LegalDocumentFields::messages() + [
             'issued_at.before_or_equal' => 'Ngày cấp không được ở tương lai.',
             'expires_at.after' => 'Giấy tờ đã hết hạn — vui lòng nộp giấy tờ còn hiệu lực.',
             'expires_at.after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày cấp.',
-        ], PartnerOnboardingService::LABELS);
+        ], PartnerOnboardingService::LABELS + LegalDocumentFields::attributes());
 
         $document = $this->service->addDocument($partner, $data, $request->file('file'));
 

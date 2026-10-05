@@ -122,6 +122,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
         Route::get('/', [PartnerLegalDocumentController::class, 'index'])->name('index');
         Route::post('/', [PartnerLegalDocumentController::class, 'store'])->name('store');
         Route::post('submit', [PartnerLegalDocumentController::class, 'submit'])->name('submit');
+        // Quét giấy tờ để gợi ý giá trị các ô theo loại (không lưu) — khai báo TRƯỚC {document} để không bị bắt nhầm.
+        Route::post('scan', [PartnerLegalDocumentController::class, 'scan'])->middleware('throttle:20,1')->name('scan');
         Route::post('approve-dossier', [PartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
         Route::post('reject-dossier', [PartnerLegalDocumentController::class, 'rejectDossier'])->name('reject-dossier');
         Route::get('{document}', [PartnerLegalDocumentController::class, 'show'])->name('show');
