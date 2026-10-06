@@ -18,8 +18,8 @@ class PartnerLegalDocumentService
         $documents = $partner->legalDocuments()->with('media')->get();
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
-        // Đăng ký trên website (Homestay, MiniHouse đăng ký dùng thử): bắt buộc cả An toàn an ninh và Phòng cháy chữa cháy; còn lại chỉ Giấy phép kinh doanh.
-        $requiredTypes = $partner->requiresRegistrationDocuments() ? PartnerLegalDocument::REGISTRATION_REQUIRED : ['business_license'];
+        // Đăng ký trên website (Homestay, MiniHouse đăng ký dùng thử): bắt buộc theo config partner_flow.registration_required_documents; còn lại chỉ Giấy phép kinh doanh.
+        $requiredTypes = $partner->requiresRegistrationDocuments() ? PartnerLegalDocument::registrationRequiredFor($partner) : ['business_license'];
 
         foreach ($requiredTypes as $requiredType) {
             $matching = $documents->where('type', $requiredType)->whereNull('building_id');

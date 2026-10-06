@@ -19,8 +19,10 @@ use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
-// MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp Giấy phép kinh doanh + ANTT + PCCC (cấp đối tác,
-// như Homestay) → gửi duyệt → Super Admin duyệt → tặng dùng thử + cấp tài khoản. Nhánh thanh toán gói ngay KHÔNG đổi.
+// MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp giấy tờ bắt buộc cấp đối tác → gửi duyệt
+// → Super Admin duyệt → tặng dùng thử + cấp tài khoản. Nhánh thanh toán gói ngay KHÔNG đổi.
+// Giấy tờ bắt buộc bật/tắt ở config partner_flow.registration_required_documents: mặc định MiniHouse chỉ ĐKKD, Homestay ĐKKD + ANTT.
+// Các test luồng cũ bật lại đủ 3 giấy tờ (ĐKKD + ANTT + PCCC) trong setUp.
 // Gói test có giá 0đ nên nhánh thanh toán chỉ ghi nhận yêu cầu, KHÔNG gọi PayOS thật.
 class MinihouseTrialDocumentsTest extends TestCase
 {
@@ -38,6 +40,7 @@ class MinihouseTrialDocumentsTest extends TestCase
             'partner_flow.minihouse_trial_documents_required' => true,
             'partner_flow.minihouse_contract_enabled' => false,
             'partner_flow.minihouse_signup_trial_months' => 1,
+            'partner_flow.registration_required_documents.minihouse' => PartnerLegalDocument::REGISTRATION_REQUIRED,
         ]);
         Storage::fake('local');
         $this->withoutMiddleware(ThrottleRequests::class);
@@ -98,6 +101,35 @@ class MinihouseTrialDocumentsTest extends TestCase
             ->assertJsonPath('data.stage', 'trial')
             ->assertJsonPath('data.account.created', true)
             ->assertJsonPath('data.dossier', null);
+    }
+
+    public function test_minihouse_only_needs_the_business_license_by_default(): void
+    {
+        config(['partner_flow.registration_required_documents' => (require config_path('partner_flow.php'))['registration_required_documents']]);
+        $this->assertSame(['business_license'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_MINIHOUSE));
+        $this->assertSame(['business_license', 'security_order'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_HOMESTAY));
+
+        [$token, $partner] = $this->register('0970000106', 'mh-docs-dkkd@example.test');
+        $this->getJson("/api/public/minihouse-purchase/{$token}")
+            ->assertJsonPath('data.stage', 'documents')
+            ->assertJsonCount(1, 'data.dossier.required_documents')
+            ->assertJsonPath('data.dossier.required_documents.0.type', 'business_license');
+        $this->getJson('/api/public/legal-document-types')
+            ->assertJsonPath('data.required.minihouse', ['business_license'])
+            ->assertJsonPath('data.required.homestay', ['business_license', 'security_order']);
+
+        // Chỉ cần ĐKKD là gửi duyệt được; PCCC vẫn nộp được nhưng không bắt buộc.
+        $this->upload($token, 'business_license');
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.dossier.can_submit', true);
+        $this->upload($token, 'fire_safety');
+        $this->assertFalse((bool) $partner->legalDocuments()->where('type', 'fire_safety')->firstOrFail()->is_required);
+        $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
+
+        // Duyệt riêng ĐKKD là đủ điều kiện duyệt hồ sơ → tặng dùng thử + cấp tài khoản (PCCC tuỳ chọn chưa duyệt không chặn).
+        $license = $partner->legalDocuments()->where('type', 'business_license')->firstOrFail();
+        app(PartnerLegalDocumentService::class)->review($license, 'approved', null, $this->admin);
+        app(PartnerLegalDocumentService::class)->approveDossier($partner->fresh(), $this->admin);
+        $this->assertTrue($partner->fresh()->users()->exists());
     }
 
     public function test_changes_requested_reopens_the_dossier_for_editing(): void

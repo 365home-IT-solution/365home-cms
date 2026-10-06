@@ -47,11 +47,25 @@ class PartnerLegalDocument extends Model implements HasMedia
         'reviewed_at' => 'datetime',
     ];
 
-    // Đối tác đăng ký trên website (Homestay, và MiniHouse đăng ký dùng thử) BẮT BUỘC nộp đủ 3 loại cấp đối tác:
-    // Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC). Xem Partner::requiresRegistrationDocuments().
+    // Các loại giấy tờ cấp đối tác CÓ THỂ bắt buộc khi đăng ký trên website: Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC).
+    // Loại nào THỰC SỰ bắt buộc với từng loại đối tác được bật/tắt ở config partner_flow.registration_required_documents — xem registrationRequiredFor().
     public const REGISTRATION_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
 
     public const HOMESTAY_REGISTRATION_REQUIRED = self::REGISTRATION_REQUIRED;
+
+    /**
+     * Giấy tờ BẮT BUỘC khi đăng ký trên website theo loại đối tác (Homestay / MiniHouse đăng ký dùng thử), đọc từ config.
+     * Giấy phép kinh doanh luôn bắt buộc; loại lạ trong config bị bỏ qua; thứ tự theo REGISTRATION_REQUIRED.
+     *
+     * @return array<int, string>
+     */
+    public static function registrationRequiredFor(Partner|string|null $partner): array
+    {
+        $partnerType = $partner instanceof Partner ? $partner->partner_type : $partner;
+        $configured = (array) config('partner_flow.registration_required_documents.'.($partnerType === Partner::TYPE_MINIHOUSE ? 'minihouse' : 'homestay'), self::REGISTRATION_REQUIRED);
+
+        return array_values(array_filter(self::REGISTRATION_REQUIRED, fn (string $type) => $type === 'business_license' || in_array($type, $configured, true)));
+    }
 
     // ĐKKD / ANTT / PCCC có BỘ CỘT RIÊNG theo loại (dkkd_* / antt_* / pccc_* — App\Support\LegalDocumentFields): cho phép gán hàng loạt và cast cột ngày.
     public function getFillable()
@@ -86,7 +100,7 @@ class PartnerLegalDocument extends Model implements HasMedia
             }
 
             $isRegistrationRequired = $document->partner?->requiresRegistrationDocuments() && ! $document->building_id
-                && in_array($document->type, self::REGISTRATION_REQUIRED, true);
+                && in_array($document->type, self::registrationRequiredFor($document->partner), true);
 
             if ($document->type === 'business_license' || $isMinihouseBuildingDocument || $isRegistrationRequired) {
                 $document->is_required = true;

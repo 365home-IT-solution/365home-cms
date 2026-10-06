@@ -164,7 +164,7 @@ class PartnerOnboardingService
                 $url = route('partner-onboarding.page') . '?mh=' . $token;
                 $this->mailPartner($partner, 'Đã nhận đăng ký MiniHouse — chờ 365 Home duyệt', '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p><p>365 Home đã nhận đăng ký MiniHouse của <strong>' . e($partner->name) . '</strong>. '
                     . (config('partner_flow.minihouse_trial_documents_required') && ! config('partner_flow.minihouse_contract_enabled')
-                        ? "Để được duyệt dùng thử, vui lòng nộp đủ giấy tờ pháp lý (Giấy phép kinh doanh, Giấy chứng nhận an ninh trật tự, Hồ sơ phòng cháy chữa cháy) rồi gửi duyệt tại: <a href=\"{$url}\">{$url}</a></p><p>"
+                        ? 'Để được duyệt dùng thử, vui lòng nộp đủ giấy tờ pháp lý (' . e(self::requiredDocumentLabels(Partner::TYPE_MINIHOUSE)) . ") rồi gửi duyệt tại: <a href=\"{$url}\">{$url}</a></p><p>"
                         : '')
                     . 'Sau khi được duyệt, tài khoản đăng nhập và mật khẩu sẽ được gửi về email này.</p>');
             }
@@ -203,7 +203,7 @@ class PartnerOnboardingService
         if (! $this->awaitingSignupApproval($partner)) {
             throw ValidationException::withMessages(['partner' => 'Đăng ký này không ở trạng thái chờ duyệt.']);
         }
-        // Đăng ký dùng thử có bước giấy tờ: chỉ duyệt khi đủ 3 giấy tờ bắt buộc đã được duyệt và còn hạn.
+        // Đăng ký dùng thử có bước giấy tờ: chỉ duyệt khi đủ giấy tờ bắt buộc đã được duyệt và còn hạn.
         if ($partner->minihouseDocumentsFlow()) {
             $readiness = $this->documents->readiness($partner);
             if (! $readiness['ready']) {
@@ -930,12 +930,19 @@ class PartnerOnboardingService
     }
 
     /**
-     * Loại giấy tờ BẮT BUỘC khi đăng ký: Homestay và MiniHouse đăng ký dùng thử = Giấy phép kinh doanh + An toàn an ninh + Phòng cháy chữa cháy;
-     * MiniHouse đăng ký kiểu hợp đồng (MINIHOUSE_CONTRACT_ENABLED) chỉ Giấy phép kinh doanh (giấy tờ toà nhà bổ sung sau).
+     * Loại giấy tờ BẮT BUỘC khi đăng ký: Homestay và MiniHouse đăng ký dùng thử theo config partner_flow.registration_required_documents
+     * (hiện tại Homestay = ĐKKD + ANTT, MiniHouse = ĐKKD); MiniHouse đăng ký kiểu hợp đồng (MINIHOUSE_CONTRACT_ENABLED) chỉ Giấy phép kinh doanh
+     * (giấy tờ toà nhà bổ sung sau).
      */
     private function requiredDocumentTypes(Partner $partner): array
     {
-        return $partner->isMinihouse() && ! $partner->minihouseDocumentsFlow() ? ['business_license'] : PartnerLegalDocument::REGISTRATION_REQUIRED;
+        return $partner->isMinihouse() && ! $partner->minihouseDocumentsFlow() ? ['business_license'] : PartnerLegalDocument::registrationRequiredFor($partner);
+    }
+
+    /** Nhãn các giấy tờ bắt buộc khi đăng ký của một loại đối tác, nối bằng dấu phẩy — dùng cho email và trang đăng ký. */
+    public static function requiredDocumentLabels(string $partnerType): string
+    {
+        return implode(', ', array_map(fn (string $type) => PartnerLegalDocument::TYPES[$type] ?? $type, PartnerLegalDocument::registrationRequiredFor($partnerType)));
     }
 
     /** @return array<int, string> loại giấy tờ bắt buộc còn thiếu (chưa có tệp hoặc đã bị từ chối) */

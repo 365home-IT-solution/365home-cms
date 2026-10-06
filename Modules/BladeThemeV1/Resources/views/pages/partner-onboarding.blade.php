@@ -8,15 +8,19 @@
 
     @php
         $docTypes = collect(\App\Models\PartnerLegalDocument::TYPES)->map(fn ($label, $key) => ['value' => $key, 'label' => $label])->values();
-        // MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp 3 giấy tờ → gửi duyệt → duyệt xong mới tặng dùng thử.
+        // MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp giấy tờ bắt buộc → gửi duyệt → duyệt xong mới tặng dùng thử.
         $mhDocs = (bool) config('partner_flow.minihouse_trial_documents_required') && ! config('partner_flow.minihouse_contract_enabled');
+        // Giấy tờ BẮT BUỘC khi đăng ký theo loại đối tác (bật/tắt ở config partner_flow.registration_required_documents).
+        $requiredDocLabels = collect([\App\Models\Partner::TYPE_HOMESTAY, \App\Models\Partner::TYPE_MINIHOUSE])->mapWithKeys(fn ($type) => [
+            $type => array_map(fn ($doc) => \App\Models\PartnerLegalDocument::TYPES[$doc] ?? $doc, \App\Models\PartnerLegalDocument::registrationRequiredFor($type)),
+        ]);
         $provinceOptions = \App\Models\Province::query()->whereNotNull('code')->orderBy('name')->get(['code', 'name'])->map(fn ($p) => ['code' => $p->code, 'name' => $p->name])->values();
     @endphp
 
     {{-- Đăng ký hợp tác (Homestay / MiniHouse) — gọi API công khai /api/public/partner-onboarding. Mã hồ sơ lưu ở localStorage để quay lại làm tiếp. --}}
     <div class="bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-3xl"
-            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]), @js(\App\Support\LegalDocumentFields::schema()))"
+            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]), @js(\App\Support\LegalDocumentFields::schema()), @js($requiredDocLabels))"
             x-init="init()">
 
             <div class="mb-6">
@@ -165,7 +169,7 @@
                     {{-- Lần đầu được TẶNG dùng thử: không chọn gói, không thanh toán lúc đăng ký — chọn gói/thanh toán sau khi đăng nhập. --}}
                     <div x-show="minihouseMode && trialMonths > 0" x-cloak class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 space-y-1">
                         <p class="font-semibold">Tặng dùng thử <span x-text="trialMonths"></span> tháng cho lần đăng ký đầu tiên.</p>
-                        <p>Bạn không cần chọn gói hay thanh toán lúc đăng ký. @if ($mhDocs) Bước tiếp theo là nộp 3 giấy tờ pháp lý (giấy phép kinh doanh, an ninh trật tự, phòng cháy chữa cháy); sau khi 365 Home duyệt giấy tờ, @else Sau khi 365 Home duyệt, @endif tài khoản và mật khẩu sẽ gửi về email; hết thời gian dùng thử, đăng nhập để chọn gói và thanh toán.</p>
+                        <p>Bạn không cần chọn gói hay thanh toán lúc đăng ký. @if ($mhDocs) Bước tiếp theo là nộp giấy tờ pháp lý bắt buộc ({{ implode(', ', $requiredDocLabels[\App\Models\Partner::TYPE_MINIHOUSE]) }}); sau khi 365 Home duyệt giấy tờ, @else Sau khi 365 Home duyệt, @endif tài khoản và mật khẩu sẽ gửi về email; hết thời gian dùng thử, đăng nhập để chọn gói và thanh toán.</p>
                     </div>
                     <div x-show="minihouseMode && trialMonths === 0" x-cloak class="space-y-4">
                         <div class="text-sm font-medium text-gray-700">Gói dịch vụ MiniHouse <span class="text-red-500">*</span></div>
@@ -340,7 +344,7 @@
                             </div>
                         </template>
                         <ul class="list-disc pl-5 text-gray-700" x-show="!status">
-                            <li>Giấy phép kinh doanh</li><li>Giấy chứng nhận an ninh, trật tự</li><li>Hồ sơ phòng cháy chữa cháy</li>
+                            <template x-for="label in requiredDocLabels[purchase || reg.partner_type === 'minihouse' ? 'minihouse' : 'homestay']" :key="label"><li x-text="label"></li></template>
                         </ul>
                         <p class="text-gray-600">Giấy tờ cần còn hiệu lực (nếu có ngày hết hạn). Chọn đúng <strong>Loại giấy tờ</strong> khi tải lên để 365 HOME duyệt nhanh. Hồ sơ chỉ được phê duyệt khi mọi giấy tờ bắt buộc đã được duyệt.</p>
                         <p class="text-gray-500">Giấy tờ khác (đăng ký thuế, giấy phép/công nhận cơ sở lưu trú, giấy uỷ quyền người ký...) không bắt buộc nhưng nên nộp.</p>
@@ -427,7 +431,7 @@
                     <div class="flex justify-end">
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
                             x-show="!purchase" :disabled="!status || !status.steps.documents_uploaded" @click="go(2)">Tiếp tục</button>
-                        {{-- MiniHouse đăng ký dùng thử: không có bước thông tin hợp đồng — đủ 3 giấy tờ bắt buộc là gửi duyệt luôn. --}}
+                        {{-- MiniHouse đăng ký dùng thử: không có bước thông tin hợp đồng — đủ giấy tờ bắt buộc là gửi duyệt luôn. --}}
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
                             x-show="purchase" x-cloak :disabled="loading || !status || !status.steps.documents_uploaded" @click="submitDossier()" x-text="loading ? 'Đang gửi...' : 'Gửi giấy tờ chờ duyệt'"></button>
                     </div>
@@ -562,7 +566,7 @@
     </div>
 
     <script>
-        function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms) {
+        function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms, requiredDocLabels) {
             const KEY = '365home_partner_onboarding';
             const MH_KEY = '365home_minihouse_purchase';
             const API = '/api/public/partner-onboarding';
@@ -603,6 +607,7 @@
                     { key: 'business_license_issuer', label: 'Nơi cấp giấy phép kinh doanh' },
                 ],
 
+                requiredDocLabels,
                 get editable() { return !!this.status && ['registered', 'documents_uploaded', 'ready_to_submit', 'changes_requested'].includes(this.status.stage); },
                 err(k) { return this.errors[k] ? this.errors[k][0] : ''; },
                 flash(msg, ok = false) { this.message = msg; this.messageOk = ok; },
@@ -729,7 +734,7 @@
                     if (data.data.dossier) {
                         this.token = data.data.purchase_token;
                         await this.refresh();
-                        this.flash('Đã tạo hồ sơ. Tiếp theo, tải lên 3 giấy tờ pháp lý rồi gửi duyệt.', true);
+                        this.flash('Đã tạo hồ sơ. Tiếp theo, tải lên giấy tờ pháp lý bắt buộc rồi gửi duyệt.', true);
                     } else {
                         this.flash('', true);
                     }

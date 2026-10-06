@@ -198,7 +198,7 @@ class Partner extends Model implements HasMedia
         return $this->usesContract() || $this->minihouseDocumentsFlow();
     }
 
-    /** Đăng ký trên website phải nộp đủ giấy tờ cấp đối tác (PartnerLegalDocument::REGISTRATION_REQUIRED): Homestay và MiniHouse đăng ký dùng thử. */
+    /** Đăng ký trên website phải nộp đủ giấy tờ cấp đối tác (PartnerLegalDocument::registrationRequiredFor()): Homestay và MiniHouse đăng ký dùng thử. */
     public function requiresRegistrationDocuments(): bool
     {
         return filled($this->onboarding_token) && (! $this->isMinihouse() || $this->minihouseDocumentsFlow());

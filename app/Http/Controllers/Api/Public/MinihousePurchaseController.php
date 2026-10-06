@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 // MiniHouse: MUA GÓI RỒI DÙNG — không đăng ký đối tác, không ký hợp đồng.
-// ĐĂNG KÝ DÙNG THỬ (lần đầu) có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED, mặc định bật): nộp Giấy phép kinh doanh + ANTT + PCCC → gửi duyệt
+// ĐĂNG KÝ DÙNG THỬ (lần đầu) có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED, mặc định bật): nộp giấy tờ bắt buộc (config partner_flow.registration_required_documents, hiện chỉ ĐKKD) → gửi duyệt
 // → Super Admin duyệt giấy tờ → tặng dùng thử + cấp tài khoản. Nộp/xoá giấy tờ, gửi duyệt, rút hồ sơ dùng chung API
 // /api/public/partner-onboarding/{token}/documents|submit|withdraw với token = purchase_token. Nhánh thanh toán gói ngay không đổi.
 // Khách chọn gói + số tháng, nhập thông tin liên hệ → hệ thống tạo hồ sơ chờ thanh toán + giao dịch PayOS (QR/link).

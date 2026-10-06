@@ -82,6 +82,11 @@ class PartnerOnboardingController extends Controller
         return response()->json(['data' => [
             'types'              => collect(PartnerLegalDocument::TYPES)->map(fn ($label, $type) => ['type' => $type, 'label' => $label, 'has_form' => LegalDocumentFields::has($type)])->values(),
             'forms'              => LegalDocumentFields::schema(),
+            // Giấy tờ bắt buộc khi đăng ký theo loại đối tác (config partner_flow.registration_required_documents).
+            'required'           => [
+                Partner::TYPE_HOMESTAY  => PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_HOMESTAY),
+                Partner::TYPE_MINIHOUSE => PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_MINIHOUSE),
+            ],
             'fire_safety_stages' => LegalDocumentFields::FIRE_SAFETY_STAGES,
         ]]);
     }
