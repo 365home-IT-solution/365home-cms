@@ -321,7 +321,7 @@
                                     <h3 x-text="slot.label"></h3>
                                     <span class="pod-badge" x-text="slot.required ? 'Bắt buộc' : 'Không bắt buộc'"></span>
                                 </div>
-                                <span class="pod-state" x-text="slot.uploaded ? 'Đã gửi' : 'Chưa gửi'"></span>
+                                <span class="pod-state" :class="!slot.uploaded && docPending(slot.type) ? 'is-pending' : ''" x-text="slot.uploaded ? 'Đã gửi' : (docPending(slot.type) ? 'Đã chọn tệp' : 'Chưa gửi')"></span>
                             </div>
                             <template x-for="d in slot.docs" :key="d.id">
                                 <div class="pod-file" :class="d.status === 'rejected' || d.status === 'changes_requested' ? 'is-problem' : ''">
@@ -333,7 +333,7 @@
                                     <button type="button" class="pod-link-danger" x-show="['draft','changes_requested','rejected'].includes(d.status) && editable" @click="removeDoc(d.id)">Xoá</button>
                                 </div>
                             </template>
-                            <form @submit.prevent="uploadDoc(slot.type)" class="pod-form" x-show="editable && !slot.uploaded">
+                            <form @submit.prevent class="pod-form" x-show="editable && !slot.uploaded">
                                 {{-- CCCD: chỉ nhận ẢNH và BẮT BUỘC đọc được mã QR trên thẻ (server kiểm tra lại khi nộp). --}}
                                 <p class="pod-hint" x-show="slot.type === 'citizen_id'">Chụp rõ <strong>mặt thẻ có mã QR</strong> của người đại diện: chụp thẳng, đủ sáng, lấy trọn cả thẻ. Hệ thống phải đọc được mã QR thì mới nhận.</p>
                                 {{-- Ô chọn tệp tự dựng (input thật ẩn bên trong label) thay cho nút mặc định của trình duyệt. --}}
@@ -368,9 +368,8 @@
                                             </div>
                                         </template>
                                     </div>
-                                    <div class="pod-actions">
-                                        <button type="submit" :disabled="loading" class="pod-submit" x-text="loading ? 'Đang tải lên...' : 'Tải lên giấy tờ'"></button>
-                                    </div>
+                                    {{-- Không có nút tải lên riêng từng giấy tờ: mọi tệp đã chọn được tải lên cùng lúc khi bấm nút ở cuối bước này. --}}
+                                    <p class="pod-note pod-note-pending" x-text="'Giấy tờ này sẽ được tải lên khi bạn bấm “' + (purchase ? 'Gửi giấy tờ chờ duyệt' : 'Tiếp tục') + '” ở cuối trang.'"></p>
                                 </div>
                             </form>
                         </div>
@@ -390,10 +389,10 @@
                     </ul>
                     <div class="flex justify-end">
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
-                            x-show="!purchase" :disabled="!status || !status.steps.documents_uploaded" @click="go(2)">Tiếp tục</button>
-                        {{-- MiniHouse đăng ký dùng thử: không có bước thông tin hợp đồng — đủ giấy tờ bắt buộc là gửi duyệt luôn. --}}
+                            x-show="!purchase" :disabled="loading || docsUploading || !docsReady" @click="continueDocs()" x-text="docsUploading ? 'Đang tải giấy tờ lên...' : 'Tiếp tục'"></button>
+                        {{-- MiniHouse đăng ký dùng thử: không có bước thông tin hợp đồng — đủ giấy tờ bắt buộc là gửi duyệt luôn (tải các tệp đã chọn lên rồi gửi duyệt trong một lần bấm). --}}
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
-                            x-show="purchase" x-cloak :disabled="loading || !status || !status.steps.documents_uploaded" @click="submitDossier()" x-text="loading ? 'Đang gửi...' : 'Gửi giấy tờ chờ duyệt'"></button>
+                            x-show="purchase" x-cloak :disabled="loading || docsUploading || !docsReady" @click="submitDocs()" x-text="docsUploading ? 'Đang tải giấy tờ lên...' : (loading ? 'Đang gửi...' : 'Gửi giấy tờ chờ duyệt')"></button>
                     </div>
                 </div>
 
@@ -580,10 +579,8 @@
         .pod-note { margin:0; font-size:12px; color:#6b7280; line-height:1.5; }
         .pod-error { margin:6px 0 0; font-size:13px; color:#dc2626; line-height:1.45; }
         .pod-warnings { margin:0; padding:10px 14px 10px 30px; list-style:disc; font-size:12px; line-height:1.5; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; }
-        .pod-actions { display:flex; justify-content:flex-end; padding-top:4px; }
-        .pod-submit { background:#111827; color:#fff; font-size:14px; font-weight:600; padding:11px 22px; border-radius:10px; border:0; cursor:pointer; transition:background .15s; }
-        .pod-submit:hover { background:#1f2937; }
-        .pod-submit:disabled { opacity:.6; cursor:not-allowed; }
+        .pod-state.is-pending { background:#eff6ff; color:#1d4ed8; }
+        .pod-note-pending { color:#1d4ed8; }
         .pod-file { margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:12px; background:#f0fdf4; border:1px solid #dcfce7; }
         .pod-file.is-problem { background:#fef2f2; border-color:#fecaca; }
         .pod-file-info { min-width:0; }
@@ -624,7 +621,7 @@
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
                 // Mỗi loại giấy tờ một form riêng (thẻ): giá trị các ô, tên tệp đã chọn, cảnh báo quét. Tệp thật giữ ngoài state (docFiles) vì Alpine bọc proxy.
                 docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', warnings: [], scanning: false }])),
-                docErrorType: null,
+                docErrorType: null, docsUploading: false,
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 infoFields: [
@@ -859,7 +856,7 @@
                 },
                 // CCCD: các ô lấy từ mã QR bị khoá (server cũng ghi đè bằng dữ liệu QR); chỉ "Nơi cấp" tự nhập.
                 qrLocked(type, key) { return type === 'citizen_id' && key !== 'cccd_issuer'; },
-                // Chọn tệp cho một thẻ → TỰ QUÉT và điền gợi ý vào các ô của loại đó (không lưu gì cho tới khi bấm "Tải lên giấy tờ").
+                // Chọn tệp cho một thẻ → TỰ QUÉT và điền gợi ý vào các ô của loại đó (không lưu gì cho tới khi bấm nút cuối bước: "Tiếp tục" hoặc "Gửi giấy tờ chờ duyệt").
                 // Quét lỗi/không đọc được thì khách vẫn tự nhập và tải lên bình thường.
                 async pickDocFile(type, event) {
                     const file = event.target.files[0], d = this.docs[type];
@@ -881,21 +878,56 @@
                     this.flash(data.message, (data.data.found || 0) > 0);
                 },
 
+                // Giấy tờ đã chọn tệp (và quét xong) nhưng CHƯA tải lên — sẽ được tải khi bấm nút cuối bước.
+                docPending(type) { const d = this.docs[type]; return !!d && !!d.fileName && !d.scanning; },
+                // Đủ điều kiện bấm nút cuối bước: mọi giấy tờ bắt buộc đã gửi hoặc đã chọn tệp, và không còn tệp nào đang quét.
+                get docsReady() {
+                    const slots = this.docSlots();
+                    return slots.length > 0 && slots.every((s) => !s.required || s.uploaded || this.docPending(s.type)) && !slots.some((s) => this.docs[s.type].scanning);
+                },
+                // Tải lên MỘT giấy tờ đã chọn. Trả true nếu thành công; lỗi thì hiện ngay dưới thẻ của giấy tờ đó.
                 async uploadDoc(type) {
                     const file = docFiles[type], d = this.docs[type];
                     this.docErrorType = type;
-                    if (!file) { this.errors = { file: ['Vui lòng chọn tệp.'] }; return; }
+                    if (!file) { this.errors = { file: ['Vui lòng chọn tệp.'] }; return false; }
                     const fd = new FormData();
                     fd.append('type', type);
                     Object.entries(d.values).forEach(([k, v]) => { if (v) fd.append(k, v); });
                     fd.append('file', file);
                     const data = await this.call('POST', `${API}/${this.token}/documents`, fd, true);
-                    if (!data || data._status) return;
+                    if (!data || data._status) return false;
                     if (docInputs[type]) docInputs[type].value = '';
                     docFiles[type] = null;
                     this.docs[type] = { values: {}, fileName: '', warnings: [], scanning: false };
-                    await this.refresh();
-                    this.flash('Đã tải lên giấy tờ.', true);
+                    return true;
+                },
+                // Tải lên LẦN LƯỢT mọi giấy tờ đã chọn tệp. Một giấy tờ lỗi thì dừng lại ở đó (các giấy tờ trước đã lưu), giữ nguyên thông báo lỗi của nó.
+                async uploadPendingDocs() {
+                    this.docsUploading = true;
+                    let done = 0, ok = true;
+                    try {
+                        for (const s of this.docSlots()) {
+                            if (s.uploaded || !this.docPending(s.type)) continue;
+                            if (!(await this.uploadDoc(s.type))) { ok = false; break; }
+                            done++;
+                        }
+                        if (done) {
+                            const errors = this.errors, message = this.message, messageOk = this.messageOk;
+                            await this.refresh();
+                            if (!ok) { this.errors = errors; this.message = message; this.messageOk = messageOk; }
+                        }
+                    } finally { this.docsUploading = false; }
+                    return ok;
+                },
+                // Homestay: tải các giấy tờ đã chọn lên rồi sang bước Thông tin.
+                async continueDocs() {
+                    if (!(await this.uploadPendingDocs())) return;
+                    if (this.status && this.status.steps.documents_uploaded) this.go(2);
+                },
+                // MiniHouse đăng ký dùng thử: tải các giấy tờ đã chọn lên rồi gửi duyệt luôn.
+                async submitDocs() {
+                    if (!(await this.uploadPendingDocs())) return;
+                    await this.submitDossier();
                 },
                 async removeDoc(id) {
                     if (!confirm('Xoá giấy tờ này?')) return;
