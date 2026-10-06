@@ -778,8 +778,8 @@ class PartnerOnboardingService
             return ['created' => false, 'email' => $email, 'mail_sent' => false, 'reason' => $reason];
         }
 
-        $roleName = $partner->isMinihouse() ? 'Quản lý MiniHouse' : 'partner';
-        $role = Role::query()->where('name', $roleName)->where('guard_name', 'web')->first();
+        $roleName = $this->ownerRoleName($partner);
+        $role = $this->ownerRole($partner);
         if (! $role) {
             $reason = "Chưa có vai trò \"{$roleName}\".";
             $this->log($partner, "Không tự tạo được tài khoản đối tác: {$reason}");
@@ -816,11 +816,46 @@ class PartnerOnboardingService
     }
 
     /** Gửi lại thông tin đăng nhập: chưa có tài khoản thì tạo; đã có thì đặt mật khẩu mới cho tài khoản chủ đối tác rồi gửi email. */
+    private function ownerRoleName(Partner $partner): string
+    {
+        return $partner->isMinihouse() ? 'Quản lý MiniHouse' : 'partner';
+    }
+
+    /**
+     * Vai trò của tài khoản CHỦ đối tác. MiniHouse: vai trò "Quản lý MiniHouse" do MinihousePermissionSeeder tạo (seeder chạy tay từng môi trường);
+     * môi trường chưa chạy → tự chạy seeder đó để tạo vai trò kèm đủ quyền mặc định, thay vì để tài khoản được tạo mà không đăng nhập được.
+     * Chỉ tạo khi vai trò CHƯA tồn tại — vai trò đã có (kể cả đã bị chỉnh quyền) được giữ nguyên.
+     */
+    private function ownerRole(Partner $partner): ?Role
+    {
+        $find = fn () => Role::query()->where('name', $this->ownerRoleName($partner))->where('guard_name', 'web')->first();
+        $role = $find();
+        if (! $role && $partner->isMinihouse()) {
+            try {
+                app(\Database\Seeders\MinihousePermissionSeeder::class)->run();
+                $this->log($partner, 'Môi trường chưa có vai trò "Quản lý MiniHouse" — đã tự tạo kèm bộ quyền mặc định.');
+            } catch (\Throwable $e) {
+                report($e);
+            }
+            $role = $find();
+        }
+
+        return $role;
+    }
+
     public function resendCredentials(Partner $partner): array
     {
         $user = $partner->users()->orderBy('created_at')->first();
         if (! $user) {
             return $this->provisionAccount($partner);
+        }
+
+        // Tài khoản chủ đối tác phải có vai trò chủ đối tác thì mới đăng nhập được (MiniHouse: quyền access_minihouse nằm trong vai trò
+        // "Quản lý MiniHouse") — tài khoản tạo tay/tạo lúc môi trường chưa có vai trò này sẽ thiếu, nên gán bổ sung trước khi gửi lại.
+        if (($role = $this->ownerRole($partner)) && ! $user->roles()->whereKey($role->id)->exists()) {
+            $user->roles()->syncWithoutDetaching([$role->id]);
+            app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+            $this->log($partner, "Đã gán vai trò \"{$role->name}\" cho tài khoản {$user->email} (trước đó chưa có nên không đăng nhập được).");
         }
 
         $password = Str::password(12, true, true, false);

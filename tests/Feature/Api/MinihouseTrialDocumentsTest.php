@@ -254,6 +254,32 @@ class MinihouseTrialDocumentsTest extends TestCase
         $this->assertSame('approved', $partner->fresh()->verification_status);
     }
 
+    // Môi trường CHƯA có vai trò "Quản lý MiniHouse" (seeder chưa chạy): duyệt vẫn tạo được tài khoản ĐĂNG NHẬP ĐƯỢC và hiện trong danh sách tài khoản MiniHouse.
+    // Tài khoản chủ đối tác thiếu vai trò (tạo tay) được gán bổ sung khi bấm "Gửi lại tài khoản đăng nhập".
+    public function test_owner_account_can_log_in_even_when_the_manager_role_was_never_seeded(): void
+    {
+        config(['partner_flow.minihouse_trial_documents_required' => false]);
+        Role::query()->where('name', 'Quản lý MiniHouse')->delete();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $panel = \Filament\Facades\Filament::getPanel('minihouse-admin');
+        $onboarding = app(PartnerOnboardingService::class);
+
+        [, $partner] = $this->register('0970000109', 'mh-docs-role@example.test');
+        $result = $onboarding->approveSignup($partner->fresh(), $this->admin);
+        $this->assertTrue($result['created']);
+        $user = $partner->users()->firstOrFail();
+        $this->assertTrue($user->hasRole('Quản lý MiniHouse'));
+        $this->assertTrue($user->canAccessPanel($panel));
+        $this->assertTrue(\Modules\Minihouse\App\Support\MinihousePermissions::scopeToMinihouseUsers(User::query())->whereKey($user->id)->exists());
+
+        // Tài khoản chủ đối tác bị mất vai trò (hoặc được tạo tay không kèm vai trò) → không đăng nhập được; gửi lại tài khoản thì gán lại.
+        $user->roles()->detach();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->assertFalse($user->fresh()->canAccessPanel($panel));
+        $onboarding->resendCredentials($partner->fresh());
+        $this->assertTrue($user->fresh()->canAccessPanel($panel));
+    }
+
     /** @return array{0: string, 1: Partner} */
     private function register(string $phone, string $email): array
     {
