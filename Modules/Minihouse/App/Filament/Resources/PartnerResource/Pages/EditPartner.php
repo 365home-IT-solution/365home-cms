@@ -74,6 +74,24 @@ class EditPartner extends EditRecord
                     Notification::make()->title('Đã từ chối đăng ký')->success()->send();
                     $this->refreshFormData(['status', 'verification_status']);
                 }),
+            // Đối tác đã được kích hoạt gói (dùng thử hoặc trả tiền) mà chưa nhận được / làm mất email tài khoản: tạo tài khoản (nếu chưa có)
+            // hoặc đặt mật khẩu mới rồi gửi lại email đăng nhập. Cùng điều kiện với API POST /api/admin/minihouse/partners/{partner}/resend-credentials.
+            Actions\Action::make('resendCredentials')
+                ->label('Gửi lại tài khoản đăng nhập')
+                ->icon('heroicon-o-envelope')
+                ->color('info')
+                ->visible(fn (): bool => (auth()->user()?->isSuperAdmin() ?? false) && ! $this->record->isSystemPartner()
+                    && filled($this->record->onboarding_token) && $this->record->subscription?->expires_at !== null)
+                ->requiresConfirmation()
+                ->modalHeading('Gửi lại tài khoản đăng nhập')
+                ->modalDescription(fn (): string => 'Tạo tài khoản (nếu chưa có) hoặc đặt MẬT KHẨU MỚI cho tài khoản chủ đối tác, rồi gửi email thông tin đăng nhập tới ' . ($this->record->email ?: 'email của đối tác') . '. Mật khẩu cũ sẽ không dùng được nữa.')
+                ->action(function () use ($onboarding): void {
+                    // Kết quả gửi (thành công / gửi email thất bại) đã được resendCredentials báo bằng thông báo; ở đây chỉ báo khi không tạo được tài khoản.
+                    $result = $onboarding->resendCredentials($this->record);
+                    if (! $result['created'] && ! $result['mail_sent'] && filled($result['reason'] ?? null)) {
+                        Notification::make()->title('Không tạo được tài khoản')->body($result['reason'])->danger()->persistent()->send();
+                    }
+                }),
             Actions\DeleteAction::make(),
         ];
     }
