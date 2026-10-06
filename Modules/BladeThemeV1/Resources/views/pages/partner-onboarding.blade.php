@@ -7,7 +7,9 @@
     @livewire('bladethemev1::drawer-menu')
 
     @php
-        $docTypes = collect(\App\Models\PartnerLegalDocument::TYPES)->map(fn ($label, $key) => ['value' => $key, 'label' => $label])->values();
+        // Loại giấy tờ HIỂN THỊ trên trang đăng ký (config partner_flow.registration_selectable_documents); loại bắt buộc luôn hiển thị.
+        $selectableDocs = array_merge((array) config('partner_flow.registration_selectable_documents', []), \App\Models\PartnerLegalDocument::registrationRequiredFor(\App\Models\Partner::TYPE_HOMESTAY), \App\Models\PartnerLegalDocument::registrationRequiredFor(\App\Models\Partner::TYPE_MINIHOUSE));
+        $docTypes = collect(\App\Models\PartnerLegalDocument::TYPES)->only($selectableDocs)->map(fn ($label, $key) => ['value' => $key, 'label' => $label])->values();
         // MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp giấy tờ bắt buộc → gửi duyệt → duyệt xong mới tặng dùng thử.
         $mhDocs = (bool) config('partner_flow.minihouse_trial_documents_required') && ! config('partner_flow.minihouse_contract_enabled');
         // Giấy tờ BẮT BUỘC khi đăng ký theo loại đối tác (bật/tắt ở config partner_flow.registration_required_documents).
@@ -20,7 +22,7 @@
     {{-- Đăng ký hợp tác (Homestay / MiniHouse) — gọi API công khai /api/public/partner-onboarding. Mã hồ sơ lưu ở localStorage để quay lại làm tiếp. --}}
     <div class="bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-3xl"
-            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]), @js(\App\Support\LegalDocumentFields::schema()), @js($requiredDocLabels))"
+            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]), @js(\App\Support\LegalDocumentFields::schema()))"
             x-init="init()">
 
             <div class="mb-6">
@@ -98,43 +100,24 @@
                         <input type="text" x-model="reg.business_name" maxlength="255" required placeholder="Homestay / nhà trọ / toà nhà" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
                         <p class="text-xs text-red-600 mt-1" x-show="errors.business_name" x-text="err('business_name')"></p>
                     </div>
-                    {{-- Địa chỉ có cấu trúc: tỉnh/thành → phường/xã → số nhà, đường (+ căn hộ, toà nhà, mã bưu điện nếu có). Server ghép thành địa chỉ đầy đủ. --}}
+                    {{-- Địa chỉ có cấu trúc: số nhà, đường → tỉnh/thành → phường/xã (+ căn hộ, toà nhà, mã bưu điện nếu có). Server ghép thành địa chỉ đầy đủ. --}}
                     <fieldset class="space-y-3">
                         <legend class="block text-sm font-medium text-gray-700 mb-1">Địa chỉ cơ sở kinh doanh <span class="text-red-500">*</span></legend>
-                        {{-- Ô tìm kiếm gợi ý (API /api/v2/address/suggest): chọn gợi ý sẽ điền sẵn Tỉnh/Thành phố + Phường/Xã; "Tự nhập địa chỉ" để tự chọn bên dưới. --}}
-                        <div class="relative" @click.outside="suggestOpen = false">
-                            <input type="text" x-model="addrQuery" @input.debounce.300ms="suggest()" @focus="suggestOpen = true" autocomplete="off"
-                                placeholder="Tìm địa chỉ của bạn (vd: Cần Thơ, Ninh Kiều)" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                            <ul x-show="suggestOpen && (suggestions.length || addrQuery.trim())" x-cloak
-                                class="absolute z-20 mt-1 w-full max-h-72 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg divide-y divide-gray-100">
-                                <template x-for="(s, i) in suggestions" :key="i">
-                                    <li>
-                                        <button type="button" class="w-full text-left px-3 py-2.5 hover:bg-gray-50" @click="pickSuggestion(s)">
-                                            <span class="block text-sm font-medium text-gray-900" x-text="s.label"></span>
-                                            <span class="block text-xs text-gray-500" x-text="s.description"></span>
-                                        </button>
-                                    </li>
-                                </template>
-                                <li x-show="suggestLoading"><span class="block px-3 py-2.5 text-sm text-gray-500">Đang tìm...</span></li>
-                                <li>
-                                    <button type="button" class="w-full text-left px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50" @click="manualAddress()">✎ Tự nhập địa chỉ</button>
-                                </li>
-                            </ul>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Số nhà, tên đường/phố <span class="text-red-500">*</span></label>
+                            <input type="text" x-model="reg.address_street" maxlength="255" required placeholder="Vd: 12 Lê Lợi" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                            <p class="text-xs text-red-600 mt-1" x-show="errors.address_street" x-text="err('address_street')"></p>
                         </div>
                         <div class="grid sm:grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs text-gray-500 mb-1">Quốc gia/khu vực</label>
-                                <input type="text" value="Việt Nam - VN" disabled class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-gray-500">
-                            </div>
-                            <div>
                                 <label class="block text-xs text-gray-500 mb-1">Tỉnh/Thành phố <span class="text-red-500">*</span></label>
-                                <select x-ref="provinceSelect" x-model="reg.address_province_code" @change="loadWards()" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
+                                <select x-model="reg.address_province_code" @change="loadWards()" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
                                     <option value="">— Chọn tỉnh/thành phố —</option>
                                     <template x-for="p in provinces" :key="p.code"><option :value="String(p.code)" x-text="p.name"></option></template>
                                 </select>
                                 <p class="text-xs text-red-600 mt-1" x-show="errors.address_province_code" x-text="err('address_province_code')"></p>
                             </div>
-                            <div class="sm:col-span-2">
+                            <div>
                                 <label class="block text-xs text-gray-500 mb-1">Phường/Xã <span class="text-red-500">*</span></label>
                                 <select x-model="reg.address_ward_code" :disabled="!reg.address_province_code || loadingWards" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
                                     <option value="" x-text="!reg.address_province_code ? 'Chọn tỉnh/thành phố trước' : (loadingWards ? 'Đang tải...' : '— Chọn phường/xã —')"></option>
@@ -142,11 +125,6 @@
                                 </select>
                                 <p class="text-xs text-red-600 mt-1" x-show="errors.address_ward_code" x-text="err('address_ward_code')"></p>
                             </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-500 mb-1">Số nhà, tên đường/phố <span class="text-red-500">*</span></label>
-                            <input type="text" x-model="reg.address_street" maxlength="255" required placeholder="Vd: 12 Lê Lợi" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.address_street" x-text="err('address_street')"></p>
                         </div>
                         <div class="grid sm:grid-cols-3 gap-3">
                             <div>
@@ -330,28 +308,76 @@
                 <div x-show="step === 1 || mhDocsStage" x-cloak class="space-y-5">
                     <div>
                         <h2 class="text-lg font-bold text-gray-900">Giấy tờ pháp lý</h2>
-                        <p class="text-sm text-gray-600 mt-1">Tệp PDF hoặc ảnh (jpg, png, webp), tối đa 10 MB. Loại giấy tờ trùng với danh mục 365 HOME dùng khi duyệt hồ sơ.</p>
+                        <p class="text-sm text-gray-600 mt-1">Chọn tệp PDF hoặc ảnh (jpg, png, webp), tối đa 10 MB cho từng giấy tờ. Hệ thống tự đọc tệp và điền sẵn thông tin để bạn kiểm tra trước khi tải lên.</p>
+                        <p class="text-sm text-gray-500 mt-1" x-show="!purchase && (status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.</p>
                     </div>
-                    {{-- Giấy tờ BẮT BUỘC khi đăng ký: khách phải gửi đủ trước khi sang bước tiếp theo. --}}
-                    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-gray-800 space-y-2">
-                        <p class="font-semibold text-red-700">BẮT BUỘC gửi đủ các hồ sơ, tài liệu sau (tệp PDF hoặc ảnh) thì mới gửi duyệt được:</p>
-                        <template x-for="r in (status ? status.required_documents : [])" :key="r.type">
-                            <div class="flex items-center gap-2">
-                                <span class="inline-flex items-center justify-center rounded-full text-white shrink-0" style="width:18px;height:18px;font-size:12px;"
-                                    :style="r.uploaded ? 'background:#16a34a;' : 'background:#dc2626;'" x-text="r.uploaded ? '✓' : '!'"></span>
-                                <span><strong x-text="r.label"></strong> — <span :class="r.uploaded ? 'text-green-700' : 'text-red-600'" x-text="r.uploaded ? 'đã gửi' : 'chưa gửi — bắt buộc'"></span></span>
-                                <button type="button" class="ml-auto text-gray-700 underline shrink-0" x-show="!r.uploaded && editable" @click="doc.type = r.type; resetDocFields(); $refs.docFile && $refs.docFile.focus()">Chọn loại này</button>
+                    {{-- MỖI LOẠI GIẤY TỜ MỘT THẺ có sẵn ô chọn tệp (bắt buộc xếp trước): chọn tệp là TỰ QUÉT để điền các ô riêng của loại đó
+                         (dkkd_* / antt_* / pccc_* — App\Support\LegalDocumentFields), khách kiểm tra rồi bấm tải lên. Không cần chọn loại hay bấm quét. --}}
+                    <template x-for="slot in docSlots()" :key="slot.type">
+                        <div class="pod-card" :class="slot.uploaded ? 'is-done' : (slot.required ? 'is-required' : '')">
+                            <div class="pod-head">
+                                <span class="pod-icon" x-text="slot.uploaded ? '✓' : (slot.required ? '!' : '+')"></span>
+                                <div class="pod-title">
+                                    <h3 x-text="slot.label"></h3>
+                                    <span class="pod-badge" x-text="slot.required ? 'Bắt buộc' : 'Không bắt buộc'"></span>
+                                </div>
+                                <span class="pod-state" x-text="slot.uploaded ? 'Đã gửi' : 'Chưa gửi'"></span>
                             </div>
-                        </template>
-                        <ul class="list-disc pl-5 text-gray-700" x-show="!status">
-                            <template x-for="label in requiredDocLabels[purchase || reg.partner_type === 'minihouse' ? 'minihouse' : 'homestay']" :key="label"><li x-text="label"></li></template>
-                        </ul>
-                        <p class="text-gray-600">Giấy tờ cần còn hiệu lực (nếu có ngày hết hạn). Chọn đúng <strong>Loại giấy tờ</strong> khi tải lên để 365 HOME duyệt nhanh. Hồ sơ chỉ được phê duyệt khi mọi giấy tờ bắt buộc đã được duyệt.</p>
-                        <p class="text-gray-500">Giấy tờ khác (đăng ký thuế, giấy phép/công nhận cơ sở lưu trú, giấy uỷ quyền người ký...) không bắt buộc nhưng nên nộp.</p>
-                        <p class="text-gray-500" x-show="!purchase && (status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.</p>
-                    </div>
-                    <ul class="divide-y divide-gray-100 rounded-lg border border-gray-200" x-show="status && status.documents.length">
-                        <template x-for="d in (status ? status.documents : [])" :key="d.id">
+                            <template x-for="d in slot.docs" :key="d.id">
+                                <div class="pod-file" :class="d.status === 'rejected' || d.status === 'changes_requested' ? 'is-problem' : ''">
+                                    <div class="pod-file-info">
+                                        <div class="pod-file-name" x-text="d.file_name || 'Tệp đã nộp'"></div>
+                                        <div class="pod-file-meta" x-text="[d.document_number, d.status_label].filter(Boolean).join(' · ')"></div>
+                                        <div class="pod-error" x-show="d.review_note" x-text="'Lý do: ' + d.review_note"></div>
+                                    </div>
+                                    <button type="button" class="pod-link-danger" x-show="['draft','changes_requested','rejected'].includes(d.status) && editable" @click="removeDoc(d.id)">Xoá</button>
+                                </div>
+                            </template>
+                            <form @submit.prevent="uploadDoc(slot.type)" class="pod-form" x-show="editable && !slot.uploaded">
+                                {{-- CCCD: chỉ nhận ẢNH và BẮT BUỘC đọc được mã QR trên thẻ (server kiểm tra lại khi nộp). --}}
+                                <p class="pod-hint" x-show="slot.type === 'citizen_id'">Chụp rõ <strong>mặt thẻ có mã QR</strong> của người đại diện: chụp thẳng, đủ sáng, lấy trọn cả thẻ. Hệ thống phải đọc được mã QR thì mới nhận.</p>
+                                {{-- Ô chọn tệp tự dựng (input thật ẩn bên trong label) thay cho nút mặc định của trình duyệt. --}}
+                                <label class="pod-picker" :class="{ 'is-busy': docs[slot.type].scanning, 'has-file': docs[slot.type].fileName }">
+                                    <input type="file" class="pod-picker-input" :accept="slot.type === 'citizen_id' ? '.jpg,.jpeg,.png,.webp' : '.pdf,.jpg,.jpeg,.png,.webp'" :disabled="docs[slot.type].scanning" @change="pickDocFile(slot.type, $event)">
+                                    <span class="pod-picker-btn" x-text="docs[slot.type].fileName ? 'Đổi tệp' : 'Chọn tệp'"></span>
+                                    <span class="pod-picker-text">
+                                        <span class="pod-picker-name" x-text="docs[slot.type].fileName || 'Chưa chọn tệp'"></span>
+                                        <span class="pod-picker-sub" x-show="!docs[slot.type].scanning" x-text="slot.type === 'citizen_id' ? 'Ảnh JPG, PNG, WEBP · tối đa 10 MB' : 'PDF hoặc ảnh JPG, PNG, WEBP · tối đa 10 MB'"></span>
+                                        <span class="pod-picker-sub is-busy" x-show="docs[slot.type].scanning"><span class="pod-spinner"></span><span x-text="slot.type === 'citizen_id' ? 'Đang đọc mã QR trên CCCD...' : 'Đang đọc giấy tờ để điền sẵn thông tin...'"></span></span>
+                                    </span>
+                                </label>
+                                <p class="pod-error" x-show="docErrorType === slot.type && (errors.file || errors.type)" x-text="err('file') || err('type')"></p>
+                                <div class="pod-fields" x-show="docs[slot.type].fileName && !docs[slot.type].scanning">
+                                    <ul class="pod-warnings" x-show="docs[slot.type].warnings.length">
+                                        <template x-for="(w, i) in docs[slot.type].warnings" :key="i"><li x-text="w"></li></template>
+                                    </ul>
+                                    <p class="pod-note" x-show="slot.fields.length" x-text="slot.type === 'citizen_id' ? 'Thông tin lấy từ mã QR trên thẻ (không sửa được). Bạn chỉ cần nhập thêm Nơi cấp.' : 'Kiểm tra và sửa lại thông tin bên dưới nếu hệ thống đọc chưa đúng.'"></p>
+                                    <div class="pod-grid">
+                                        <template x-for="f in slot.fields" :key="f.key">
+                                            <div :class="f.input === 'textarea' || f.key.endsWith('_address') ? 'pod-wide' : ''">
+                                                <label class="pod-label" x-text="f.label"></label>
+                                                <template x-if="f.input === 'textarea'">
+                                                    <textarea x-model="docs[slot.type].values[f.key]" rows="2" maxlength="2000" class="pod-input"></textarea>
+                                                </template>
+                                                <template x-if="f.input !== 'textarea'">
+                                                    <input :type="f.input" x-model="docs[slot.type].values[f.key]" maxlength="500" :readonly="qrLocked(slot.type, f.key)"
+                                                        class="pod-input" :class="qrLocked(slot.type, f.key) ? 'is-locked' : ''">
+                                                </template>
+                                                <p class="pod-note" x-show="f.key === 'pccc_document_number'" x-text="fireStage(docs[slot.type].values.pccc_document_number) || 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).'"></p>
+                                                <p class="pod-error" x-show="errors[f.key]" x-text="err(f.key)"></p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="pod-actions">
+                                        <button type="submit" :disabled="loading" class="pod-submit" x-text="loading ? 'Đang tải lên...' : 'Tải lên giấy tờ'"></button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </template>
+                    {{-- Giấy tờ thuộc loại không còn hiển thị (hồ sơ cũ đã nộp trước đó): vẫn liệt kê để khách xem/xoá. --}}
+                    <ul class="divide-y divide-gray-100 rounded-lg border border-gray-200" x-show="otherDocs().length">
+                        <template x-for="d in otherDocs()" :key="d.id">
                             <li class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                                 <div>
                                     <div class="font-medium text-gray-900" x-text="d.type_label + (d.name ? ' — ' + d.name : '')"></div>
@@ -362,72 +388,6 @@
                             </li>
                         </template>
                     </ul>
-                    <form @submit.prevent="uploadDoc" class="space-y-4 rounded-lg border border-dashed border-gray-300 p-4" x-show="editable">
-                        <div class="grid sm:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Loại giấy tờ <span class="text-red-500">*</span></label>
-                                <select x-model="doc.type" @change="resetDocFields()" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                                    <template x-for="t in allowedDocTypes()" :key="t.value"><option :value="t.value" x-text="t.label"></option></template>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Tệp <span class="text-red-500">*</span></label>
-                                <input type="file" x-ref="docFile" accept=".pdf,.jpg,.jpeg,.png,.webp" class="w-full text-sm">
-                                <p class="text-xs text-red-600 mt-1" x-show="errors.file || errors.type" x-text="err('file') || err('type')"></p>
-                            </div>
-                        </div>
-
-                        {{-- ĐKKD / ANTT / PCCC: MỖI LOẠI MỘT BỘ Ô + CỘT RIÊNG (dkkd_* / antt_* / pccc_*, kể cả số / ngày cấp / nơi cấp — App\Support\LegalDocumentFields) + nút quét để điền gợi ý. Loại khác dùng form chung bên dưới. --}}
-                        <div x-show="docForm()" x-cloak class="space-y-4">
-                            <div class="flex flex-wrap items-center gap-3">
-                                <button type="button" :disabled="loading" @click="scanDoc()" class="rounded-lg border border-gray-900 text-gray-900 font-semibold px-4 py-2 hover:bg-gray-50 disabled:opacity-60" x-text="loading ? 'Đang xử lý...' : 'Quét giấy tờ để tự điền'"></button>
-                                <span class="text-xs text-gray-500">Hệ thống đọc tệp đã chọn và điền gợi ý vào các ô còn trống. Bạn cần kiểm tra lại trước khi tải lên.</span>
-                            </div>
-                            <ul class="list-disc pl-5 text-xs text-amber-700" x-show="scanWarnings.length">
-                                <template x-for="(w, i) in scanWarnings" :key="i"><li x-text="w"></li></template>
-                            </ul>
-                            <div class="grid sm:grid-cols-2 gap-4">
-                                <template x-for="f in (docForm() ? docForm().fields : [])" :key="doc.type + ':' + f.key">
-                                    <div :class="f.input === 'textarea' ? 'sm:col-span-2' : ''">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1" x-text="f.label"></label>
-                                        <template x-if="f.input === 'textarea'">
-                                            <textarea x-model="doc[f.key]" rows="2" maxlength="2000" class="w-full rounded-lg border border-gray-300 px-3 py-2.5"></textarea>
-                                        </template>
-                                        <template x-if="f.input !== 'textarea'">
-                                            <input :type="f.input" x-model="doc[f.key]" maxlength="500" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                                        </template>
-                                        <p class="text-xs text-gray-500 mt-1" x-show="f.key === 'pccc_document_number'" x-text="fireStage(doc.pccc_document_number) || 'TD-PCCC = thẩm duyệt (chưa hoạt động); NT / BB / GXN-PCCC = đã nghiệm thu (chuẩn bị hoạt động).'"></p>
-                                        <p class="text-xs text-red-600 mt-1" x-show="errors[f.key]" x-text="err(f.key)"></p>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-
-                        <div class="grid sm:grid-cols-2 gap-4" x-show="!docForm()">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Số giấy tờ</label>
-                                <input type="text" x-model="doc.document_number" maxlength="100" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Nơi cấp</label>
-                                <input type="text" x-model="doc.issuer" maxlength="255" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày cấp</label>
-                                <input type="date" x-model="doc.issued_at" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Ngày hết hạn</label>
-                                <input type="date" x-model="doc.expires_at" :min="doc.issued_at" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                                <p class="text-xs text-red-600 mt-1" x-show="errors.expires_at" x-text="err('expires_at')"></p>
-                            </div>
-                        </div>
-                        <div x-show="!docForm()">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tên giấy tờ <span class="text-gray-400 font-normal" x-show="doc.type !== 'other'">(không bắt buộc)</span></label>
-                            <input type="text" x-model="doc.name" maxlength="255" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
-                        </div>
-                        <button type="submit" :disabled="loading" class="rounded-lg border border-gray-900 text-gray-900 font-semibold px-4 py-2 hover:bg-gray-50 disabled:opacity-60" x-text="loading ? 'Đang tải lên...' : 'Tải lên giấy tờ'"></button>
-                    </form>
                     <div class="flex justify-end">
                         <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60"
                             x-show="!purchase" :disabled="!status || !status.steps.documents_uploaded" @click="go(2)">Tiếp tục</button>
@@ -457,13 +417,13 @@
                     </div>
                 </form>
 
-                {{-- B4. Gửi hồ sơ cho 365 HOME duyệt giấy tờ --}}
-                <div x-show="step === 3" class="space-y-5 text-center">
+                {{-- Gửi hồ sơ / chờ 365 HOME duyệt. Luồng cũ = bước 4 (trước khi ký); luồng "đối tác ký trước" = bước 5 (sau khi ký). --}}
+                <div x-show="step === reviewStep" class="space-y-5 text-center">
                     <template x-if="status && ['ready_to_submit', 'documents_uploaded', 'registered'].includes(status.stage)">
                         <div class="space-y-4">
                             <div class="text-5xl">📨</div>
                             <h2 class="text-xl font-bold text-gray-900">Gửi hồ sơ cho 365 HOME</h2>
-                            <p class="text-gray-600">365 HOME sẽ xem và duyệt giấy tờ pháp lý của bạn. Nếu giấy tờ hợp lệ, hợp đồng hợp tác sẽ được gửi về email để bạn ký. Sau khi gửi, hồ sơ không chỉnh sửa được trong lúc chờ duyệt.</p>
+                            <p class="text-gray-600" x-text="signFirst ? 'Bạn đã ký hợp đồng. Gửi hồ sơ để 365 HOME duyệt giấy tờ và ký xác nhận hợp đồng. Sau khi gửi, hồ sơ không chỉnh sửa được trong lúc chờ duyệt.' : '365 HOME sẽ xem và duyệt giấy tờ pháp lý của bạn. Nếu giấy tờ hợp lệ, hợp đồng hợp tác sẽ được gửi về email để bạn ký. Sau khi gửi, hồ sơ không chỉnh sửa được trong lúc chờ duyệt.'"></p>
                             <div class="flex justify-center gap-3">
                                 <button type="button" class="rounded-lg border border-gray-300 px-5 py-3" @click="go(2)">Sửa thông tin</button>
                                 <button type="button" :disabled="loading" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" @click="submitDossier()" x-text="loading ? 'Đang gửi...' : 'Gửi hồ sơ chờ duyệt'"></button>
@@ -474,8 +434,9 @@
                         <div class="space-y-2">
                             <div class="text-5xl">⏳</div>
                             <h2 class="text-xl font-bold text-gray-900">Hồ sơ đang chờ 365 HOME duyệt</h2>
-                            <p class="text-gray-600">Khi giấy tờ được duyệt, hợp đồng hợp tác sẽ được gửi về email <strong x-text="status.partner.email"></strong> và hiện tại trang này để bạn ký.</p>
-                            <p class="text-sm text-gray-500">Cần sửa lại giấy tờ hoặc thông tin? Rút hồ sơ về bản nháp, chỉnh sửa rồi gửi duyệt lại.</p>
+                            <p class="text-gray-600" x-show="!signFirst">Khi giấy tờ được duyệt, hợp đồng hợp tác sẽ được gửi về email <strong x-text="status.partner.email"></strong> và hiện tại trang này để bạn ký.</p>
+                            <p class="text-gray-600" x-show="signFirst">Bạn đã ký hợp đồng. Khi giấy tờ được duyệt, 365 HOME ký xác nhận hợp đồng và gửi tài khoản quản trị về email <strong x-text="status.partner.email"></strong>. Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký.</p>
+                            <p class="text-sm text-gray-500" x-text="signFirst ? 'Cần sửa lại giấy tờ hoặc thông tin? Rút hồ sơ về bản nháp, chỉnh sửa rồi gửi duyệt lại. Nếu sửa thông tin ký hợp đồng, bạn sẽ cần ký lại bản hợp đồng mới.' : 'Cần sửa lại giấy tờ hoặc thông tin? Rút hồ sơ về bản nháp, chỉnh sửa rồi gửi duyệt lại.'"></p>
                             <button type="button" class="rounded-lg border border-gray-300 px-5 py-2.5 hover:bg-gray-50 disabled:opacity-60" :disabled="loading" @click="withdraw()">Rút hồ sơ để chỉnh sửa</button>
                         </div>
                     </template>
@@ -507,12 +468,13 @@
                     </template>
                 </div>
 
-                {{-- B5. Ký hợp đồng (chỉ sau khi 365 HOME duyệt giấy tờ) --}}
-                <div x-show="step === 4" class="space-y-5">
+                {{-- Ký hợp đồng. Luồng cũ = bước 5 (sau khi 365 HOME duyệt giấy tờ); luồng "đối tác ký trước" = bước 4 (ngay sau khi điền thông tin). --}}
+                <div x-show="step === signStep" class="space-y-5">
                     <template x-if="status && status.stage === 'contract_sent'">
                         <div class="space-y-5">
                             <h2 class="text-lg font-bold text-gray-900">Ký hợp đồng hợp tác</h2>
-                            <p class="text-sm text-gray-600">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và ký xác nhận bằng mã OTP gửi về email.</p>
+                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và ký xác nhận bằng mã OTP gửi về email.</p>
+                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng và ký xác nhận bằng mã OTP gửi về email. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
                             <template x-if="contract && contract.content">
                                 <div class="max-h-96 overflow-y-auto rounded-lg border border-gray-200 p-4 text-sm text-gray-800" x-html="contract.content"></div>
                             </template>
@@ -535,11 +497,17 @@
                                 <input type="checkbox" x-model="sign.agree" class="mt-1">
                                 <span>Tôi đã đọc và đồng ý với toàn bộ nội dung hợp đồng.</span>
                             </label>
-                            <div class="flex justify-end">
+                            <div class="flex justify-between gap-3">
+                                <button type="button" class="rounded-lg border border-gray-300 px-5 py-3" x-show="signFirst && editable" @click="go(2)">Sửa thông tin</button>
+                                <span x-show="!(signFirst && editable)"></span>
                                 <button type="button" :disabled="loading || !sign.agree || sign.otp.length !== 6 || !sign.signer_name" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" @click="confirmSign()">Ký xác nhận</button>
                             </div>
                         </div>
                     </template>
+                </div>
+
+                {{-- Đã ký xong / hợp đồng có hiệu lực: luôn ở bước cuối (thứ 5) của cả hai luồng. --}}
+                <div x-show="step === 4" class="space-y-5">
                     <template x-if="status && status.stage === 'contract_signed'">
                         <div class="space-y-2 text-center">
                             <div class="text-5xl">📝</div>
@@ -565,8 +533,69 @@
         </div>
     </div>
 
+    {{-- Kiểu riêng cho các thẻ giấy tờ (pod-*): viết thẳng ở đây để không phụ thuộc việc build lại CSS của theme. --}}
+    <style>
+        .pod-card { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:20px; box-shadow:0 1px 2px rgba(16,24,40,.04); transition:border-color .15s, box-shadow .15s; }
+        .pod-card.is-required { border-color:#fecaca; }
+        .pod-card.is-done { border-color:#bbf7d0; background:#fcfffd; }
+        .pod-head { display:flex; align-items:center; gap:12px; }
+        .pod-icon { flex:none; width:32px; height:32px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; line-height:1; background:#f3f4f6; color:#6b7280; }
+        .pod-card.is-required .pod-icon { background:#fee2e2; color:#dc2626; }
+        .pod-card.is-done .pod-icon { background:#dcfce7; color:#15803d; }
+        .pod-title { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; }
+        .pod-title h3 { margin:0; font-size:16px; font-weight:600; color:#111827; line-height:1.35; }
+        .pod-badge { font-size:12px; font-weight:500; line-height:1; padding:5px 10px; border-radius:999px; background:#f3f4f6; color:#4b5563; white-space:nowrap; }
+        .pod-card.is-required .pod-badge { background:#fef2f2; color:#b91c1c; }
+        .pod-card.is-done .pod-badge { background:#f0fdf4; color:#15803d; }
+        .pod-state { margin-left:auto; flex:none; font-size:13px; font-weight:500; padding:5px 12px; border-radius:999px; background:#f3f4f6; color:#6b7280; white-space:nowrap; }
+        .pod-card.is-done .pod-state { background:#dcfce7; color:#15803d; }
+        .pod-form { margin-top:16px; }
+        .pod-form > * + * { margin-top:12px; }
+        .pod-hint { margin:0; font-size:14px; line-height:1.5; color:#1e3a8a; background:#eff6ff; border:1px solid #dbeafe; border-radius:12px; padding:10px 14px; }
+        .pod-picker { display:flex; align-items:center; gap:14px; padding:12px; border:1.5px dashed #d1d5db; border-radius:14px; background:#f9fafb; cursor:pointer; transition:border-color .15s, background .15s; }
+        .pod-picker:hover { border-color:#9ca3af; background:#f3f4f6; }
+        .pod-picker:focus-within { border-color:#111827; box-shadow:0 0 0 3px rgba(17,24,39,.08); }
+        .pod-picker.has-file { border-style:solid; border-color:#e5e7eb; background:#fff; }
+        .pod-picker.is-busy { cursor:progress; opacity:.85; }
+        .pod-picker-input { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; clip:rect(0 0 0 0); }
+        .pod-picker-btn { flex:none; background:#111827; color:#fff; font-size:14px; font-weight:600; padding:10px 18px; border-radius:10px; white-space:nowrap; transition:background .15s; }
+        .pod-picker:hover .pod-picker-btn { background:#1f2937; }
+        .pod-picker.has-file .pod-picker-btn { background:#fff; color:#111827; box-shadow:inset 0 0 0 1px #d1d5db; }
+        .pod-picker-text { min-width:0; display:flex; flex-direction:column; gap:2px; }
+        .pod-picker-name { font-size:14px; font-weight:500; color:#111827; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .pod-picker:not(.has-file) .pod-picker-name { color:#6b7280; font-weight:400; }
+        .pod-picker-sub { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:8px; }
+        .pod-picker-sub.is-busy { color:#1d4ed8; }
+        .pod-spinner { width:12px; height:12px; border-radius:999px; border:2px solid #bfdbfe; border-top-color:#1d4ed8; animation:pod-spin .7s linear infinite; }
+        @keyframes pod-spin { to { transform:rotate(360deg); } }
+        .pod-fields { padding-top:4px; }
+        .pod-fields > * + * { margin-top:12px; }
+        .pod-grid { display:grid; grid-template-columns:1fr; gap:14px 16px; }
+        @media (min-width:640px) { .pod-grid { grid-template-columns:1fr 1fr; } .pod-wide { grid-column:1 / -1; } }
+        .pod-label { display:block; font-size:13px; font-weight:500; color:#374151; margin-bottom:6px; }
+        .pod-input { width:100%; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; font-size:15px; color:#111827; background:#fff; transition:border-color .15s, box-shadow .15s; }
+        .pod-input:focus { outline:none; border-color:#111827; box-shadow:0 0 0 3px rgba(17,24,39,.08); }
+        .pod-input.is-locked { background:#f9fafb; border-color:#e5e7eb; color:#374151; cursor:default; }
+        .pod-input.is-locked:focus { border-color:#e5e7eb; box-shadow:none; }
+        .pod-note { margin:0; font-size:12px; color:#6b7280; line-height:1.5; }
+        .pod-error { margin:6px 0 0; font-size:13px; color:#dc2626; line-height:1.45; }
+        .pod-warnings { margin:0; padding:10px 14px 10px 30px; list-style:disc; font-size:12px; line-height:1.5; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; }
+        .pod-actions { display:flex; justify-content:flex-end; padding-top:4px; }
+        .pod-submit { background:#111827; color:#fff; font-size:14px; font-weight:600; padding:11px 22px; border-radius:10px; border:0; cursor:pointer; transition:background .15s; }
+        .pod-submit:hover { background:#1f2937; }
+        .pod-submit:disabled { opacity:.6; cursor:not-allowed; }
+        .pod-file { margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:12px; background:#f0fdf4; border:1px solid #dcfce7; }
+        .pod-file.is-problem { background:#fef2f2; border-color:#fecaca; }
+        .pod-file-info { min-width:0; }
+        .pod-file-name { font-size:14px; font-weight:500; color:#111827; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .pod-file-meta { font-size:12px; color:#4b5563; margin-top:2px; }
+        .pod-link-danger { flex:none; background:none; border:0; padding:6px 10px; border-radius:8px; font-size:13px; font-weight:500; color:#dc2626; cursor:pointer; }
+        .pod-link-danger:hover { background:#fee2e2; }
+        @media (max-width:480px) { .pod-card { padding:16px; } .pod-picker { flex-direction:column; align-items:stretch; text-align:center; } .pod-picker-btn { text-align:center; } .pod-picker-sub { justify-content:center; } }
+    </style>
+
     <script>
-        function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms, requiredDocLabels) {
+        function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms) {
             const KEY = '365home_partner_onboarding';
             const MH_KEY = '365home_minihouse_purchase';
             const API = '/api/public/partner-onboarding';
@@ -576,9 +605,15 @@
                 clear() { try { localStorage.removeItem(KEY); } catch (e) {} },
             };
             const BUILDING_TYPES = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+            const docFiles = {}, docInputs = {};
 
             return {
-                stepLabels: ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Gửi duyệt', 'Ký hợp đồng'],
+                // Thứ tự ký (config partner_flow.partner_signs_before_review; hồ sơ đã tải thì theo status.flow): true = ký hợp đồng TRƯỚC rồi mới gửi duyệt.
+                signFirstDefault: @js((bool) config('partner_flow.partner_signs_before_review')),
+                get signFirst() { return this.status && this.status.flow ? !!this.status.flow.sign_before_review : this.signFirstDefault; },
+                get stepLabels() { return this.signFirst ? ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Ký hợp đồng', 'Chờ duyệt'] : ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Gửi duyệt', 'Ký hợp đồng']; },
+                get signStep() { return this.signFirst ? 3 : 4; },
+                get reviewStep() { return this.signFirst ? 4 : 3; },
                 recoverOpen: false, rec: { phone: '', email: '' },
                 step: 0, loading: false, message: '', messageOk: false, errors: {},
                 token: null, signingToken: null, status: null, contract: null, otpSentTo: '', otpCooldown: 0,
@@ -586,10 +621,10 @@
                 terms: null, termsOpen: false, termsReq: termsRequired || { homestay: false, minihouse: true },
                 get termsNeeded() { return !!this.termsReq[this.reg.partner_type === 'minihouse' ? 'minihouse' : 'homestay']; },
                 provinces: provinces || [], wards: [], loadingWards: false,
-                addrQuery: '', suggestions: [], suggestOpen: false, suggestLoading: false,
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
-                doc: { type: 'business_license', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' },
-                scanWarnings: [],
+                // Mỗi loại giấy tờ một form riêng (thẻ): giá trị các ô, tên tệp đã chọn, cảnh báo quét. Tệp thật giữ ngoài state (docFiles) vì Alpine bọc proxy.
+                docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', warnings: [], scanning: false }])),
+                docErrorType: null,
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 infoFields: [
@@ -607,14 +642,27 @@
                     { key: 'business_license_issuer', label: 'Nơi cấp giấy phép kinh doanh' },
                 ],
 
-                requiredDocLabels,
                 get editable() { return !!this.status && ['registered', 'documents_uploaded', 'ready_to_submit', 'changes_requested'].includes(this.status.stage); },
                 err(k) { return this.errors[k] ? this.errors[k][0] : ''; },
                 flash(msg, ok = false) { this.message = msg; this.messageOk = ok; },
-                allowedDocTypes() {
-                    const mh = (this.status ? this.status.partner_type : this.reg.partner_type) === 'minihouse';
-                    // MiniHouse đăng ký dùng thử nộp PCCC/ANTT ở cấp đối tác như Homestay → không lọc bỏ.
-                    return docTypes.filter((t) => !(mh && !this.purchase && BUILDING_TYPES.includes(t.value)));
+                // Các thẻ giấy tờ: loại bắt buộc (theo hồ sơ) xếp trước, rồi loại tuỳ chọn được hiển thị. "uploaded" = đã có tệp chưa bị từ chối.
+                docSlots() {
+                    if (!this.status) return [];
+                    const mh = this.status.partner_type === 'minihouse';
+                    const required = (this.status.required_documents || []).map((r) => r.type);
+                    return docTypes
+                        // MiniHouse đăng ký kiểu hợp đồng: giấy tờ cấp toà nhà bổ sung sau; đăng ký dùng thử nộp ở cấp đối tác → không lọc bỏ.
+                        .filter((t) => required.includes(t.value) || !(mh && !this.purchase && BUILDING_TYPES.includes(t.value)))
+                        .map((t) => {
+                            const docs = this.status.documents.filter((d) => d.type === t.value);
+                            return { type: t.value, label: t.label, required: required.includes(t.value), docs, uploaded: docs.some((d) => d.status !== 'rejected'),
+                                fields: ((docForms || []).find((f) => f.type === t.value) || { fields: [] }).fields };
+                        })
+                        .sort((a, b) => Number(b.required) - Number(a.required));
+                },
+                otherDocs() {
+                    const shown = docTypes.map((t) => t.value);
+                    return this.status ? this.status.documents.filter((d) => !shown.includes(d.type)) : [];
                 },
 
                 async call(method, url, body, isForm = false) {
@@ -686,7 +734,11 @@
                 },
                 goToStage() {
                     const st = this.status.stage;
-                    const map = { registered: 1, documents_uploaded: this.status.steps.documents_uploaded ? 2 : 1, ready_to_submit: 3, pending_review: 3, changes_requested: 3, approved: 3, rejected: 3, contract_sent: 4, contract_signed: 4, active: 4 };
+                    const r = this.reviewStep, g = this.signStep;
+                    // Ký trước: contract_signed / active hiển thị ở bước "Chờ duyệt"; đủ thông tin mà chưa có hợp đồng → về bước Thông tin để tạo hợp đồng.
+                    const map = this.signFirst
+                        ? { registered: 1, documents_uploaded: this.status.steps.documents_uploaded ? 2 : 1, ready_to_submit: this.status.steps.contract_signed ? r : 2, pending_review: r, changes_requested: r, approved: r, rejected: r, contract_sent: g, contract_signed: r, active: r }
+                        : { registered: 1, documents_uploaded: this.status.steps.documents_uploaded ? 2 : 1, ready_to_submit: r, pending_review: r, changes_requested: r, approved: r, rejected: r, contract_sent: g, contract_signed: g, active: g };
                     this.step = map[st] ?? 0;
                 },
                 // Hợp đồng chỉ có sau khi 365 HOME duyệt giấy tờ: lấy mã ký từ trạng thái hồ sơ rồi tải nội dung.
@@ -768,27 +820,6 @@
                     try { localStorage.removeItem(MH_KEY); } catch (e) {}
                 },
 
-                async suggest() {
-                    const q = this.addrQuery.trim();
-                    if (!q) { this.suggestions = []; return; }
-                    this.suggestLoading = true; this.suggestOpen = true;
-                    try {
-                        const res = await fetch(`/api/v2/address/suggest?q=${encodeURIComponent(q)}&limit=8`, { headers: { Accept: 'application/json' } });
-                        this.suggestions = res.ok ? ((await res.json()).suggestions || []) : [];
-                    } catch (e) { this.suggestions = []; } finally { this.suggestLoading = false; }
-                },
-                async pickSuggestion(s) {
-                    this.reg.address_province_code = String(s.province_code);
-                    await this.loadWards();
-                    if (s.ward_code) this.reg.address_ward_code = String(s.ward_code);
-                    this.addrQuery = s.type === 'ward' ? `${s.label}, ${s.province_name}` : s.label;
-                    this.suggestOpen = false; this.suggestions = [];
-                },
-                manualAddress() {
-                    this.suggestOpen = false; this.addrQuery = ''; this.suggestions = [];
-                    this.$nextTick(() => this.$refs.provinceSelect && this.$refs.provinceSelect.focus());
-                },
-
                 async loadWards() {
                     this.reg.address_ward_code = ''; this.wards = [];
                     if (!this.reg.address_province_code) return;
@@ -820,39 +851,49 @@
                     if (this.errors.terms_version_id) { this.reg.accept_terms = false; await this.loadTerms(); }
                 },
 
-                // Bộ ô riêng của loại đang chọn (ĐKKD / ANTT / PCCC); loại khác → null = form chung.
-                docForm() { return (docForms || []).find((f) => f.type === this.doc.type) || null; },
-                // Đổi loại giấy tờ: xoá các ô đã nhập (mỗi loại có bộ ô khác nhau), giữ tệp đã chọn.
-                resetDocFields() { this.doc = { type: this.doc.type, name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' }; this.scanWarnings = []; },
                 // PCCC: tình trạng suy ra từ số văn bản (cùng quy tắc với server).
                 fireStage(number) {
                     const t = String(number || '').toUpperCase().split(/[^A-Z0-9]+/);
                     if (t.some((x) => ['NT', 'BB', 'GXN'].includes(x))) return 'Đã nghiệm thu: Chuẩn bị hoạt động';
                     return t.includes('TD') ? 'Thẩm duyệt: Chưa hoạt động' : '';
                 },
-                // Quét tệp đã chọn → điền gợi ý vào các ô CÒN TRỐNG (không ghi đè ô khách đã nhập); không lưu gì cho tới khi bấm "Tải lên giấy tờ".
-                async scanDoc() {
-                    const file = this.$refs.docFile.files[0];
-                    if (!file) { this.errors = { file: ['Vui lòng chọn tệp trước khi quét.'] }; return; }
+                // CCCD: các ô lấy từ mã QR bị khoá (server cũng ghi đè bằng dữ liệu QR); chỉ "Nơi cấp" tự nhập.
+                qrLocked(type, key) { return type === 'citizen_id' && key !== 'cccd_issuer'; },
+                // Chọn tệp cho một thẻ → TỰ QUÉT và điền gợi ý vào các ô của loại đó (không lưu gì cho tới khi bấm "Tải lên giấy tờ").
+                // Quét lỗi/không đọc được thì khách vẫn tự nhập và tải lên bình thường.
+                async pickDocFile(type, event) {
+                    const file = event.target.files[0], d = this.docs[type];
+                    docInputs[type] = event.target; docFiles[type] = file || null;
+                    d.values = {}; d.warnings = []; d.fileName = file ? file.name : '';
+                    if (!file) return;
+                    this.docErrorType = type; d.scanning = true;
                     const fd = new FormData();
-                    fd.append('type', this.doc.type); fd.append('file', file);
+                    fd.append('type', type); fd.append('file', file);
                     const data = await this.call('POST', `${API}/${this.token}/documents/scan`, fd, true);
-                    if (!data || data._status) return;
-                    Object.entries(data.data.fields || {}).forEach(([k, v]) => { if (v && !this.doc[k]) this.doc[k] = v; });
-                    this.scanWarnings = data.data.warnings || [];
+                    d.scanning = false;
+                    // CCCD không đọc được mã QR: bỏ tệp vừa chọn (lỗi hiện dưới ô tệp) để khách chụp lại — không cho nhập tay.
+                    if ((!data || data._status) && type === 'citizen_id' && docFiles[type] === file) {
+                        docFiles[type] = null; d.fileName = ''; event.target.value = '';
+                    }
+                    if (!data || data._status || docFiles[type] !== file) return;
+                    Object.entries(data.data.fields || {}).forEach(([k, v]) => { if (v) d.values[k] = v; });
+                    d.warnings = data.data.warnings || [];
                     this.flash(data.message, (data.data.found || 0) > 0);
                 },
 
-                async uploadDoc() {
-                    const file = this.$refs.docFile.files[0];
+                async uploadDoc(type) {
+                    const file = docFiles[type], d = this.docs[type];
+                    this.docErrorType = type;
                     if (!file) { this.errors = { file: ['Vui lòng chọn tệp.'] }; return; }
                     const fd = new FormData();
-                    Object.entries(this.doc).forEach(([k, v]) => { if (v) fd.append(k, v); });
+                    fd.append('type', type);
+                    Object.entries(d.values).forEach(([k, v]) => { if (v) fd.append(k, v); });
                     fd.append('file', file);
                     const data = await this.call('POST', `${API}/${this.token}/documents`, fd, true);
                     if (!data || data._status) return;
-                    this.$refs.docFile.value = '';
-                    this.doc = { type: 'other', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' }; this.scanWarnings = [];
+                    if (docInputs[type]) docInputs[type].value = '';
+                    docFiles[type] = null;
+                    this.docs[type] = { values: {}, fileName: '', warnings: [], scanning: false };
                     await this.refresh();
                     this.flash('Đã tải lên giấy tờ.', true);
                 },
@@ -866,7 +907,16 @@
                     const data = await this.call('PUT', `${API}/${this.token}/contract-info`, this.info);
                     if (!data || data._status) return;
                     this.applyStatus(data.data);
-                    this.step = 3;
+                    if (!this.signFirst) { this.step = this.reviewStep; return; }
+                    await this.prepareContract();
+                },
+                // Ký trước: tạo hợp đồng điều khoản chuẩn (đã có bản đang chờ ký/đã ký thì giữ nguyên) rồi sang bước ký; đã ký rồi thì sang bước gửi duyệt.
+                async prepareContract() {
+                    const data = await this.call('POST', `${API}/${this.token}/contract`);
+                    if (!data || data._status) return;
+                    this.applyStatus(data.data);
+                    await this.syncContract();
+                    this.step = this.status.stage === 'contract_sent' ? this.signStep : this.reviewStep;
                 },
                 async sendOtp() {
                     const data = await this.call('POST', `/api/partner-contracts/${this.signingToken}/otp`);
@@ -880,7 +930,8 @@
                     if (!data || data._status) return;
                     await this.refresh();
                     await this.syncContract();
-                    this.step = 4; this.flash('Đã ký hợp đồng.', true);
+                    this.goToStage();
+                    this.flash(this.signFirst && this.status.stage === 'pending_review' ? 'Đã ký hợp đồng và gửi hồ sơ cho 365 HOME duyệt.' : 'Đã ký hợp đồng.', true);
                 },
                 async recover() {
                     const data = await this.call('POST', `${API}/recover`, this.rec);
@@ -902,7 +953,7 @@
                     this.applyStatus(data.data);
                     this.flash(data.message, true);
                     if (this.purchase) { this.pollPurchase(); return; }
-                    this.step = 3;
+                    this.step = this.reviewStep;
                 },
             };
         }

@@ -78,6 +78,15 @@ class PartnerLegalDocumentService
         return $partner->verification_status === 'approved' && $this->readiness($partner)['ready'];
     }
 
+    /**
+     * ĐỐI TÁC được ký xác nhận hợp đồng chưa? Luồng cũ: chỉ khi hồ sơ đã được duyệt. Luồng "đối tác ký trước"
+     * (Partner::signsBeforeReview): ký được ngay khi hồ sơ còn đang chờ (chưa bị từ chối). Bước NỀN TẢNG ký vẫn luôn đòi hồ sơ đã duyệt.
+     */
+    public function canPartnerSign(Partner $partner): bool
+    {
+        return $this->isContractEligible($partner) || ($partner->signsBeforeReview() && $partner->verification_status === 'pending');
+    }
+
     public function assertContractEligible(Partner $partner): void
     {
         $readiness = $this->readiness($partner);

@@ -771,10 +771,14 @@ class PartnerForm
                                         Forms\Components\Actions\Action::make('createAndSendContract')
                                             ->label(fn (?Partner $record) => self::latestVersion($record) ? 'Tạo lại & gửi ký' : 'Tạo & gửi hợp đồng ký')
                                             ->icon('heroicon-o-paper-airplane')
-                                            ->color('primary')
-                                            ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isFullySigned())
+                                            // Luồng "đối tác ký trước" (Partner::signsBeforeReview): đối tác đã ký bản điều khoản chuẩn TRƯỚC khi duyệt, nên vẫn cho
+                                            // tạo lại (vd sau khi sửa hoa hồng/thời hạn) cho tới khi nền tảng ký — chữ ký cũ mất hiệu lực, đối tác ký lại bản mới.
+                                            ->color(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() ? 'warning' : 'primary')
+                                            ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isPlatformSigned()
+                                                && (! self::latestVersion($record)?->isPartnerConfirmed() || $record->signsBeforeReview()))
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
+                                            ->modalHeading(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() ? 'Đối tác ĐÃ KÝ bản hiện tại — tạo lại hợp đồng?' : 'Tạo & gửi hợp đồng ký')
                                             ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ. Mã số hợp đồng tự sinh; thiếu tỷ lệ hoa hồng (Homestay) hoặc ngày hết hạn thì hệ thống không cho tạo. Khi đối tác đã xác nhận, không tạo lại được nữa.')
                                             ->action(fn (?Partner $record) => self::createAndSendContract($record)),
 

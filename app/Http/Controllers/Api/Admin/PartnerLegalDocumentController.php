@@ -30,7 +30,7 @@ class PartnerLegalDocumentController extends Controller
             'data' => $documents->map(fn ($document) => $this->format($document)),
             'verification' => $this->verification($partner),
             'document_types' => PartnerLegalDocument::TYPES,
-            // Bộ ô nhập riêng của ĐKKD / ANTT / PCCC (loại khác dùng form chung).
+            // Bộ ô nhập riêng của ĐKKD / ANTT / PCCC / CCCD (loại khác dùng form chung).
             'document_forms' => LegalDocumentFields::schema(),
         ]);
     }
@@ -55,6 +55,10 @@ class PartnerLegalDocumentController extends Controller
         $this->authorizePartner($request, $partner);
         $data = $this->validateDocument($request);
         $this->validateBuildingScope($partner, $data);
+        // CCCD: cùng quy tắc với API đăng ký của đối tác — ảnh phải đọc được mã QR, các ô từ QR do QR quyết định.
+        if ($data['type'] === 'citizen_id') {
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($request->file('file')));
+        }
         $isSuperAdmin = $request->user()->isSuperAdmin();
 
         $document = DB::transaction(function () use ($request, $partner, $data, $isSuperAdmin) {
@@ -90,6 +94,12 @@ class PartnerLegalDocumentController extends Controller
         }
         if (($data['type'] ?? $document->type) === 'business_license') {
             $data['is_required'] = true;
+        }
+        // CCCD (kể cả giấy tờ vừa đổi loại sang CCCD): đọc lại mã QR từ tệp mới, không có tệp mới thì từ tệp đã lưu — không sửa tay được ô lấy từ QR.
+        if (($data['type'] ?? $document->type) === 'citizen_id') {
+            $media = $document->getFirstMedia('file');
+            $file = $request->file('file') ?? ($media && is_file($media->getPath()) ? new \Illuminate\Http\UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true) : null);
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file));
         }
 
         DB::transaction(function () use ($request, $document, $data) {

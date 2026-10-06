@@ -38,7 +38,7 @@ class LegalDocumentFieldsTest extends TestCase
     {
         $response = $this->getJson('/api/public/legal-document-types')->assertOk();
 
-        $this->assertSame(['business_license', 'security_order', 'fire_safety'], array_column($response->json('data.forms'), 'type'));
+        $this->assertSame(['business_license', 'security_order', 'fire_safety', 'citizen_id'], array_column($response->json('data.forms'), 'type'));
         $this->assertSame(
             ['dkkd_document_number', 'dkkd_issued_at', 'dkkd_issuer', 'dkkd_business_address', 'dkkd_business_lines', 'dkkd_legal_representative', 'dkkd_representative_id_number', 'dkkd_phone'],
             array_column($response->json('data.forms.0.fields'), 'key'),
@@ -48,9 +48,9 @@ class LegalDocumentFieldsTest extends TestCase
 
         // Không ô nào của loại này trùng tên cột với loại khác — kể cả số / ngày cấp / nơi cấp.
         $keys = array_merge(...array_map(fn ($form) => array_column($form['fields'], 'key'), $response->json('data.forms')));
-        $this->assertCount(22, $keys);
+        $this->assertCount(29, $keys);
         $this->assertSame($keys, array_values(array_unique($keys)));
-        $this->assertCount(8, $response->json('data.types'));
+        $this->assertCount(9, $response->json('data.types'));
     }
 
     public function test_each_type_stores_its_fields_in_its_own_columns(): void
@@ -139,7 +139,7 @@ class LegalDocumentFieldsTest extends TestCase
 
         $this->assertSame(0, $this->partner->legalDocuments()->count());
 
-        // Chỉ quét được 3 loại có bộ ô riêng.
+        // Chỉ quét được các loại có bộ ô riêng.
         $this->post("/api/public/partner-onboarding/{$this->token}/documents/scan", [
             'type' => 'other', 'file' => UploadedFile::fake()->create('x.pdf', 10, 'application/pdf'),
         ], ['Accept' => 'application/json'])->assertStatus(422)->assertJsonValidationErrors('type');
@@ -152,8 +152,8 @@ class LegalDocumentFieldsTest extends TestCase
         $headers = ['Authorization' => 'Bearer ' . $admin->createToken('t')->plainTextToken, 'Accept' => 'application/json'];
         $base = "/api/admin/partners/{$this->partner->id}/legal-documents";
 
-        // Danh sách trả kèm cấu trúc form của 3 loại.
-        $this->get($base, $headers)->assertOk()->assertJsonCount(3, 'document_forms');
+        // Danh sách trả kèm cấu trúc form của 4 loại (ĐKKD / ANTT / PCCC / CCCD).
+        $this->get($base, $headers)->assertOk()->assertJsonCount(4, 'document_forms');
 
         // Thêm: lưu vào cột riêng của đúng loại, bỏ ô của loại khác.
         $id = $this->post($base, [
@@ -189,6 +189,42 @@ class LegalDocumentFieldsTest extends TestCase
         $this->post("{$base}/scan", ['type' => 'fire_safety', 'file' => UploadedFile::fake()->create('pccc.jpg', 100, 'image/jpeg')], $headers)->assertOk()
             ->assertJsonPath('data.fields.pccc_document_number', '82/TD-PCCC')
             ->assertJsonPath('data.fire_safety_stage.code', 'design_approved');
+    }
+
+    // CCCD qua API admin: CÙNG quy tắc với API đăng ký của đối tác — ảnh phải đọc được mã QR, ô lấy từ QR do QR quyết định (thêm lẫn sửa).
+    public function test_admin_api_applies_the_same_citizen_id_qr_rule(): void
+    {
+        config(['cache.default' => 'array']);
+        $admin = \App\Models\User::create(['fullname' => 'Super Admin Test', 'email' => 'legal-cccd-admin@example.test', 'password' => 'secret-secret']);
+        $admin->assignRole(config('filament-shield.super_admin.name'));
+        $headers = ['Authorization' => 'Bearer ' . $admin->createToken('t')->plainTextToken, 'Accept' => 'application/json'];
+        $base = "/api/admin/partners/{$this->partner->id}/legal-documents";
+        $qr = fn (?array $data) => $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn($data));
+        $image = fn (int $width = 800) => UploadedFile::fake()->image('cccd.jpg', $width, 500);
+
+        // Không đọc được mã QR (hoặc tệp PDF) → từ chối, không lưu.
+        $qr(null);
+        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '092088001234', 'file' => $image()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post($base, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->create('cccd.pdf', 100, 'application/pdf')], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->assertSame(0, $this->partner->legalDocuments()->where('type', 'citizen_id')->count());
+
+        // Đọc được QR → lưu theo QR, bỏ qua số CCCD gửi tay; "Nơi cấp" do người nhập.
+        $qr(['cccd' => '092088001234', 'full_name' => 'NGUYỄN VĂN AN', 'dob' => '05/03/1988', 'gender' => 'Nam', 'address' => '12 Lê Lợi, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr']);
+        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image()], $headers)->assertOk()->assertJsonPath('data.fields.cccd_full_name', 'NGUYỄN VĂN AN');
+        $id = $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '111111111111', 'cccd_issuer' => 'Cục CS QLHC về TTXH', 'file' => $image()], $headers)
+            ->assertCreated()->assertJsonPath('data.document_number', '092088001234')->json('data.id');
+
+        // Sửa không kèm tệp: ô lấy từ QR không sửa tay được (đọc lại từ tệp đã lưu), Nơi cấp sửa được.
+        $this->post("{$base}/{$id}", ['cccd_full_name' => 'TÊN SỬA TAY', 'cccd_issuer' => 'Bộ Công an'], $headers)->assertOk();
+        $document = $this->partner->legalDocuments()->findOrFail($id);
+        $this->assertSame('NGUYỄN VĂN AN', $document->cccd_full_name);
+        $this->assertSame('Bộ Công an', $document->cccd_issuer);
+
+        // Sửa kèm tệp mới không đọc được QR → từ chối, giữ nguyên dữ liệu cũ.
+        $qr(null);
+        $this->post("{$base}/{$id}", ['file' => $image(900)], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->assertSame('092088001234', $document->fresh()->cccd_document_number);
     }
 
     private function upload(array $fields)

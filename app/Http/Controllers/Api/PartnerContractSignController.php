@@ -24,7 +24,7 @@ class PartnerContractSignController extends Controller
             'content' => \App\Support\PartnerContractRenderer::renderFramed($version->content, $version->partner, $version),
             'content_body' => $version->content,
             'content_hash' => $version->content_hash,
-            'can_confirm' => $documents->isContractEligible($version->partner) && ! $version->isPartnerConfirmed(),
+            'can_confirm' => $documents->canPartnerSign($version->partner) && ! $version->isPartnerConfirmed(),
             'partner_confirmed_at' => $version->partner_confirmed_at?->toIso8601String(),
             'platform_signed_at' => $version->platform_signed_at?->toIso8601String(),
         ]]);
@@ -33,7 +33,7 @@ class PartnerContractSignController extends Controller
     public function sendOtp(string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): JsonResponse
     {
         $version = $this->version($token);
-        if (! $documents->isContractEligible($version->partner)) {
+        if (! $documents->canPartnerSign($version->partner)) {
             return response()->json(['message' => 'Hồ sơ pháp lý chưa đủ điều kiện ký.'], 409);
         }
         if ($version->isPartnerConfirmed()) {
@@ -58,7 +58,7 @@ class PartnerContractSignController extends Controller
     public function confirm(Request $request, string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): JsonResponse
     {
         $version = $this->version($token);
-        if (! $documents->isContractEligible($version->partner)) {
+        if (! $documents->canPartnerSign($version->partner)) {
             return response()->json(['message' => 'Hồ sơ pháp lý chưa đủ điều kiện ký.'], 409);
         }
         if ($version->isPartnerConfirmed()) {

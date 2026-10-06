@@ -53,20 +53,22 @@ class LegalDocumentsRelationManager extends RelationManager
                 ->searchable()->preload(),
             SpatieMediaLibraryFileUpload::make('file')->label('Tệp giấy tờ')
                 ->collection('file')->disk('local')->required()
-                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+                // CCCD chỉ nhận ảnh (phải đọc được mã QR trên thẻ).
+                ->acceptedFileTypes(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? ['image/jpeg', 'image/png', 'image/webp'] : ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+                ->helperText(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? 'Ảnh chụp mặt CCCD có mã QR. Hệ thống phải đọc được mã QR thì mới lưu; các ô bên dưới lấy từ mã QR (trừ Nơi cấp).' : null)
                 ->maxSize(10240)->columnSpanFull()
                 // Quét tệp vừa chọn (hoặc tệp đã lưu của giấy tờ đang sửa) → điền gợi ý vào các ô CÒN TRỐNG của loại đó; không lưu gì cho tới khi bấm lưu.
                 ->hintAction(Forms\Components\Actions\Action::make('scan')->label('Quét giấy tờ để tự điền')->icon('heroicon-o-viewfinder-circle')
                     ->visible(fn (Forms\Get $get, string $operation) => $operation !== 'view' && LegalDocumentFields::has($get('type')))
                     ->action(fn (Forms\Get $get, Forms\Set $set, ?PartnerLegalDocument $record) => $this->scanIntoForm($get, $set, $record))),
-            // ĐKKD / ANTT / PCCC: MỖI LOẠI MỘT BỘ CỘT RIÊNG (dkkd_* / antt_* / pccc_* — App\Support\LegalDocumentFields), kể cả số / ngày cấp / nơi cấp.
+            // ĐKKD / ANTT / PCCC / CCCD: MỖI LOẠI MỘT BỘ CỘT RIÊNG (dkkd_* / antt_* / pccc_* / cccd_* — App\Support\LegalDocumentFields), kể cả số / ngày cấp / nơi cấp.
             // Loại khác giữ form chung (tên, số, cơ quan cấp, ngày cấp, ngày hết hạn) trên các cột chung.
             ...array_merge(...array_map(fn (string $type) => array_map(function (string $key, array $definition) use ($type) {
                 [$label, $input] = $definition;
                 $field = match ($input) {
-                    'date'     => Forms\Components\DatePicker::make($key)->native(false)->maxDate(now()),
+                    'date'     => Forms\Components\DatePicker::make($key)->native(false)->maxDate(now())->disabled($this->qrLocked($key))->dehydrated(),
                     'textarea' => Forms\Components\Textarea::make($key)->rows(2)->maxLength(2000),
-                    default    => Forms\Components\TextInput::make($key)->rules(LegalDocumentFields::rules()[$key])
+                    default    => Forms\Components\TextInput::make($key)->rules(LegalDocumentFields::rules()[$key])->readOnly($this->qrLocked($key))
                         ->validationMessages(['regex' => LegalDocumentFields::messages()["{$key}.regex"] ?? 'Giá trị không hợp lệ.']),
                 };
                 if ($key === 'pccc_document_number') {
@@ -98,17 +100,14 @@ class LegalDocumentsRelationManager extends RelationManager
     private function scanIntoForm(Forms\Get $get, Forms\Set $set, ?PartnerLegalDocument $record): void
     {
         $scanner = app(LegalDocumentScanService::class);
-        if (! $scanner->isConfigured()) {
+        // CCCD đọc mã QR, không cần khoá OCR.
+        if ($get('type') !== 'citizen_id' && ! $scanner->isConfigured()) {
             Notification::make()->title('Chức năng quét giấy tờ chưa được cấu hình')->body('Vui lòng tự nhập thông tin.')->warning()->send();
 
             return;
         }
 
-        // Tệp vừa chọn trên form (chưa lưu) → ưu tiên; không có thì dùng tệp đã lưu của giấy tờ đang sửa.
-        $file = collect(Arr::wrap($get('file')))->first(fn ($item) => $item instanceof UploadedFile);
-        if (! $file && ($media = $record?->getFirstMedia('file')) && is_file($media->getPath())) {
-            $file = new UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true);
-        }
+        $file = $this->formFile($get('file'), $record);
         if (! $file) {
             Notification::make()->title('Chưa có tệp để quét')->body('Chọn tệp giấy tờ trước, chờ tải lên xong rồi bấm quét.')->warning()->send();
 
@@ -118,8 +117,8 @@ class LegalDocumentsRelationManager extends RelationManager
         $result = $scanner->scan($file, (string) $get('type'));
         $filled = 0;
         foreach ($result['fields'] as $key => $value) {
-            // Không ghi đè ô đã nhập.
-            if (filled($value) && blank($get($key))) {
+            // Không ghi đè ô đã nhập — trừ ô CCCD lấy từ mã QR (QR quyết định).
+            if (filled($value) && (blank($get($key)) || $this->qrLocked($key))) {
                 $set($key, $value);
                 $filled++;
             }
@@ -129,6 +128,37 @@ class LegalDocumentsRelationManager extends RelationManager
             ->title($result['text_found'] ? "Đã đọc được {$result['found']}/{$result['total']} ô, điền {$filled} ô còn trống" : 'Không đọc được nội dung tệp')
             ->body(implode("\n", [...$result['warnings'], 'Vui lòng đối chiếu lại với giấy tờ trước khi lưu.']))
             ->{$result['found'] > 0 ? 'success' : 'warning'}()->persistent()->send();
+    }
+
+    /** Tệp vừa chọn trên form (chưa lưu) → ưu tiên; không có thì dùng tệp đã lưu của giấy tờ đang sửa. */
+    private function formFile(mixed $state, ?PartnerLegalDocument $record): ?UploadedFile
+    {
+        $file = collect(Arr::wrap($state))->first(fn ($item) => $item instanceof UploadedFile);
+        if (! $file && ($media = $record?->getFirstMedia('file')) && is_file($media->getPath())) {
+            $file = new UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true);
+        }
+
+        return $file;
+    }
+
+    /** Ô CCCD lấy từ mã QR: khoá trên form, giá trị do QR quyết định khi lưu. */
+    private function qrLocked(string $key): bool
+    {
+        return in_array($key, array_map(fn (string $name) => LegalDocumentFields::key('citizen_id', $name), LegalDocumentFields::CITIZEN_ID_QR_FIELDS), true);
+    }
+
+    /**
+     * Lưu CCCD từ trang quản trị: cùng quy tắc với API (LegalDocumentScanService::citizenIdValues) — ảnh phải đọc được mã QR,
+     * các ô từ QR do QR quyết định. Không đọc được → báo lỗi ngay dưới ô tệp, không lưu.
+     */
+    private function applyCitizenIdRule(array $data, ?PartnerLegalDocument $record = null): array
+    {
+        if (($data['type'] ?? $record?->type) !== 'citizen_id') {
+            return $data;
+        }
+        $file = $this->formFile($this->getMountedTableActionForm()?->getRawState()['file'] ?? null, $record);
+
+        return array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file, 'mountedTableActionsData.0.file'));
     }
 
     public function table(Table $table): Table
@@ -149,7 +179,7 @@ class LegalDocumentsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('review_note')->label('Ghi chú duyệt')->limit(45)->placeholder('—'),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()->label('Thêm giấy tờ'),
+                Tables\Actions\CreateAction::make()->label('Thêm giấy tờ')->mutateFormDataUsing(fn (array $data) => $this->applyCitizenIdRule($data)),
                 Tables\Actions\Action::make('submit')
                     ->label('Gửi hồ sơ xét duyệt')->icon('heroicon-o-paper-airplane')->color('warning')
                     ->requiresConfirmation()
@@ -187,6 +217,7 @@ class LegalDocumentsRelationManager extends RelationManager
                 // Xem đủ các ô riêng theo loại của MỌI giấy tờ (kể cả đang chờ duyệt / đã duyệt) để đối chiếu với tệp khi duyệt.
                 Tables\Actions\ViewAction::make()->label('Xem')->modalHeading(fn (PartnerLegalDocument $record) => PartnerLegalDocument::TYPES[$record->type] ?? 'Giấy tờ'),
                 Tables\Actions\EditAction::make()
+                    ->mutateFormDataUsing(fn (array $data, PartnerLegalDocument $record) => $this->applyCitizenIdRule($data, $record))
                     ->visible(fn (PartnerLegalDocument $record) => in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
                 Tables\Actions\Action::make('approve')->label('Duyệt')->icon('heroicon-o-check')->color('success')
                     ->visible(fn (PartnerLegalDocument $record) => $record->status === 'pending_review')

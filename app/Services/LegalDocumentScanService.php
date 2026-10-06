@@ -8,10 +8,15 @@ use App\Models\PartnerLegalDocument;
 use App\Models\Province;
 use App\Support\LegalDocumentFields;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 
+// CCCD (citizen_id) đi đường riêng: chỉ đọc MÃ QR trên thẻ — xem citizenId().
 // QUÉT giấy tờ pháp lý (ĐKKD / ANTT / PCCC) để GỢI Ý giá trị cho các ô nhập theo loại (App\Support\LegalDocumentFields).
 // Chỉ gợi ý: không lưu gì, không tự duyệt — người nhập kiểm tra lại rồi mới nộp. Đọc chữ bằng OCR.space (cùng API key với quét CCCD),
 // rồi dò theo BỐ CỤC + NHÃN trên giấy. Quy tắc dò được chỉnh theo 3 file mẫu thật (ĐKKD Cần Thơ 2025, GCN ANTT phường 2026, GCN thẩm duyệt PCCC 2019):
@@ -84,7 +89,85 @@ class LegalDocumentScanService
      */
     public function scan(UploadedFile $file, string $type): array
     {
+        if ($type === 'citizen_id') {
+            return $this->citizenId($file);
+        }
+
         return $this->suggest($type, $this->extractText($file));
+    }
+
+    /**
+     * QUY TẮC NỘP CCCD dùng chung cho API đăng ký (đối tác), API admin và trang quản trị: tệp phải là ảnh đọc được mã QR,
+     * và các ô lấy từ QR (LegalDocumentFields::CITIZEN_ID_QR_FIELDS) do QR quyết định — giá trị người nhập gửi cho các ô đó bị thay thế.
+     *
+     * @return array<string, ?string> các cột cccd_* lấy từ QR (không gồm cccd_issuer — QR không có nơi cấp)
+     *
+     * @throws ValidationException khi không đọc được mã QR (lỗi gắn vào $errorKey)
+     */
+    public function citizenIdValues(?UploadedFile $file, string $errorKey = 'file'): array
+    {
+        $scan = $file ? $this->citizenId($file) : null;
+        if (! ($scan['qr'] ?? false)) {
+            throw ValidationException::withMessages([$errorKey => $scan['warnings'] ?? ['CCCD phải có tệp ảnh chụp mặt có mã QR.']]);
+        }
+
+        return Arr::only($scan['fields'], array_map(fn (string $name) => LegalDocumentFields::key('citizen_id', $name), LegalDocumentFields::CITIZEN_ID_QR_FIELDS));
+    }
+
+    /**
+     * CCCD: CHỈ đọc MÃ QR trên thẻ (không OCR — chữ trên ảnh dễ bị làm giả), dùng chung bộ giải mã với luồng đặt phòng.
+     * Không đọc được QR → text_found = false, các ô null, warnings nêu lý do. Kết quả nhớ tạm theo nội dung tệp để lúc nộp không phải giải mã lại.
+     *
+     * @return array cùng cấu trúc với suggest(), thêm 'qr' => bool
+     */
+    public function citizenId(UploadedFile $file): array
+    {
+        $type = 'citizen_id';
+        $fields = array_fill_keys(LegalDocumentFields::keys($type), null);
+        $hint = null;
+
+        if (is_file($file->getRealPath()) && str_starts_with((string) $file->getMimeType(), 'image/')) {
+            $qr = Cache::remember('legal-cccd-qr:' . sha1_file($file->getRealPath()), now()->addMinutes(15), function () use ($file, &$hint) {
+                $data = app(CccdScannerService::class)->scanQrImage($file->getRealPath());
+                $hint = $data ? null : CccdScannerService::failureHint();
+
+                // Không nhớ kết quả thất bại: khách chụp lại ảnh khác, hoặc hệ thống bận thì lần sau thử lại.
+                return $data ?: false;
+            });
+            if ($qr === false) {
+                Cache::forget('legal-cccd-qr:' . sha1_file($file->getRealPath()));
+            }
+        } else {
+            $qr = false;
+            $hint = 'CCCD phải là tệp ảnh (jpg, png, webp) chụp mặt có mã QR.';
+        }
+
+        if ($qr && preg_match('/^[0-9]{9}([0-9]{3})?$/', (string) ($qr['cccd'] ?? ''))) {
+            $date = fn (?string $value) => preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', (string) $value, $m) ? "{$m[3]}-{$m[2]}-{$m[1]}" : null;
+            $fields = array_merge($fields, [
+                'cccd_document_number' => $qr['cccd'],
+                'cccd_full_name'       => filled($qr['full_name'] ?? null) ? $qr['full_name'] : null,
+                'cccd_dob'             => $date($qr['dob'] ?? null),
+                'cccd_gender'          => filled($qr['gender'] ?? null) ? $qr['gender'] : null,
+                'cccd_address'         => filled($qr['address'] ?? null) ? $qr['address'] : null,
+                'cccd_issued_at'       => $date($qr['issued_date'] ?? null),
+            ]);
+        } else {
+            $qr = false;
+        }
+
+        return [
+            'type'              => $type,
+            'text_found'        => (bool) $qr,
+            'qr'                => (bool) $qr,
+            'detected_type'     => $qr ? $type : null,
+            'type_matches'      => $qr ? true : null,
+            'fields'            => $fields,
+            'found'             => count(array_filter($fields, fn ($value) => filled($value))),
+            'total'             => count($fields),
+            'fire_safety_stage' => null,
+            'warnings'          => $qr ? [] : ['Không đọc được mã QR trên CCCD. ' . ($hint ?? CccdScannerService::failureHint())],
+        ];
     }
 
     /** Gợi ý giá trị từ đoạn chữ đã đọc được (tách riêng để kiểm thử không cần gọi OCR). */

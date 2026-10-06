@@ -309,6 +309,11 @@ class PartnerOnboardingService
             throw ValidationException::withMessages(['type' => 'Giấy tờ PCCC, ANTT và quyền khai thác toà nhà được bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.']);
         }
 
+        // CCCD: BẮT BUỘC đọc được mã QR trên ảnh; số, họ tên, ngày sinh, giới tính, thường trú, ngày cấp lấy TỪ QR (bỏ qua giá trị client gửi).
+        if ($data['type'] === 'citizen_id') {
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file));
+        }
+
         return DB::transaction(function () use ($partner, $data, $file) {
             $document = $partner->legalDocuments()->create([
                 'type'            => $data['type'],
@@ -371,7 +376,63 @@ class PartnerOnboardingService
         $this->assertEmailFree($data['email'] ?? null, $partner->id);
         $partner->update(collect($data)->only(self::CONTRACT_FIELDS)->all());
 
+        // Đối tác ký trước: thông tin in trong hợp đồng vừa đổi mà đã có bản hợp đồng (đang chờ ký/đã ký) → bản đó không còn khớp,
+        // tạo bản mới để đối tác ký lại (link và chữ ký của bản cũ hết hiệu lực vì chỉ phiên bản mới nhất được dùng).
+        if ($partner->signsBeforeReview() && $partner->wasChanged(self::CONTRACT_FIELDS)
+            && ($latest = $this->latestContract($partner)) && ! $latest->isPlatformSigned()
+            && $this->missingContractFields($partner) === [] && $this->missingRequiredDocuments($partner) === []) {
+            $this->createPreApprovalContract($partner, 'Tạo lại vì đối tác sửa thông tin ký hợp đồng');
+        }
+
         return $partner->fresh();
+    }
+
+    /**
+     * LUỒNG "ĐỐI TÁC KÝ TRƯỚC" (Partner::signsBeforeReview): đủ giấy tờ bắt buộc + thông tin hợp đồng → tạo hợp đồng ĐIỀU KHOẢN CHUẨN
+     * (hoa hồng mặc định, thời hạn mặc định config contract.default_term_months) để đối tác ký bằng OTP ngay trên trang đăng ký.
+     * Đã có bản đang chờ ký hoặc đã ký thì giữ nguyên. Ký xong hồ sơ tự gửi duyệt (notifyPartnerSigned).
+     */
+    public function prepareContract(Partner $partner): Partner
+    {
+        if (! $partner->signsBeforeReview()) {
+            throw ValidationException::withMessages(['contract' => 'Hợp đồng sẽ được gửi sau khi 365 Home duyệt hồ sơ.']);
+        }
+        $this->assertEditable($partner);
+        $missingDocs = $this->missingRequiredDocuments($partner);
+        if ($missingDocs !== []) {
+            throw ValidationException::withMessages(['documents' => 'Phải nộp đủ giấy tờ bắt buộc (có tệp). Còn thiếu: ' . implode(', ', array_map(fn ($t) => PartnerLegalDocument::TYPES[$t] ?? $t, $missingDocs)) . '.']);
+        }
+        $missing = $this->missingContractFields($partner);
+        if ($missing !== []) {
+            throw ValidationException::withMessages(['contract_info' => 'Thiếu thông tin ký hợp đồng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missing)) . '.']);
+        }
+
+        $latest = $this->latestContract($partner);
+        if (! $latest || (! $latest->isPartnerConfirmed() && $latest->signing_token === null)) {
+            $this->createPreApprovalContract($partner, 'Tự động tạo để đối tác ký trước khi 365 Home duyệt hồ sơ (đăng ký hợp tác trên website)');
+        }
+
+        return $partner->fresh();
+    }
+
+    private function createPreApprovalContract(Partner $partner, string $note): PartnerContractVersion
+    {
+        // Điều 7 in SỐ THÁNG kể từ ngày hợp đồng có hiệu lực (suy từ ngày hết hạn tại lúc tạo bản). Bản đầu: thời hạn mặc định. Bản tạo lại:
+        // giữ đúng số tháng của bản trước (kể cả khi admin đã chỉnh riêng) — đặt lại ngày hết hạn tính từ hôm nay để số tháng in ra không bị hụt.
+        // Ngày hết hạn chính thức được tính lại lúc 365 Home ký. Hoa hồng mặc định đã gán lúc tạo đối tác.
+        if (blank($partner->contract_signed_at)) {
+            $latest = $this->latestContract($partner);
+            $months = $latest && $latest->created_at && $partner->contract_expires_at
+                ? PartnerContractRenderer::termMonths($partner->contract_expires_at, $latest->created_at)
+                : max(1, (int) config('contract.default_term_months', 12));
+            $partner->update(['contract_expires_at' => today()->addMonths($months)]);
+        }
+        $version = DB::transaction(fn () => app(PartnerContractWorkflowService::class)->createVersion(
+            $partner, null, 'Hợp đồng đăng ký hợp tác — ' . now()->format('d/m/Y H:i'), $note, preApproval: true
+        ));
+        $this->log($partner, 'Đã tạo hợp đồng điều khoản chuẩn để đối tác ký trước khi duyệt hồ sơ.');
+
+        return $version;
     }
 
     /**
@@ -388,6 +449,13 @@ class PartnerOnboardingService
         }
 
         $latest = $this->latestContract($partner);
+        // Đối tác ĐÃ KÝ TRƯỚC (luồng ký trước): duyệt xong chỉ còn bước 365 Home ký phía nền tảng.
+        if ($latest && $latest->isPartnerConfirmed() && ! $latest->isPlatformSigned()) {
+            $this->notifyAdmins($partner, 'Đã duyệt hồ sơ — chờ ký phía nền tảng', $this->partnerLabel($partner) . ' đã ký hợp đồng từ trước. Vào Đối tác → tab Hợp đồng để ký phía nền tảng; sau đó hệ thống tự cấp tài khoản.', 'partner_contract_signed', 'info', 'heroicon-o-pencil-square');
+            $this->mailPartner($partner, 'Hồ sơ hợp tác đã được duyệt', '<p>Giấy tờ pháp lý của bạn đã được 365 Home duyệt. Bước cuối: 365 Home ký xác nhận hợp đồng phía nền tảng, sau đó tài khoản quản trị sẽ được gửi về email này.</p>');
+
+            return ['version' => $latest, 'mail_sent' => false, 'signing_url' => null];
+        }
         if ($latest && ($latest->isPartnerConfirmed() || $latest->signing_token !== null)) {
             return ['version' => $latest, 'mail_sent' => false, 'signing_url' => null];
         }
@@ -439,6 +507,19 @@ class PartnerOnboardingService
         if (blank($partner->onboarding_token)) {
             return;
         }
+        // Đối tác ký TRƯỚC khi duyệt: ký xong thì hồ sơ tự gửi cho 365 Home duyệt (submit() lo phần thông báo).
+        if ($partner->signsBeforeReview() && $partner->verification_status !== 'approved') {
+            try {
+                if ($partner->verification_submitted_at === null) {
+                    $this->submit($partner->fresh());
+                }
+            } catch (ValidationException $e) {
+                // Chưa gửi duyệt được (vd không còn giấy tờ mới để gửi): đối tác bấm "Gửi hồ sơ" trên trang đăng ký sau khi hoàn tất.
+                $this->log($partner, 'Đối tác đã ký hợp đồng nhưng chưa tự gửi duyệt được: ' . collect($e->errors())->flatten()->implode(' '));
+            }
+
+            return;
+        }
         $this->mailPartner($partner, 'Đã nhận chữ ký hợp đồng hợp tác của bạn', '<p>365 Home đã nhận xác nhận ký hợp đồng của bạn. Bước cuối: 365 Home ký xác nhận phía nền tảng, sau đó tài khoản quản trị sẽ được gửi về email này.</p>');
         try {
             app(AdminNotificationService::class)->notify(
@@ -468,6 +549,12 @@ class PartnerOnboardingService
             throw ValidationException::withMessages(['contract_info' => 'Thiếu thông tin ký hợp đồng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missing)) . '.']);
         }
 
+        // Đối tác ký trước: phải ký hợp đồng (bản mới nhất) rồi mới gửi duyệt.
+        $signedFirst = $partner->signsBeforeReview();
+        if ($signedFirst && ! $this->latestContract($partner)?->isPartnerConfirmed()) {
+            throw ValidationException::withMessages(['contract' => 'Vui lòng ký hợp đồng trước khi gửi hồ sơ cho 365 Home duyệt.']);
+        }
+
         // Gửi các giấy tờ mới/bổ sung sang "chờ duyệt"; không còn giấy tờ mới (đã gửi trước đó) → báo lỗi như API hồ sơ pháp lý.
         $this->documents->submit($partner);
 
@@ -487,7 +574,7 @@ class PartnerOnboardingService
             app(AdminNotificationService::class)->notify(
                 User::role(config('filament-shield.super_admin.name'))->get(),
                 'Hồ sơ đăng ký hợp tác chờ duyệt',
-                ($partner->legal_name ?: $partner->name) . ' (' . ($partner->isMinihouse() ? 'MiniHouse' : 'Homestay') . ', ' . $partner->phone . ') đã nộp giấy tờ pháp lý và thông tin hợp đồng. Vào Đối tác → tab Hồ sơ pháp lý để xem và duyệt; duyệt xong hệ thống gửi hợp đồng cho đối tác ký.',
+                ($partner->legal_name ?: $partner->name) . ' (' . ($partner->isMinihouse() ? 'MiniHouse' : 'Homestay') . ', ' . $partner->phone . ') đã nộp giấy tờ pháp lý và thông tin hợp đồng' . ($signedFirst ? ', và ĐÃ KÝ hợp đồng điều khoản chuẩn. Vào Đối tác → tab Hồ sơ pháp lý để xem và duyệt; duyệt xong ký phía nền tảng ở tab Hợp đồng.' : '. Vào Đối tác → tab Hồ sơ pháp lý để xem và duyệt; duyệt xong hệ thống gửi hợp đồng cho đối tác ký.'),
                 ['type' => 'partner_onboarding', 'partner_id' => $partner->id],
                 'heroicon-o-document-check',
                 'info',
@@ -499,7 +586,10 @@ class PartnerOnboardingService
         $this->mailPartner(
             $partner,
             'Đã nhận hồ sơ hợp tác — chờ 365 Home duyệt',
-            '<p>365 Home đã nhận hồ sơ hợp tác của <strong>' . e($partner->legal_name ?: $partner->name) . '</strong>. Chúng tôi sẽ xem xét giấy tờ; nếu hợp lệ, hợp đồng sẽ được gửi về email này để bạn ký trực tuyến. Nếu cần bổ sung, chúng tôi sẽ báo lý do qua email.</p>'
+            '<p>365 Home đã nhận hồ sơ hợp tác của <strong>' . e($partner->legal_name ?: $partner->name) . '</strong>'
+            . ($signedFirst
+                ? ' cùng chữ ký hợp đồng của bạn. Chúng tôi sẽ xem xét giấy tờ; nếu hợp lệ, 365 Home ký xác nhận hợp đồng và gửi tài khoản quản trị về email này. Hợp đồng chỉ có hiệu lực sau khi 365 Home ký. Nếu cần bổ sung, chúng tôi sẽ báo lý do qua email.</p>'
+                : '. Chúng tôi sẽ xem xét giấy tờ; nếu hợp lệ, hợp đồng sẽ được gửi về email này để bạn ký trực tuyến. Nếu cần bổ sung, chúng tôi sẽ báo lý do qua email.</p>')
         );
 
         return $partner->fresh();
@@ -836,13 +926,20 @@ class PartnerOnboardingService
         $signingActive = $contract && $contract->signing_token !== null && ! $contract->isPartnerConfirmed();
         $hasChanges = $documents->contains(fn ($d) => in_array($d->status, ['changes_requested', 'rejected'], true));
 
+        // Đối tác ký trước (signsBeforeReview): hợp đồng có thể đã tạo/đã ký khi hồ sơ CHƯA duyệt, nên giai đoạn xét theo cả hai:
+        //  contract_sent   = có bản hợp đồng đang chờ đối tác ký (trước hoặc sau khi duyệt)
+        //  contract_signed = đối tác đã ký VÀ hồ sơ đã duyệt → chờ 365 Home ký phía nền tảng
+        //  đã ký nhưng chưa duyệt → theo trạng thái hồ sơ (pending_review / changes_requested / ready_to_submit).
+        $signFirst = $partner->signsBeforeReview();
+        $confirmed = (bool) $contract?->isPartnerConfirmed();
+
         $stage = match (true) {
             $partner->contract_status === 'active' => 'active',
-            (bool) $contract?->isPartnerConfirmed() => 'contract_signed',
-            $approved && $signingActive => 'contract_sent',
-            $approved => 'approved',
             $partner->verification_status === 'rejected' => 'rejected',
+            $confirmed && ($approved || ! $signFirst) => 'contract_signed',
             $hasChanges => 'changes_requested',
+            $signingActive && ($approved || $signFirst) => 'contract_sent',
+            $approved => 'approved',
             $partner->verification_submitted_at !== null => 'pending_review',
             $missing === [] && $this->missingRequiredDocuments($partner) === [] => 'ready_to_submit',
             $documents->isNotEmpty() => 'documents_uploaded',
@@ -851,6 +948,8 @@ class PartnerOnboardingService
 
         return [
             'stage'        => $stage,
+            // Thứ tự ký: true = đối tác ký hợp đồng TRƯỚC khi gửi duyệt (POST .../contract để tạo hợp đồng); false = duyệt xong mới ký.
+            'flow'         => ['sign_before_review' => $signFirst],
             'partner_type' => $partner->partner_type,
             'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS])
                 ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])->all(),

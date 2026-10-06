@@ -76,7 +76,7 @@ class PartnerOnboardingController extends Controller
         return response()->json(['data' => $this->service->status($this->service->findByToken($token))]);
     }
 
-    // GET /api/public/legal-document-types — loại giấy tờ + BỘ Ô NHẬP RIÊNG của ĐKKD / ANTT / PCCC để client dựng form (loại khác dùng form chung).
+    // GET /api/public/legal-document-types — loại giấy tờ + BỘ Ô NHẬP RIÊNG của ĐKKD / CCCD / ANTT / PCCC để client dựng form (loại khác dùng form chung).
     public function documentTypes(): JsonResponse
     {
         return response()->json(['data' => [
@@ -106,7 +106,20 @@ class PartnerOnboardingController extends Controller
         $data = $request->validate([
             'type' => ['required', Rule::in(LegalDocumentFields::types())],
             'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-        ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.'], PartnerOnboardingService::LABELS);
+        ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, CCCD, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.'], PartnerOnboardingService::LABELS);
+
+        // CCCD: BẮT BUỘC đọc được mã QR trên thẻ (không OCR) — không đọc được thì báo lỗi ở ô tệp để khách chụp lại.
+        if ($data['type'] === 'citizen_id') {
+            $result = $scanner->scan($request->file('file'), $data['type']);
+            if (! $result['qr']) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['file' => $result['warnings']]);
+            }
+
+            return response()->json([
+                'message' => 'Đã đọc mã QR trên CCCD. Vui lòng kiểm tra lại trước khi nộp.',
+                'data'    => collect($result)->except('text_found')->all(),
+            ]);
+        }
 
         abort_unless($scanner->isConfigured(), 503, 'Chức năng quét giấy tờ chưa được cấu hình. Vui lòng tự nhập thông tin.');
 
@@ -143,6 +156,15 @@ class PartnerOnboardingController extends Controller
         $document = $this->service->addDocument($partner, $data, $request->file('file'));
 
         return response()->json(['message' => 'Đã nộp giấy tờ.', 'data' => $this->service->formatDocument($document->fresh('media'))], 201);
+    }
+
+    // POST /api/public/partner-onboarding/{token}/contract — luồng "đối tác ký trước": tạo hợp đồng điều khoản chuẩn để ký ngay (trước khi gửi duyệt).
+    // Trả trạng thái hồ sơ; contract.signing_token dùng cho /api/partner-contracts/{token} (xem nội dung, gửi OTP, xác nhận).
+    public function prepareContract(string $token): JsonResponse
+    {
+        $partner = $this->service->prepareContract($this->service->findByToken($token));
+
+        return response()->json(['message' => 'Hợp đồng đã sẵn sàng để ký.', 'data' => $this->service->status($partner)]);
     }
 
     // DELETE /api/public/partner-onboarding/{token}/documents/{document}

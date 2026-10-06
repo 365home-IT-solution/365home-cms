@@ -27,7 +27,7 @@ class ContractSignController extends Controller
     public function show(string $token, PartnerLegalDocumentService $documents): View
     {
         $version = $this->findVersion($token);
-        $eligible = $documents->isContractEligible($version->partner);
+        $eligible = $documents->canPartnerSign($version->partner);
 
         return view('contract-sign', [
             'version' => $version,
@@ -42,7 +42,7 @@ class ContractSignController extends Controller
     {
         $version = $this->findVersion($token);
 
-        if (! $documents->isContractEligible($version->partner)) {
+        if (! $documents->canPartnerSign($version->partner)) {
             return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
         }
 
@@ -76,7 +76,7 @@ class ContractSignController extends Controller
     {
         $version = $this->findVersion($token);
 
-        if (! $documents->isContractEligible($version->partner)) {
+        if (! $documents->canPartnerSign($version->partner)) {
             return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
         }
 
@@ -109,7 +109,9 @@ class ContractSignController extends Controller
 
         app(\App\Services\PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
 
-        return back()->with('success', 'Xác nhận thành công! Hợp đồng sẽ được hoàn tất chữ ký số bởi nền tảng trong ít phút. Cảm ơn bạn đã hợp tác.');
+        return back()->with('success', $version->partner->fresh()->verification_status === 'approved'
+            ? 'Xác nhận thành công! Hợp đồng sẽ được hoàn tất chữ ký số bởi nền tảng trong ít phút. Cảm ơn bạn đã hợp tác.'
+            : 'Xác nhận thành công! Hồ sơ đã được gửi cho 365 Home duyệt; hợp đồng có hiệu lực sau khi 365 Home ký xác nhận.');
     }
 
     private function findVersion(string $token): PartnerContractVersion

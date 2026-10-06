@@ -75,15 +75,24 @@ class PartnerContractWorkflowService
         return $this->documents->isContractEligible($partner) && $this->missingTerms($partner) === [] && ! $this->isLocked($partner);
     }
 
-    /** Phiên bản mới nhất đã được đối tác xác nhận → không tạo lại được nữa (chỉ còn bước nền tảng ký). */
+    /**
+     * Phiên bản mới nhất đã được đối tác xác nhận → không tạo lại được nữa (chỉ còn bước nền tảng ký).
+     * Luồng "đối tác ký trước": đối tác ký bản điều khoản chuẩn TRƯỚC khi 365 Home xem hồ sơ, nên vẫn cho tạo lại (đối tác ký lại bản mới)
+     * cho tới khi nền tảng đã ký.
+     */
     public function isLocked(Partner $partner): bool
     {
-        return (bool) $partner->contractVersions()->first()?->isPartnerConfirmed();
+        $latest = $partner->contractVersions()->first();
+
+        return $partner->signsBeforeReview() ? (bool) $latest?->isPlatformSigned() : (bool) $latest?->isPartnerConfirmed();
     }
 
-    public function assertCanCreate(Partner $partner): void
+    /** $preApproval = true: tạo hợp đồng cho đối tác ký TRƯỚC khi hồ sơ được duyệt (chỉ áp dụng cho Partner::signsBeforeReview đang chờ duyệt). */
+    public function assertCanCreate(Partner $partner, bool $preApproval = false): void
     {
-        $this->documents->assertContractEligible($partner);
+        if (! ($preApproval && $partner->signsBeforeReview() && $partner->verification_status === 'pending')) {
+            $this->documents->assertContractEligible($partner);
+        }
 
         if ($this->isLocked($partner)) {
             throw ValidationException::withMessages(['contract' => 'Đối tác đã xác nhận hợp đồng này — không thể tạo lại. Hãy ký phía nền tảng để hoàn tất.']);
@@ -96,9 +105,9 @@ class PartnerContractWorkflowService
     }
 
     /** Tạo phiên bản hợp đồng (KHÔNG gửi email): link ký của các phiên bản cũ chưa ký tự bị vô hiệu (xem PartnerContractVersion). */
-    public function createVersion(Partner $partner, ?User $actor, string $label, string $note): PartnerContractVersion
+    public function createVersion(Partner $partner, ?User $actor, string $label, string $note, bool $preApproval = false): PartnerContractVersion
     {
-        $this->assertCanCreate($partner);
+        $this->assertCanCreate($partner, $preApproval);
 
         // Mã số hợp đồng TỰ SINH (001/2026/HĐHT-365) — cấp 1 lần cho đối tác, giữ nguyên khi tạo lại phiên bản.
         app(ContractCodeService::class)->assign($partner);
@@ -187,7 +196,15 @@ class PartnerContractWorkflowService
                 'platform_signed_ip' => $ip,
                 'platform_signed_user_agent' => $userAgent,
             ]);
-            $partner->update(['contract_status' => 'active', 'contract_signed_at' => $signingTime]);
+            $attributes = ['contract_status' => 'active', 'contract_signed_at' => $signingTime];
+            // Điều 7 + 15 (mẫu Homestay): thời hạn N tháng tính từ ngày Hợp đồng có hiệu lực = ngày Bên A ký. Hợp đồng ĐẦU TIÊN của đối tác:
+            // tính lại ngày hết hạn = ngày ký này + đúng số tháng đã in trong bản đối tác ký (số tháng suy từ ngày hết hạn lúc tạo bản),
+            // để đối tác ký sớm, Bên A ký trễ thì thời hạn thực tế vẫn đủ N tháng. Bản tạo lại cho hợp đồng đã từng có hiệu lực thì giữ nguyên.
+            if (! $partner->isMinihouse() && blank($partner->contract_signed_at) && $partner->contract_expires_at && $version->created_at) {
+                $months = PartnerContractRenderer::termMonths($partner->contract_expires_at, $version->created_at);
+                $attributes['contract_expires_at'] = $signingTime->copy()->startOfDay()->addMonths($months);
+            }
+            $partner->update($attributes);
         }
 
         $fileName = "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf";

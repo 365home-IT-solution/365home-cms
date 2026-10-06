@@ -61,6 +61,8 @@ Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->gro
         Route::post('documents/scan', [PartnerOnboardingController::class, 'scanDocument'])->middleware('throttle:10,1')->name('documents.scan');
         Route::delete('documents/{document}', [PartnerOnboardingController::class, 'destroyDocument'])->name('documents.destroy');
         Route::put('contract-info', [PartnerOnboardingController::class, 'updateContractInfo'])->name('contract-info');
+        // Luồng "đối tác ký trước": tạo hợp đồng điều khoản chuẩn để ký ngay trên trang đăng ký (trước khi gửi duyệt).
+        Route::post('contract', [PartnerOnboardingController::class, 'prepareContract'])->name('contract');
         Route::post('submit', [PartnerOnboardingController::class, 'submit'])->name('submit');
         Route::post('withdraw', [PartnerOnboardingController::class, 'withdraw'])->name('withdraw');
     });

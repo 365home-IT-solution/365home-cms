@@ -59,6 +59,33 @@ class LegalDocumentsRelationManagerTest extends TestCase
             ->assertFormFieldIsVisible('expires_at', 'mountedTableActionForm');
     }
 
+    // CCCD trên trang quản trị: cùng quy tắc với API — ảnh không đọc được mã QR thì không lưu; đọc được thì lưu theo QR.
+    public function test_citizen_id_requires_a_readable_qr_code(): void
+    {
+        config(['cache.default' => 'array']);
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $qr = fn (?array $data) => $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn($data));
+
+        $qr(null);
+        $this->manager()->mountTableAction('create')
+            ->setTableActionData(['type' => 'citizen_id', 'file' => [UploadedFile::fake()->image('cccd.jpg', 800, 500)]])
+            ->assertFormFieldIsVisible('cccd_document_number', 'mountedTableActionForm')
+            ->callMountedTableAction()
+            ->assertHasTableActionErrors(['file']);
+        $this->assertSame(0, $this->partner->legalDocuments()->where('type', 'citizen_id')->count());
+
+        $qr(['cccd' => '092088001234', 'full_name' => 'NGUYỄN VĂN AN', 'dob' => '05/03/1988', 'gender' => 'Nam', 'address' => '12 Lê Lợi, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr']);
+        $this->manager()->mountTableAction('create')
+            ->setTableActionData(['type' => 'citizen_id', 'cccd_issuer' => 'Bộ Công an', 'file' => [UploadedFile::fake()->image('cccd.jpg', 820, 500)]])
+            ->callMountedTableAction()
+            ->assertHasNoTableActionErrors();
+        $document = $this->partner->legalDocuments()->where('type', 'citizen_id')->firstOrFail();
+        $this->assertSame('092088001234', $document->cccd_document_number);
+        $this->assertSame('092088001234', $document->document_number);
+        $this->assertSame('1988-03-05', $document->cccd_dob->toDateString());
+        $this->assertSame('Bộ Công an', $document->cccd_issuer);
+    }
+
     public function test_scan_button_fills_empty_fields_only(): void
     {
         $this->app->bind(LegalDocumentScanService::class, fn () => new class extends LegalDocumentScanService

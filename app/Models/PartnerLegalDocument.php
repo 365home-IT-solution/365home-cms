@@ -17,6 +17,7 @@ class PartnerLegalDocument extends Model implements HasMedia
 
     public const TYPES = [
         'business_license' => 'Giấy phép kinh doanh',
+        'citizen_id' => 'Căn cước công dân (CCCD)',
         'security_order' => 'Giấy chứng nhận an ninh, trật tự',
         'fire_safety' => 'Hồ sơ phòng cháy chữa cháy',
         'tax_registration' => 'Giấy đăng ký thuế',
@@ -47,9 +48,10 @@ class PartnerLegalDocument extends Model implements HasMedia
         'reviewed_at' => 'datetime',
     ];
 
-    // Các loại giấy tờ cấp đối tác CÓ THỂ bắt buộc khi đăng ký trên website: Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC).
+    // Các loại giấy tờ cấp đối tác CÓ THỂ bắt buộc khi đăng ký trên website: Giấy phép kinh doanh, CCCD người đại diện (phải đọc được mã QR),
+    // An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC).
     // Loại nào THỰC SỰ bắt buộc với từng loại đối tác được bật/tắt ở config partner_flow.registration_required_documents — xem registrationRequiredFor().
-    public const REGISTRATION_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
+    public const REGISTRATION_REQUIRED = ['business_license', 'citizen_id', 'security_order', 'fire_safety'];
 
     public const HOMESTAY_REGISTRATION_REQUIRED = self::REGISTRATION_REQUIRED;
 

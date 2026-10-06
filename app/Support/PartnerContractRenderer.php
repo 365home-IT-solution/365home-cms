@@ -34,6 +34,12 @@ class PartnerContractRenderer
         return $partner->isMinihouse() ? self::renderMinihouse($partner) : self::renderHomestay($partner);
     }
 
+    /** Số tháng của thời hạn hợp đồng (Điều 7) giữa mốc bắt đầu và ngày hết hạn, làm tròn theo tháng, tối thiểu 1. */
+    public static function termMonths(\DateTimeInterface $expiresAt, \DateTimeInterface $from): int
+    {
+        return max(1, (int) round(($expiresAt->getTimestamp() - $from->getTimestamp()) / 86400 / 30.44));
+    }
+
     private static function renderHomestay(Partner $partner): string
     {
         $cfg = config('contract');
@@ -69,14 +75,11 @@ class PartnerContractRenderer
         $violationFee = VietnameseNumber::format((int) $cfg['violation_fee_vnd']) . ' đồng';
         $penalty = (int) $cfg['penalty_percent'];
 
-        // Điều 7: thời hạn tính theo ngày hết hạn trong hồ sơ (mặc định 12 tháng).
-        $termMonths = (int) $cfg['default_term_months'];
-        if ($partner->contract_expires_at) {
-            $termMonths = max(1, (int) round(($partner->contract_expires_at->timestamp - $signed->timestamp) / 86400 / 30.44));
-        }
-        $termText = $partner->contract_expires_at
-            ? sprintf('%02d tháng kể từ ngày ký (đến hết ngày %s)', $termMonths, $partner->contract_expires_at->format('d/m/Y'))
-            : sprintf('%02d tháng kể từ ngày ký', $termMonths);
+        // Điều 7: thời hạn = SỐ THÁNG kể từ ngày Hợp đồng có hiệu lực (ngày Bên A ký xác nhận — Điều 15), không in ngày hết hạn cụ thể:
+        // đối tác có thể ký trước, Bên A ký sau, nên ngày hết hạn chỉ xác định được lúc Bên A ký (PartnerContractWorkflowService::platformSign
+        // tính lại contract_expires_at = ngày Bên A ký + đúng số tháng này). Số tháng suy từ ngày hết hạn trong hồ sơ (mặc định 12 tháng).
+        $termMonths = $partner->contract_expires_at ? self::termMonths($partner->contract_expires_at, $signed) : (int) $cfg['default_term_months'];
+        $termText = sprintf('%02d tháng kể từ ngày Hợp đồng có hiệu lực', $termMonths);
 
         $lh = self::LH13;
         $p = fn (string $text, string $extra = '') => '<p style="margin:0 0 6pt;page-break-inside:avoid;line-height:' . $lh . ';' . $extra . '">' . $text . '</p>';
@@ -227,7 +230,7 @@ class PartnerContractRenderer
         $html[] = $h('ĐIỀU 14. GIẢI QUYẾT TRANH CHẤP');
         $html[] = $p('- Mọi tranh chấp phát sinh từ hợp đồng sẽ được ưu tiên giải quyết bằng thương lượng và hòa giải giữa các bên. Nếu không đạt thỏa thuận, tranh chấp sẽ được giải quyết tại Tòa án có thẩm quyền và quyết định của Tòa án là cuối cùng, có giá trị ràng buộc các bên.');
         $html[] = $h('ĐIỀU 15. HIỆU LỰC HỢP ĐỒNG');
-        $html[] = $p('- Hợp đồng có hiệu lực kể từ ngày ký. Hợp đồng được lập thành 02 bản gốc có giá trị pháp lý như nhau, mỗi bên giữ 01 bản.');
+        $html[] = $p('- Hợp đồng có hiệu lực kể từ ngày Bên A ký xác nhận. Hợp đồng được giao kết bằng phương thức điện tử: Bên B xác nhận bằng mã OTP gửi về email đã đăng ký, Bên A ký số. Bản điện tử có giá trị như bản gốc.');
         $html[] = $p('- Các phụ lục kèm theo (nếu có) là phần không tách rời và có giá trị pháp lý tương đương hợp đồng.');
         $html[] = '</div>';
 

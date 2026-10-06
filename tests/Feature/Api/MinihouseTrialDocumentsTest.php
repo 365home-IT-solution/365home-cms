@@ -21,7 +21,8 @@ use Tests\TestCase;
 
 // MiniHouse ĐĂNG KÝ DÙNG THỬ có bước giấy tờ (MINIHOUSE_TRIAL_DOCUMENTS_REQUIRED): đăng ký → nộp giấy tờ bắt buộc cấp đối tác → gửi duyệt
 // → Super Admin duyệt → tặng dùng thử + cấp tài khoản. Nhánh thanh toán gói ngay KHÔNG đổi.
-// Giấy tờ bắt buộc bật/tắt ở config partner_flow.registration_required_documents: mặc định MiniHouse chỉ ĐKKD, Homestay ĐKKD + ANTT.
+// Giấy tờ bắt buộc bật/tắt ở config partner_flow.registration_required_documents: mặc định MiniHouse ĐKKD + CCCD, Homestay ĐKKD + CCCD + ANTT.
+// CCCD bắt buộc đọc được mã QR trên ảnh (bộ giải mã QR được giả lập trong test).
 // Các test luồng cũ bật lại đủ 3 giấy tờ (ĐKKD + ANTT + PCCC) trong setUp.
 // Gói test có giá 0đ nên nhánh thanh toán chỉ ghi nhận yêu cầu, KHÔNG gọi PayOS thật.
 class MinihouseTrialDocumentsTest extends TestCase
@@ -32,15 +33,20 @@ class MinihouseTrialDocumentsTest extends TestCase
 
     private User $admin;
 
+    // Bộ 3 giấy tờ của luồng cũ (trước khi có cấu hình theo loại đối tác) — các test luồng cũ bật lại đúng bộ này.
+    private const LEGACY_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
+
     protected function setUp(): void
     {
         parent::setUp();
 
         config([
+            // Kết quả đọc QR CCCD được nhớ tạm theo nội dung tệp — dùng cache trong bộ nhớ để không dính sang lần chạy khác.
+            'cache.default' => 'array',
             'partner_flow.minihouse_trial_documents_required' => true,
             'partner_flow.minihouse_contract_enabled' => false,
             'partner_flow.minihouse_signup_trial_months' => 1,
-            'partner_flow.registration_required_documents.minihouse' => PartnerLegalDocument::REGISTRATION_REQUIRED,
+            'partner_flow.registration_required_documents.minihouse' => self::LEGACY_REQUIRED,
         ]);
         Storage::fake('local');
         $this->withoutMiddleware(ThrottleRequests::class);
@@ -103,31 +109,59 @@ class MinihouseTrialDocumentsTest extends TestCase
             ->assertJsonPath('data.dossier', null);
     }
 
-    public function test_minihouse_only_needs_the_business_license_by_default(): void
+    public function test_minihouse_needs_business_license_and_qr_readable_citizen_id_by_default(): void
     {
         config(['partner_flow.registration_required_documents' => (require config_path('partner_flow.php'))['registration_required_documents']]);
-        $this->assertSame(['business_license'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_MINIHOUSE));
-        $this->assertSame(['business_license', 'security_order'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_HOMESTAY));
+        $this->assertSame(['business_license', 'citizen_id'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_MINIHOUSE));
+        $this->assertSame(['business_license', 'citizen_id', 'security_order'], PartnerLegalDocument::registrationRequiredFor(Partner::TYPE_HOMESTAY));
 
         [$token, $partner] = $this->register('0970000106', 'mh-docs-dkkd@example.test');
         $this->getJson("/api/public/minihouse-purchase/{$token}")
             ->assertJsonPath('data.stage', 'documents')
-            ->assertJsonCount(1, 'data.dossier.required_documents')
-            ->assertJsonPath('data.dossier.required_documents.0.type', 'business_license');
+            ->assertJsonCount(2, 'data.dossier.required_documents')
+            ->assertJsonPath('data.dossier.required_documents.0.type', 'business_license')
+            ->assertJsonPath('data.dossier.required_documents.1.type', 'citizen_id');
         $this->getJson('/api/public/legal-document-types')
-            ->assertJsonPath('data.required.minihouse', ['business_license'])
-            ->assertJsonPath('data.required.homestay', ['business_license', 'security_order']);
+            ->assertJsonPath('data.required.minihouse', ['business_license', 'citizen_id'])
+            ->assertJsonPath('data.required.homestay', ['business_license', 'citizen_id', 'security_order']);
 
-        // Chỉ cần ĐKKD là gửi duyệt được; PCCC vẫn nộp được nhưng không bắt buộc.
+        // Thiếu CCCD thì chưa gửi duyệt được.
         $this->upload($token, 'business_license');
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.dossier.can_submit', false);
+
+        // CCCD không đọc được mã QR → từ chối cả lúc quét lẫn lúc nộp, không lưu gì. Tệp PDF cũng không được nhận.
+        $this->fakeQr(null);
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents/scan")->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents")->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->upload($token, 'citizen_id', 422);
+        $this->assertSame(0, $partner->legalDocuments()->where('type', 'citizen_id')->count());
+
+        // Đọc được QR → quét trả đủ ô; lúc nộp server lấy dữ liệu TỪ QR, bỏ qua số CCCD client tự gửi.
+        $this->fakeQr(['cccd' => '092088001234', 'old_id' => '', 'full_name' => 'NGUYỄN VĂN AN', 'dob' => '05/03/1988', 'gender' => 'Nam',
+            'address' => '12 Lê Lợi, Ninh Kiều, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr']);
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents/scan")->assertOk()
+            ->assertJsonPath('data.qr', true)
+            ->assertJsonPath('data.fields.cccd_document_number', '092088001234')
+            ->assertJsonPath('data.fields.cccd_dob', '1988-03-05');
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents", ['cccd_document_number' => '111111111111', 'cccd_issuer' => 'Cục CS QLHC về TTXH'])
+            ->assertCreated()
+            ->assertJsonPath('data.document_number', '092088001234');
+        $cccd = $partner->legalDocuments()->where('type', 'citizen_id')->firstOrFail();
+        $this->assertTrue((bool) $cccd->is_required);
+        $this->assertSame('NGUYỄN VĂN AN', $cccd->cccd_full_name);
+        $this->assertSame('2021-07-10', $cccd->cccd_issued_at->toDateString());
+        $this->assertSame('Cục CS QLHC về TTXH', $cccd->cccd_issuer);
+
+        // Đủ ĐKKD + CCCD là gửi duyệt được; PCCC vẫn nộp được nhưng không bắt buộc.
         $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.dossier.can_submit', true);
         $this->upload($token, 'fire_safety');
         $this->assertFalse((bool) $partner->legalDocuments()->where('type', 'fire_safety')->firstOrFail()->is_required);
         $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
 
-        // Duyệt riêng ĐKKD là đủ điều kiện duyệt hồ sơ → tặng dùng thử + cấp tài khoản (PCCC tuỳ chọn chưa duyệt không chặn).
-        $license = $partner->legalDocuments()->where('type', 'business_license')->firstOrFail();
-        app(PartnerLegalDocumentService::class)->review($license, 'approved', null, $this->admin);
+        // Duyệt ĐKKD + CCCD là đủ điều kiện duyệt hồ sơ → tặng dùng thử + cấp tài khoản (PCCC tuỳ chọn chưa duyệt không chặn).
+        foreach ($partner->legalDocuments()->whereIn('type', ['business_license', 'citizen_id'])->get() as $document) {
+            app(PartnerLegalDocumentService::class)->review($document, 'approved', null, $this->admin);
+        }
         app(PartnerLegalDocumentService::class)->approveDossier($partner->fresh(), $this->admin);
         $this->assertTrue($partner->fresh()->users()->exists());
     }
@@ -135,7 +169,7 @@ class MinihouseTrialDocumentsTest extends TestCase
     public function test_changes_requested_reopens_the_dossier_for_editing(): void
     {
         [$token, $partner] = $this->register('0970000103', 'mh-docs-changes@example.test');
-        foreach (PartnerLegalDocument::REGISTRATION_REQUIRED as $type) {
+        foreach (self::LEGACY_REQUIRED as $type) {
             $this->upload($token, $type);
         }
         $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
@@ -183,7 +217,7 @@ class MinihouseTrialDocumentsTest extends TestCase
     public function test_documents_of_an_active_minihouse_account_never_lock_its_login(): void
     {
         [$token, $partner] = $this->register('0970000105', 'mh-docs-active@example.test');
-        foreach (PartnerLegalDocument::REGISTRATION_REQUIRED as $type) {
+        foreach (self::LEGACY_REQUIRED as $type) {
             $this->upload($token, $type);
         }
         $this->postJson("/api/public/partner-onboarding/{$token}/submit")->assertOk();
@@ -222,6 +256,17 @@ class MinihouseTrialDocumentsTest extends TestCase
             'type' => $type,
             'file' => UploadedFile::fake()->create("{$type}.pdf", 100, 'application/pdf'),
         ], ['Accept' => 'application/json'])->assertStatus($status);
+    }
+
+    /** Giả lập bộ giải mã QR CCCD: trả dữ liệu QR cho trước, hoặc null = không đọc được mã QR. */
+    private function fakeQr(?array $data): void
+    {
+        $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn($data));
+    }
+
+    private function postCccd(string $url, array $extra = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->post($url, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->image('cccd.jpg', 800, 500)] + $extra, ['Accept' => 'application/json']);
     }
 
     private function approveAllDocuments(Partner $partner): void

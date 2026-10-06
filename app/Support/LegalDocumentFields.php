@@ -8,12 +8,12 @@ use App\Models\PartnerLegalDocument;
 
 // BỘ Ô RIÊNG theo loại giấy tờ pháp lý — MỘT nguồn duy nhất cho API (công khai + admin), Filament, trang đăng ký và API quét giấy tờ.
 // MỖI LOẠI CÓ CỘT RIÊNG HOÀN TOÀN, kể cả ô trùng tên (số, ngày cấp, nơi cấp): cột = <tiền tố loại>_<tên ô>,
-// vd dkkd_issued_at / antt_issued_at / pccc_issued_at — không loại nào dùng chung cột với loại khác.
+// vd dkkd_issued_at / antt_issued_at / pccc_issued_at / cccd_issued_at — không loại nào dùng chung cột với loại khác.
 // 3 cột chung cũ (document_number, issuer, issued_at) chỉ còn là BẢN TÓM TẮT tự chép từ cột riêng (PartnerLegalDocument::saving)
 // để danh sách, snapshot hợp đồng và client cũ vẫn đọc được. Loại không khai báo ở đây (thuế, uỷ quyền, khác...) dùng form chung như cũ.
 class LegalDocumentFields
 {
-    public const PREFIXES = ['business_license' => 'dkkd', 'security_order' => 'antt', 'fire_safety' => 'pccc'];
+    public const PREFIXES = ['business_license' => 'dkkd', 'security_order' => 'antt', 'fire_safety' => 'pccc', 'citizen_id' => 'cccd'];
 
     // Ô nào của mỗi loại được chép sang cột tóm tắt chung.
     public const SUMMARY = ['document_number', 'issued_at', 'issuer'];
@@ -48,7 +48,20 @@ class LegalDocumentFields
             'representative_title' => ['Chức danh', 'text'],
             'site_address'         => ['Địa điểm xây dựng / Kinh doanh', 'text'],
         ],
+        // CCCD: các ô lấy từ MÃ QR trên thẻ (bắt buộc đọc được QR khi nộp — LegalDocumentScanService::citizenId); QR không có nơi cấp nên ô đó tự nhập.
+        'citizen_id' => [
+            'document_number' => ['Số CCCD', 'text'],
+            'full_name'       => ['Họ và tên', 'text'],
+            'dob'             => ['Ngày sinh', 'date'],
+            'gender'          => ['Giới tính', 'text'],
+            'address'         => ['Nơi thường trú', 'text'],
+            'issued_at'       => ['Ngày cấp', 'date'],
+            'issuer'          => ['Nơi cấp', 'text'],
+        ],
     ];
+
+    // Ô của CCCD do MÃ QR quyết định (client không sửa được; server ghi đè bằng dữ liệu QR khi nộp).
+    public const CITIZEN_ID_QR_FIELDS = ['document_number', 'full_name', 'dob', 'gender', 'address', 'issued_at'];
 
     // PCCC: tình trạng suy ra từ SỐ VĂN BẢN — TD-PCCC = mới thẩm duyệt thiết kế; NT / BB / GXN-PCCC = đã nghiệm thu.
     public const FIRE_SAFETY_STAGES = [
@@ -105,7 +118,7 @@ class LegalDocumentFields
     /** @return array<int, string> các cột ngày (để cast và validate) */
     public static function dateKeys(): array
     {
-        return array_values(array_filter(self::allKeys(), fn (string $key) => str_ends_with($key, '_issued_at')));
+        return array_values(array_filter(self::allKeys(), fn (string $key) => str_ends_with($key, '_issued_at') || str_ends_with($key, '_dob')));
     }
 
     /** Rule cho các ô riêng (đều không bắt buộc; có nhập thì phải đúng định dạng). */
@@ -114,7 +127,9 @@ class LegalDocumentFields
         $rules = [];
         foreach (self::allKeys() as $key) {
             $rules[$key] = match (true) {
+                $key === 'cccd_document_number'         => ['nullable', 'string', 'regex:/^[0-9]{9}([0-9]{3})?$/'],
                 str_ends_with($key, '_issued_at')       => ['nullable', 'date', 'before_or_equal:today'],
+                str_ends_with($key, '_dob')             => ['nullable', 'date', 'before:today'],
                 str_ends_with($key, '_id_number')       => ['nullable', 'string', 'regex:/^[0-9]{9}([0-9]{3})?$/'],
                 str_ends_with($key, '_phone')           => ['nullable', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
                 str_ends_with($key, '_document_number') => ['nullable', 'string', 'max:100'],
@@ -133,6 +148,10 @@ class LegalDocumentFields
         foreach (self::allKeys() as $key) {
             if (str_ends_with($key, '_issued_at')) {
                 $messages["{$key}.before_or_equal"] = 'Ngày cấp không được ở tương lai.';
+            } elseif (str_ends_with($key, '_dob')) {
+                $messages["{$key}.before"] = 'Ngày sinh không hợp lệ.';
+            } elseif ($key === 'cccd_document_number') {
+                $messages["{$key}.regex"] = 'Số CCCD phải gồm 9 hoặc 12 chữ số.';
             } elseif (str_ends_with($key, '_id_number')) {
                 $messages["{$key}.regex"] = 'Số định danh cá nhân phải gồm 9 hoặc 12 chữ số.';
             } elseif (str_ends_with($key, '_phone')) {

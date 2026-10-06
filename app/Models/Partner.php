@@ -198,6 +198,12 @@ class Partner extends Model implements HasMedia
         return $this->usesContract() || $this->minihouseDocumentsFlow();
     }
 
+    /** Đối tác đăng ký trên website KÝ HỢP ĐỒNG TRƯỚC khi 365 Home duyệt hồ sơ (config partner_flow.partner_signs_before_review). */
+    public function signsBeforeReview(): bool
+    {
+        return $this->usesContract() && filled($this->onboarding_token) && (bool) config('partner_flow.partner_signs_before_review');
+    }
+
     /** Đăng ký trên website phải nộp đủ giấy tờ cấp đối tác (PartnerLegalDocument::registrationRequiredFor()): Homestay và MiniHouse đăng ký dùng thử. */
     public function requiresRegistrationDocuments(): bool
     {
