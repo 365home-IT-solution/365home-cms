@@ -68,7 +68,8 @@ class LegalDocumentsRelationManagerTest extends TestCase
 
         $qr(null);
         $this->manager()->mountTableAction('create')
-            ->setTableActionData(['type' => 'citizen_id', 'file' => [UploadedFile::fake()->image('cccd.jpg', 800, 500)]])
+            ->setTableActionData(['type' => 'citizen_id', 'file' => [UploadedFile::fake()->image('cccd.jpg', 800, 500)], 'file_back' => [UploadedFile::fake()->image('cccd-sau.jpg', 810, 500)]])
+            ->assertFormFieldIsVisible('file_back', 'mountedTableActionForm')
             ->assertFormFieldIsVisible('cccd_document_number', 'mountedTableActionForm')
             ->callMountedTableAction()
             ->assertHasTableActionErrors(['file']);
@@ -76,7 +77,7 @@ class LegalDocumentsRelationManagerTest extends TestCase
 
         $qr(['cccd' => '092088001234', 'full_name' => 'NGUYỄN VĂN AN', 'dob' => '05/03/1988', 'gender' => 'Nam', 'address' => '12 Lê Lợi, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr']);
         $this->manager()->mountTableAction('create')
-            ->setTableActionData(['type' => 'citizen_id', 'cccd_issuer' => 'Bộ Công an', 'file' => [UploadedFile::fake()->image('cccd.jpg', 820, 500)]])
+            ->setTableActionData(['type' => 'citizen_id', 'cccd_issuer' => 'Bộ Công an', 'file' => [UploadedFile::fake()->image('cccd.jpg', 820, 500)], 'file_back' => [UploadedFile::fake()->image('cccd-sau.jpg', 830, 500)]])
             ->callMountedTableAction()
             ->assertHasNoTableActionErrors();
         $document = $this->partner->legalDocuments()->where('type', 'citizen_id')->firstOrFail();
@@ -84,6 +85,7 @@ class LegalDocumentsRelationManagerTest extends TestCase
         $this->assertSame('092088001234', $document->document_number);
         $this->assertSame('1988-03-05', $document->cccd_dob->toDateString());
         $this->assertSame('Bộ Công an', $document->cccd_issuer);
+        $this->assertTrue($document->hasMedia('file') && $document->hasMedia('file_back'));
     }
 
     public function test_scan_button_fills_empty_fields_only(): void

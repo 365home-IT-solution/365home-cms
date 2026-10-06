@@ -57,7 +57,7 @@ class PartnerLegalDocumentController extends Controller
         $this->validateBuildingScope($partner, $data);
         // CCCD: cùng quy tắc với API đăng ký của đối tác — ảnh phải đọc được mã QR, các ô từ QR do QR quyết định.
         if ($data['type'] === 'citizen_id') {
-            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($request->file('file')));
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($request->file('file'), $request->file('file_back')));
         }
         $isSuperAdmin = $request->user()->isSuperAdmin();
 
@@ -73,6 +73,9 @@ class PartnerLegalDocumentController extends Controller
                 'created_by' => $request->user()->id,
             ]);
             $document->addMediaFromRequest('file')->toMediaCollection('file');
+            if ($request->hasFile('file_back') && PartnerLegalDocument::needsBackSide($data['type'])) {
+                $document->addMediaFromRequest('file_back')->toMediaCollection('file_back');
+            }
 
             return $document;
         });
@@ -97,9 +100,11 @@ class PartnerLegalDocumentController extends Controller
         }
         // CCCD (kể cả giấy tờ vừa đổi loại sang CCCD): đọc lại mã QR từ tệp mới, không có tệp mới thì từ tệp đã lưu — không sửa tay được ô lấy từ QR.
         if (($data['type'] ?? $document->type) === 'citizen_id') {
-            $media = $document->getFirstMedia('file');
-            $file = $request->file('file') ?? ($media && is_file($media->getPath()) ? new \Illuminate\Http\UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true) : null);
-            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file));
+            $stored = fn (string $collection) => ($media = $document->getFirstMedia($collection)) && is_file($media->getPath())
+                ? new \Illuminate\Http\UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true) : null;
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues(
+                $request->file('file') ?? $stored('file'), $request->file('file_back') ?? $stored('file_back')
+            ));
         }
 
         DB::transaction(function () use ($request, $document, $data) {
@@ -114,6 +119,9 @@ class PartnerLegalDocumentController extends Controller
             ]);
             if ($request->hasFile('file')) {
                 $document->addMediaFromRequest('file')->toMediaCollection('file');
+            }
+            if ($request->hasFile('file_back') && PartnerLegalDocument::needsBackSide($document->type)) {
+                $document->addMediaFromRequest('file_back')->toMediaCollection('file_back');
             }
         });
 
@@ -179,7 +187,8 @@ class PartnerLegalDocumentController extends Controller
     public function download(Request $request, Partner $partner, PartnerLegalDocument $document): BinaryFileResponse
     {
         $this->authorizeDocument($request, $partner, $document);
-        $media = $document->getFirstMedia('file');
+        // ?side=back → ảnh MẶT SAU (CCCD); mặc định là tệp chính / mặt trước.
+        $media = $document->getFirstMedia($request->query('side') === 'back' ? 'file_back' : 'file');
         abort_unless($media && is_file($media->getPath()), 404);
 
         return response()->download($media->getPath(), $media->file_name, ['Content-Type' => $media->mime_type]);
@@ -197,6 +206,8 @@ class PartnerLegalDocumentController extends Controller
             'expires_at' => ['nullable', 'date', 'after_or_equal:issued_at'],
             'is_required' => ['sometimes', 'boolean'],
             'file' => [$fileRequired ? 'required' : 'sometimes', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            // CCCD: file = ảnh MẶT TRƯỚC, file_back = ảnh MẶT SAU. Thêm mới phải đủ hai mặt (kiểm tra ở citizenIdValues); sửa thì mặt nào không gửi dùng ảnh đã lưu.
+            'file_back' => ['sometimes', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ], LegalDocumentFields::messages(), LegalDocumentFields::attributes());
     }
 
@@ -280,6 +291,16 @@ class PartnerLegalDocumentController extends Controller
                 'download_url' => route($document->partner?->isMinihouse()
                     ? 'api.admin.minihouse.partners.legal-documents.download'
                     : 'api.admin.partners.legal-documents.download', [$document->partner_id, $document->id]),
+            ] : null,
+            // CCCD: 'file' là MẶT TRƯỚC, 'file_back' là MẶT SAU (loại khác luôn null).
+            'needs_back_side' => PartnerLegalDocument::needsBackSide($document->type),
+            'file_back' => ($back = $document->getFirstMedia('file_back')) ? [
+                'name' => $back->file_name,
+                'mime_type' => $back->mime_type,
+                'size' => $back->size,
+                'download_url' => route($document->partner?->isMinihouse()
+                    ? 'api.admin.minihouse.partners.legal-documents.download'
+                    : 'api.admin.partners.legal-documents.download', [$document->partner_id, $document->id, 'side' => 'back']),
             ] : null,
             'created_at' => $document->created_at?->toIso8601String(),
             'updated_at' => $document->updated_at?->toIso8601String(),

@@ -106,8 +106,9 @@ class PartnerLegalDocumentService
         }
 
         foreach ($documents->whereIn('status', ['draft', 'changes_requested', 'rejected']) as $document) {
-            if (! $document->hasMedia('file')) {
-                throw ValidationException::withMessages(['documents' => 'Mỗi giấy tờ gửi duyệt phải có tệp đính kèm.']);
+            if (! $document->hasRequiredFiles()) {
+                throw ValidationException::withMessages(['documents' => PartnerLegalDocument::needsBackSide($document->type)
+                    ? 'CCCD gửi duyệt phải có đủ ảnh mặt trước và mặt sau.' : 'Mỗi giấy tờ gửi duyệt phải có tệp đính kèm.']);
             }
         }
 
@@ -138,8 +139,9 @@ class PartnerLegalDocumentService
         if ($status !== 'approved' && blank($note)) {
             throw ValidationException::withMessages(['review_note' => 'Phải nhập lý do khi yêu cầu bổ sung hoặc từ chối.']);
         }
-        if (! $document->hasMedia('file')) {
-            throw ValidationException::withMessages(['file' => 'Giấy tờ chưa có tệp đính kèm.']);
+        if (! $document->hasRequiredFiles()) {
+            throw ValidationException::withMessages(['file' => PartnerLegalDocument::needsBackSide($document->type)
+                ? 'CCCD chưa có đủ ảnh mặt trước và mặt sau.' : 'Giấy tờ chưa có tệp đính kèm.']);
         }
 
         $document->update([
@@ -243,6 +245,8 @@ class PartnerLegalDocumentService
             'expires_at' => $document->expires_at?->toDateString(),
             'file_sha256' => ($media = $document->getFirstMedia('file')) && is_file($media->getPath())
                 ? hash_file('sha256', $media->getPath()) : null,
+            'file_back_sha256' => ($back = $document->getFirstMedia('file_back')) && is_file($back->getPath())
+                ? hash_file('sha256', $back->getPath()) : null,
             'approved_at' => $document->reviewed_at?->toIso8601String(),
         ])->all();
     }
@@ -255,7 +259,7 @@ class PartnerLegalDocumentService
 
     private function isUsable(PartnerLegalDocument $document): bool
     {
-        return $document->status === 'approved' && ! $document->isExpired() && $document->hasMedia('file');
+        return $document->status === 'approved' && ! $document->isExpired() && $document->hasRequiredFiles();
     }
 
     private function changePartnerStatus(Partner $partner, string $status, string $note): void

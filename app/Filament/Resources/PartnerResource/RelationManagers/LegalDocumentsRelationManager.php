@@ -51,16 +51,22 @@ class LegalDocumentsRelationManager extends RelationManager
                 ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse() && ! $this->getOwnerRecord()->minihouseDocumentsFlow()
                     && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
                 ->searchable()->preload(),
-            SpatieMediaLibraryFileUpload::make('file')->label('Tệp giấy tờ')
+            SpatieMediaLibraryFileUpload::make('file')->label(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? 'Ảnh MẶT TRƯỚC' : 'Tệp giấy tờ')
                 ->collection('file')->disk('local')->required()
                 // CCCD chỉ nhận ảnh (phải đọc được mã QR trên thẻ).
                 ->acceptedFileTypes(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? ['image/jpeg', 'image/png', 'image/webp'] : ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
-                ->helperText(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? 'Ảnh chụp mặt CCCD có mã QR. Hệ thống phải đọc được mã QR thì mới lưu; các ô bên dưới lấy từ mã QR (trừ Nơi cấp).' : null)
+                ->helperText(fn (Forms\Get $get) => $get('type') === 'citizen_id' ? 'CCCD phải có đủ ảnh mặt trước và mặt sau. Hệ thống phải đọc được mã QR (ở mặt trước hoặc mặt sau) thì mới lưu; các ô bên dưới lấy từ mã QR (trừ Nơi cấp).' : null)
                 ->maxSize(10240)->columnSpanFull()
                 // Quét tệp vừa chọn (hoặc tệp đã lưu của giấy tờ đang sửa) → điền gợi ý vào các ô CÒN TRỐNG của loại đó; không lưu gì cho tới khi bấm lưu.
                 ->hintAction(Forms\Components\Actions\Action::make('scan')->label('Quét giấy tờ để tự điền')->icon('heroicon-o-viewfinder-circle')
                     ->visible(fn (Forms\Get $get, string $operation) => $operation !== 'view' && LegalDocumentFields::has($get('type')))
                     ->action(fn (Forms\Get $get, Forms\Set $set, ?PartnerLegalDocument $record) => $this->scanIntoForm($get, $set, $record))),
+            // CCCD: ảnh MẶT SAU (collection riêng 'file_back') — bắt buộc đủ hai mặt để đối chiếu; mã QR nằm ở mặt nào cũng được.
+            SpatieMediaLibraryFileUpload::make('file_back')->label('Ảnh MẶT SAU')
+                ->collection('file_back')->disk('local')
+                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])->maxSize(10240)->columnSpanFull()
+                ->required(fn (Forms\Get $get) => $get('type') === 'citizen_id')
+                ->visible(fn (Forms\Get $get) => $get('type') === 'citizen_id'),
             // ĐKKD / ANTT / PCCC / CCCD: MỖI LOẠI MỘT BỘ CỘT RIÊNG (dkkd_* / antt_* / pccc_* / cccd_* — App\Support\LegalDocumentFields), kể cả số / ngày cấp / nơi cấp.
             // Loại khác giữ form chung (tên, số, cơ quan cấp, ngày cấp, ngày hết hạn) trên các cột chung.
             ...array_merge(...array_map(fn (string $type) => array_map(function (string $key, array $definition) use ($type) {
@@ -114,7 +120,7 @@ class LegalDocumentsRelationManager extends RelationManager
             return;
         }
 
-        $result = $scanner->scan($file, (string) $get('type'));
+        $result = $scanner->scan($file, (string) $get('type'), $get('type') === 'citizen_id' ? $this->formFile($get('file_back'), $record, 'file_back') : null);
         $filled = 0;
         foreach ($result['fields'] as $key => $value) {
             // Không ghi đè ô đã nhập — trừ ô CCCD lấy từ mã QR (QR quyết định).
@@ -131,10 +137,10 @@ class LegalDocumentsRelationManager extends RelationManager
     }
 
     /** Tệp vừa chọn trên form (chưa lưu) → ưu tiên; không có thì dùng tệp đã lưu của giấy tờ đang sửa. */
-    private function formFile(mixed $state, ?PartnerLegalDocument $record): ?UploadedFile
+    private function formFile(mixed $state, ?PartnerLegalDocument $record, string $collection = 'file'): ?UploadedFile
     {
         $file = collect(Arr::wrap($state))->first(fn ($item) => $item instanceof UploadedFile);
-        if (! $file && ($media = $record?->getFirstMedia('file')) && is_file($media->getPath())) {
+        if (! $file && ($media = $record?->getFirstMedia($collection)) && is_file($media->getPath())) {
             $file = new UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true);
         }
 
@@ -156,9 +162,12 @@ class LegalDocumentsRelationManager extends RelationManager
         if (($data['type'] ?? $record?->type) !== 'citizen_id') {
             return $data;
         }
-        $file = $this->formFile($this->getMountedTableActionForm()?->getRawState()['file'] ?? null, $record);
+        $raw = $this->getMountedTableActionForm()?->getRawState() ?? [];
 
-        return array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file, 'mountedTableActionsData.0.file'));
+        return array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues(
+            $this->formFile($raw['file'] ?? null, $record), $this->formFile($raw['file_back'] ?? null, $record, 'file_back'),
+            'mountedTableActionsData.0.file', 'mountedTableActionsData.0.file_back'
+        ));
     }
 
     public function table(Table $table): Table
@@ -211,6 +220,13 @@ class LegalDocumentsRelationManager extends RelationManager
                 Tables\Actions\Action::make('download')->label('Tải file')->icon('heroicon-o-arrow-down-tray')
                     ->action(function (PartnerLegalDocument $record) {
                         $media = $record->getFirstMedia('file');
+
+                        return $media ? response()->download($media->getPath(), $media->file_name) : null;
+                    }),
+                Tables\Actions\Action::make('downloadBack')->label('Tải mặt sau')->icon('heroicon-o-arrow-down-tray')
+                    ->visible(fn (PartnerLegalDocument $record) => $record->hasMedia('file_back'))
+                    ->action(function (PartnerLegalDocument $record) {
+                        $media = $record->getFirstMedia('file_back');
 
                         return $media ? response()->download($media->getPath(), $media->file_name) : null;
                     }),

@@ -134,6 +134,11 @@ class MinihouseTrialDocumentsTest extends TestCase
         $this->postCccd("/api/public/partner-onboarding/{$token}/documents/scan")->assertStatus(422)->assertJsonValidationErrors('file');
         $this->postCccd("/api/public/partner-onboarding/{$token}/documents")->assertStatus(422)->assertJsonValidationErrors('file');
         $this->upload($token, 'citizen_id', 422);
+        // Thiếu mặt sau → từ chối ngay ở ô mặt sau (cả quét lẫn nộp).
+        foreach (['documents/scan', 'documents'] as $path) {
+            $this->post("/api/public/partner-onboarding/{$token}/{$path}", ['type' => 'citizen_id', 'file' => UploadedFile::fake()->image('cccd.jpg', 800, 500)], ['Accept' => 'application/json'])
+                ->assertStatus(422)->assertJsonValidationErrors('file_back');
+        }
         $this->assertSame(0, $partner->legalDocuments()->where('type', 'citizen_id')->count());
 
         // Đọc được QR → quét trả đủ ô; lúc nộp server lấy dữ liệu TỪ QR, bỏ qua số CCCD client tự gửi.
@@ -145,8 +150,12 @@ class MinihouseTrialDocumentsTest extends TestCase
             ->assertJsonPath('data.fields.cccd_dob', '1988-03-05');
         $this->postCccd("/api/public/partner-onboarding/{$token}/documents", ['cccd_document_number' => '111111111111', 'cccd_issuer' => 'Cục CS QLHC về TTXH'])
             ->assertCreated()
-            ->assertJsonPath('data.document_number', '092088001234');
+            ->assertJsonPath('data.document_number', '092088001234')
+            ->assertJsonPath('data.needs_back_side', true)
+            ->assertJsonPath('data.file_name', 'cccd.jpg')
+            ->assertJsonPath('data.file_back_name', 'cccd-sau.jpg');
         $cccd = $partner->legalDocuments()->where('type', 'citizen_id')->firstOrFail();
+        $this->assertTrue($cccd->hasMedia('file') && $cccd->hasMedia('file_back'));
         $this->assertTrue((bool) $cccd->is_required);
         $this->assertSame('NGUYỄN VĂN AN', $cccd->cccd_full_name);
         $this->assertSame('2021-07-10', $cccd->cccd_issued_at->toDateString());
@@ -302,6 +311,24 @@ class MinihouseTrialDocumentsTest extends TestCase
         ], ['Accept' => 'application/json'])->assertStatus($status);
     }
 
+    // Thẻ căn cước mới: mặt trước KHÔNG có mã QR, QR nằm ở mặt sau → vẫn nhận; hai mặt có QR của hai thẻ khác nhau → từ chối.
+    public function test_citizen_id_qr_may_be_on_the_back_side_only(): void
+    {
+        config(['partner_flow.registration_required_documents' => (require config_path('partner_flow.php'))['registration_required_documents']]);
+        [$token] = $this->register('0970000110', 'mh-docs-back@example.test');
+        $qr = ['cccd' => '092088001234', 'full_name' => 'Nguyễn Văn An', 'dob' => '05/03/1988', 'gender' => 'Nam', 'address' => '12 Lê Lợi, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr'];
+
+        $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn(null, $qr));
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents/scan")->assertOk()
+            ->assertJsonPath('data.qr', true)
+            ->assertJsonPath('data.qr_side', 'back')
+            ->assertJsonPath('data.fields.cccd_document_number', '092088001234');
+
+        \Illuminate\Support\Facades\Cache::store('array')->flush();
+        $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn($qr, ['cccd' => '079099005678'] + $qr));
+        $this->postCccd("/api/public/partner-onboarding/{$token}/documents")->assertStatus(422)->assertJsonValidationErrors('file');
+    }
+
     /** Giả lập bộ giải mã QR CCCD: trả dữ liệu QR cho trước, hoặc null = không đọc được mã QR. */
     private function fakeQr(?array $data): void
     {
@@ -310,7 +337,9 @@ class MinihouseTrialDocumentsTest extends TestCase
 
     private function postCccd(string $url, array $extra = []): \Illuminate\Testing\TestResponse
     {
-        return $this->post($url, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->image('cccd.jpg', 800, 500)] + $extra, ['Accept' => 'application/json']);
+        // CCCD nộp đủ HAI MẶT: file = mặt trước, file_back = mặt sau.
+        return $this->post($url, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->image('cccd.jpg', 800, 500),
+            'file_back' => UploadedFile::fake()->image('cccd-sau.jpg', 810, 500)] + $extra, ['Accept' => 'application/json']);
     }
 
     private function approveAllDocuments(Partner $partner): void

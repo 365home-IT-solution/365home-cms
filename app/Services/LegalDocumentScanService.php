@@ -87,28 +87,36 @@ class LegalDocumentScanService
      * @return array{type: string, text_found: bool, detected_type: ?string, type_matches: ?bool, fields: array<string, ?string>, found: int, total: int,
      *               fire_safety_stage: ?array, warnings: array<int, string>}
      */
-    public function scan(UploadedFile $file, string $type): array
+    public function scan(UploadedFile $file, string $type, ?UploadedFile $back = null): array
     {
         if ($type === 'citizen_id') {
-            return $this->citizenId($file);
+            return $this->citizenId($file, $back);
         }
 
         return $this->suggest($type, $this->extractText($file));
     }
 
     /**
-     * QUY TẮC NỘP CCCD dùng chung cho API đăng ký (đối tác), API admin và trang quản trị: tệp phải là ảnh đọc được mã QR,
-     * và các ô lấy từ QR (LegalDocumentFields::CITIZEN_ID_QR_FIELDS) do QR quyết định — giá trị người nhập gửi cho các ô đó bị thay thế.
+     * QUY TẮC NỘP CCCD dùng chung cho API đăng ký (đối tác), API admin và trang quản trị: phải có ĐỦ HAI ẢNH (mặt trước + mặt sau),
+     * đọc được mã QR ở ít nhất một mặt (thẻ CCCD gắn chip: QR ở mặt trước; thẻ căn cước mới: QR ở mặt sau), và các ô lấy từ QR
+     * (LegalDocumentFields::CITIZEN_ID_QR_FIELDS) do QR quyết định — giá trị người nhập gửi cho các ô đó bị thay thế.
      *
      * @return array<string, ?string> các cột cccd_* lấy từ QR (không gồm cccd_issuer — QR không có nơi cấp)
      *
-     * @throws ValidationException khi không đọc được mã QR (lỗi gắn vào $errorKey)
+     * @throws ValidationException thiếu mặt nào thì lỗi gắn vào khoá của mặt đó; không đọc được QR thì gắn vào $frontKey
      */
-    public function citizenIdValues(?UploadedFile $file, string $errorKey = 'file'): array
+    public function citizenIdValues(?UploadedFile $front, ?UploadedFile $back, string $frontKey = 'file', string $backKey = 'file_back'): array
     {
-        $scan = $file ? $this->citizenId($file) : null;
-        if (! ($scan['qr'] ?? false)) {
-            throw ValidationException::withMessages([$errorKey => $scan['warnings'] ?? ['CCCD phải có tệp ảnh chụp mặt có mã QR.']]);
+        $missing = array_filter([
+            $frontKey => $front ? null : ['CCCD phải có ảnh MẶT TRƯỚC.'],
+            $backKey  => $back ? null : ['CCCD phải có ảnh MẶT SAU.'],
+        ]);
+        if ($missing !== []) {
+            throw ValidationException::withMessages($missing);
+        }
+        $scan = $this->citizenId($front, $back);
+        if (! $scan['qr']) {
+            throw ValidationException::withMessages([$frontKey => $scan['warnings']]);
         }
 
         return Arr::only($scan['fields'], array_map(fn (string $name) => LegalDocumentFields::key('citizen_id', $name), LegalDocumentFields::CITIZEN_ID_QR_FIELDS));
@@ -116,33 +124,50 @@ class LegalDocumentScanService
 
     /**
      * CCCD: CHỈ đọc MÃ QR trên thẻ (không OCR — chữ trên ảnh dễ bị làm giả), dùng chung bộ giải mã với luồng đặt phòng.
-     * Không đọc được QR → text_found = false, các ô null, warnings nêu lý do. Kết quả nhớ tạm theo nội dung tệp để lúc nộp không phải giải mã lại.
+     * Thử mặt trước rồi mặt sau; đọc được ở mặt nào thì 'qr_side' = front|back. Cả hai mặt đều có QR mà khác số → coi là không hợp lệ
+     * (hai ảnh của hai thẻ khác nhau). Không đọc được → text_found = false, các ô null, warnings nêu lý do.
+     * Kết quả nhớ tạm theo nội dung tệp để lúc nộp không phải giải mã lại.
      *
-     * @return array cùng cấu trúc với suggest(), thêm 'qr' => bool
+     * @return array cùng cấu trúc với suggest(), thêm 'qr' => bool và 'qr_side' => ?string
      */
-    public function citizenId(UploadedFile $file): array
+    public function citizenId(?UploadedFile $front, ?UploadedFile $back = null): array
     {
         $type = 'citizen_id';
         $fields = array_fill_keys(LegalDocumentFields::keys($type), null);
         $hint = null;
+        $found = [];
 
-        if (is_file($file->getRealPath()) && str_starts_with((string) $file->getMimeType(), 'image/')) {
-            $qr = Cache::remember('legal-cccd-qr:' . sha1_file($file->getRealPath()), now()->addMinutes(15), function () use ($file, &$hint) {
-                $data = app(CccdScannerService::class)->scanQrImage($file->getRealPath());
-                $hint = $data ? null : CccdScannerService::failureHint();
-
-                // Không nhớ kết quả thất bại: khách chụp lại ảnh khác, hoặc hệ thống bận thì lần sau thử lại.
-                return $data ?: false;
-            });
-            if ($qr === false) {
-                Cache::forget('legal-cccd-qr:' . sha1_file($file->getRealPath()));
+        foreach (['front' => $front, 'back' => $back] as $side => $file) {
+            if (! $file) {
+                continue;
             }
-        } else {
-            $qr = false;
-            $hint = 'CCCD phải là tệp ảnh (jpg, png, webp) chụp mặt có mã QR.';
+            if (! is_file($file->getRealPath()) || ! str_starts_with((string) $file->getMimeType(), 'image/')) {
+                $hint = 'CCCD phải là tệp ảnh (jpg, png, webp), chụp đủ mặt trước và mặt sau.';
+                $found = [];
+                break;
+            }
+            $key = 'legal-cccd-qr:' . sha1_file($file->getRealPath());
+            $data = Cache::get($key);
+            if (! $data) {
+                $data = app(CccdScannerService::class)->scanQrImage($file->getRealPath());
+                // Chỉ nhớ kết quả thành công: khách chụp lại ảnh khác, hoặc hệ thống bận thì lần sau thử lại.
+                $data ? Cache::put($key, $data, now()->addMinutes(15)) : ($hint ??= CccdScannerService::failureHint());
+            }
+            if ($data && preg_match('/^[0-9]{9}([0-9]{3})?$/', (string) ($data['cccd'] ?? ''))) {
+                $found[$side] = $data;
+            }
         }
 
-        if ($qr && preg_match('/^[0-9]{9}([0-9]{3})?$/', (string) ($qr['cccd'] ?? ''))) {
+        $qr = null;
+        $side = null;
+        if (count($found) === 2 && $found['front']['cccd'] !== $found['back']['cccd']) {
+            $hint = 'Mặt trước và mặt sau là của hai thẻ khác nhau (số CCCD không khớp).';
+        } elseif ($found !== []) {
+            $side = array_key_first($found);
+            $qr = $found[$side];
+        }
+
+        if ($qr) {
             $date = fn (?string $value) => preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', (string) $value, $m) ? "{$m[3]}-{$m[2]}-{$m[1]}" : null;
             $fields = array_merge($fields, [
                 'cccd_document_number' => $qr['cccd'],
@@ -152,21 +177,20 @@ class LegalDocumentScanService
                 'cccd_address'         => filled($qr['address'] ?? null) ? $qr['address'] : null,
                 'cccd_issued_at'       => $date($qr['issued_date'] ?? null),
             ]);
-        } else {
-            $qr = false;
         }
 
         return [
             'type'              => $type,
             'text_found'        => (bool) $qr,
             'qr'                => (bool) $qr,
+            'qr_side'           => $side,
             'detected_type'     => $qr ? $type : null,
             'type_matches'      => $qr ? true : null,
             'fields'            => $fields,
             'found'             => count(array_filter($fields, fn ($value) => filled($value))),
             'total'             => count($fields),
             'fire_safety_stage' => null,
-            'warnings'          => $qr ? [] : ['Không đọc được mã QR trên CCCD. ' . ($hint ?? CccdScannerService::failureHint())],
+            'warnings'          => $qr ? [] : ['Không đọc được mã QR trên CCCD (đã thử cả mặt trước và mặt sau). ' . ($hint ?? CccdScannerService::failureHint())],
         ];
     }
 

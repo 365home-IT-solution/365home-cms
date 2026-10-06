@@ -303,7 +303,8 @@ class PartnerOnboardingService
         return ['partner' => $partner, 'token' => $token];
     }
 
-    public function addDocument(Partner $partner, array $data, UploadedFile $file): PartnerLegalDocument
+    /** $back: ảnh MẶT SAU — bắt buộc với CCCD (mặt trước ở $file), loại khác bỏ qua. */
+    public function addDocument(Partner $partner, array $data, UploadedFile $file, ?UploadedFile $back = null): PartnerLegalDocument
     {
         $this->assertEditable($partner);
 
@@ -313,10 +314,10 @@ class PartnerOnboardingService
 
         // CCCD: BẮT BUỘC đọc được mã QR trên ảnh; số, họ tên, ngày sinh, giới tính, thường trú, ngày cấp lấy TỪ QR (bỏ qua giá trị client gửi).
         if ($data['type'] === 'citizen_id') {
-            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file));
+            $data = array_merge($data, app(LegalDocumentScanService::class)->citizenIdValues($file, $back));
         }
 
-        return DB::transaction(function () use ($partner, $data, $file) {
+        return DB::transaction(function () use ($partner, $data, $file, $back) {
             $document = $partner->legalDocuments()->create([
                 'type'            => $data['type'],
                 'name'            => $data['name'] ?? null,
@@ -329,6 +330,9 @@ class PartnerOnboardingService
                 'status'          => 'draft',
             ]);
             $document->addMedia($file)->toMediaCollection('file');
+            if ($back && PartnerLegalDocument::needsBackSide($data['type'])) {
+                $document->addMedia($back)->toMediaCollection('file_back');
+            }
 
             return $document;
         });
@@ -1047,6 +1051,10 @@ class PartnerOnboardingService
             'review_note'     => $document->review_note,
             'file_name'       => $media?->file_name,
             'file_size'       => $media?->size,
+            // CCCD: file_* là MẶT TRƯỚC, file_back_* là MẶT SAU (loại khác luôn null). needs_back_side = loại này phải nộp đủ hai mặt.
+            'needs_back_side' => PartnerLegalDocument::needsBackSide($document->type),
+            'file_back_name'  => ($back = $document->getFirstMedia('file_back'))?->file_name,
+            'file_back_size'  => $back?->size,
         ];
     }
 
@@ -1085,7 +1093,7 @@ class PartnerOnboardingService
     private function missingRequiredDocuments(Partner $partner): array
     {
         $uploaded = $partner->legalDocuments()->whereIn('type', $this->requiredDocumentTypes($partner))->whereNull('building_id')
-            ->whereNotIn('status', ['rejected'])->get()->filter(fn (PartnerLegalDocument $d) => $d->hasMedia('file'))->pluck('type')->unique()->all();
+            ->whereNotIn('status', ['rejected'])->get()->filter(fn (PartnerLegalDocument $d) => $d->hasRequiredFiles())->pluck('type')->unique()->all();
 
         return array_values(array_diff($this->requiredDocumentTypes($partner), $uploaded));
     }

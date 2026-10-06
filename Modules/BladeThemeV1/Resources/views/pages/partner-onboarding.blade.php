@@ -326,7 +326,7 @@
                             <template x-for="d in slot.docs" :key="d.id">
                                 <div class="pod-file" :class="d.status === 'rejected' || d.status === 'changes_requested' ? 'is-problem' : ''">
                                     <div class="pod-file-info">
-                                        <div class="pod-file-name" x-text="d.file_name || 'Tệp đã nộp'"></div>
+                                        <div class="pod-file-name" x-text="d.needs_back_side ? ('Mặt trước: ' + (d.file_name || '—') + ' · Mặt sau: ' + (d.file_back_name || 'chưa có')) : (d.file_name || 'Tệp đã nộp')"></div>
                                         <div class="pod-file-meta" x-text="[d.document_number, d.status_label].filter(Boolean).join(' · ')"></div>
                                         <div class="pod-error" x-show="d.review_note" x-text="'Lý do: ' + d.review_note"></div>
                                     </div>
@@ -334,9 +334,10 @@
                                 </div>
                             </template>
                             <form @submit.prevent class="pod-form" x-show="editable && !slot.uploaded">
-                                {{-- CCCD: chỉ nhận ẢNH và BẮT BUỘC đọc được mã QR trên thẻ (server kiểm tra lại khi nộp). --}}
-                                <p class="pod-hint" x-show="slot.type === 'citizen_id'">Chụp rõ <strong>mặt thẻ có mã QR</strong> của người đại diện: chụp thẳng, đủ sáng, lấy trọn cả thẻ. Hệ thống phải đọc được mã QR thì mới nhận.</p>
-                                {{-- Ô chọn tệp tự dựng (input thật ẩn bên trong label) thay cho nút mặc định của trình duyệt. --}}
+                                {{-- CCCD: chỉ nhận ẢNH, phải nộp ĐỦ HAI MẶT (trước + sau) và BẮT BUỘC đọc được mã QR ở một trong hai mặt (server kiểm tra lại khi nộp). --}}
+                                <p class="pod-hint" x-show="slot.type === 'citizen_id'">Chụp rõ <strong>cả mặt trước và mặt sau</strong> thẻ của người đại diện: chụp thẳng, đủ sáng, lấy trọn cả thẻ. Mã QR nằm ở mặt trước (CCCD gắn chip) hoặc mặt sau (thẻ căn cước mới); hệ thống phải đọc được mã QR thì mới nhận.</p>
+                                {{-- Ô chọn tệp tự dựng (input thật ẩn bên trong label) thay cho nút mặc định của trình duyệt. CCCD có hai ô: mặt trước (ô này) và mặt sau (ô dưới). --}}
+                                <p class="pod-side" x-show="slot.type === 'citizen_id'">Mặt trước</p>
                                 <label class="pod-picker" :class="{ 'is-busy': docs[slot.type].scanning, 'has-file': docs[slot.type].fileName }">
                                     <input type="file" class="pod-picker-input" :accept="slot.type === 'citizen_id' ? '.jpg,.jpeg,.png,.webp' : '.pdf,.jpg,.jpeg,.png,.webp'" :disabled="docs[slot.type].scanning" @change="pickDocFile(slot.type, $event)">
                                     <span class="pod-picker-btn" x-text="docs[slot.type].fileName ? 'Đổi tệp' : 'Chọn tệp'"></span>
@@ -347,6 +348,22 @@
                                     </span>
                                 </label>
                                 <p class="pod-error" x-show="docErrorType === slot.type && (errors.file || errors.type)" x-text="err('file') || err('type')"></p>
+                                <template x-if="slot.type === 'citizen_id'">
+                                    <div class="pod-back">
+                                        <p class="pod-side">Mặt sau</p>
+                                        <label class="pod-picker" :class="{ 'is-busy': docs[slot.type].scanning, 'has-file': docs[slot.type].backName }">
+                                            <input type="file" class="pod-picker-input" accept=".jpg,.jpeg,.png,.webp" :disabled="docs[slot.type].scanning" @change="pickDocFile(slot.type, $event, 'back')">
+                                            <span class="pod-picker-btn" x-text="docs[slot.type].backName ? 'Đổi tệp' : 'Chọn tệp'"></span>
+                                            <span class="pod-picker-text">
+                                                <span class="pod-picker-name" x-text="docs[slot.type].backName || 'Chưa chọn tệp'"></span>
+                                                <span class="pod-picker-sub">Ảnh JPG, PNG, WEBP · tối đa 10 MB</span>
+                                            </span>
+                                        </label>
+                                        <p class="pod-error" x-show="docErrorType === slot.type && errors.file_back" x-text="err('file_back')"></p>
+                                        <p class="pod-note" x-show="(docs[slot.type].fileName || docs[slot.type].backName) && !(docs[slot.type].fileName && docs[slot.type].backName)">Chọn đủ cả hai mặt để hệ thống đọc mã QR.</p>
+                                    </div>
+                                </template>
+                                <div class="pod-fields" x-show="docPending(slot.type)">                                <p class="pod-error" x-show="docErrorType === slot.type && (errors.file || errors.type)" x-text="err('file') || err('type')"></p>
                                 <div class="pod-fields" x-show="docs[slot.type].fileName && !docs[slot.type].scanning">
                                     <ul class="pod-warnings" x-show="docs[slot.type].warnings.length">
                                         <template x-for="(w, i) in docs[slot.type].warnings" :key="i"><li x-text="w"></li></template>
@@ -580,6 +597,8 @@
         .pod-error { margin:6px 0 0; font-size:13px; color:#dc2626; line-height:1.45; }
         .pod-warnings { margin:0; padding:10px 14px 10px 30px; list-style:disc; font-size:12px; line-height:1.5; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; }
         .pod-state.is-pending { background:#eff6ff; color:#1d4ed8; }
+        .pod-side { margin:0 0 -4px; font-size:13px; font-weight:600; color:#374151; }
+        .pod-back > * + * { margin-top:12px; }
         .pod-note-pending { color:#1d4ed8; }
         .pod-file { margin-top:14px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:12px; background:#f0fdf4; border:1px solid #dcfce7; }
         .pod-file.is-problem { background:#fef2f2; border-color:#fecaca; }
@@ -602,7 +621,7 @@
                 clear() { try { localStorage.removeItem(KEY); } catch (e) {} },
             };
             const BUILDING_TYPES = ['fire_safety', 'security_order', 'property_ownership_or_use'];
-            const docFiles = {}, docInputs = {};
+            const docFiles = {}, docInputs = {}, docBackFiles = {}, docBackInputs = {};
 
             return {
                 // Thứ tự ký (config partner_flow.partner_signs_before_review; hồ sơ đã tải thì theo status.flow): true = ký hợp đồng TRƯỚC rồi mới gửi duyệt.
@@ -620,7 +639,7 @@
                 provinces: provinces || [], wards: [], loadingWards: false,
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
                 // Mỗi loại giấy tờ một form riêng (thẻ): giá trị các ô, tên tệp đã chọn, cảnh báo quét. Tệp thật giữ ngoài state (docFiles) vì Alpine bọc proxy.
-                docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', warnings: [], scanning: false }])),
+                docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', backName: '', qrOk: false, warnings: [], scanning: false }])),
                 docErrorType: null, docsUploading: false,
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
@@ -858,28 +877,38 @@
                 qrLocked(type, key) { return type === 'citizen_id' && key !== 'cccd_issuer'; },
                 // Chọn tệp cho một thẻ → TỰ QUÉT và điền gợi ý vào các ô của loại đó (không lưu gì cho tới khi bấm nút cuối bước: "Tiếp tục" hoặc "Gửi giấy tờ chờ duyệt").
                 // Quét lỗi/không đọc được thì khách vẫn tự nhập và tải lên bình thường.
-                async pickDocFile(type, event) {
-                    const file = event.target.files[0], d = this.docs[type];
-                    docInputs[type] = event.target; docFiles[type] = file || null;
-                    d.values = {}; d.warnings = []; d.fileName = file ? file.name : '';
-                    if (!file) return;
-                    this.docErrorType = type; d.scanning = true;
+                async pickDocFile(type, event, side = 'front') {
+                    const file = event.target.files[0] || null, d = this.docs[type], cccd = type === 'citizen_id';
+                    if (side === 'back') { docBackInputs[type] = event.target; docBackFiles[type] = file; d.backName = file ? file.name : ''; }
+                    else { docInputs[type] = event.target; docFiles[type] = file; d.fileName = file ? file.name : ''; }
+                    d.values = {}; d.warnings = []; d.qrOk = false;
+                    this.docErrorType = type; this.errors = {};
+                    // CCCD: phải có ĐỦ hai mặt mới đọc mã QR (QR nằm ở mặt trước hoặc mặt sau tuỳ loại thẻ).
+                    const front = docFiles[type], back = docBackFiles[type];
+                    if (!front || (cccd && !back)) return;
+                    d.scanning = true;
                     const fd = new FormData();
-                    fd.append('type', type); fd.append('file', file);
+                    fd.append('type', type); fd.append('file', front);
+                    if (cccd) fd.append('file_back', back);
                     const data = await this.call('POST', `${API}/${this.token}/documents/scan`, fd, true);
                     d.scanning = false;
-                    // CCCD không đọc được mã QR: bỏ tệp vừa chọn (lỗi hiện dưới ô tệp) để khách chụp lại — không cho nhập tay.
-                    if ((!data || data._status) && type === 'citizen_id' && docFiles[type] === file) {
-                        docFiles[type] = null; d.fileName = ''; event.target.value = '';
-                    }
-                    if (!data || data._status || docFiles[type] !== file) return;
+                    // Tệp đã bị đổi trong lúc quét → bỏ kết quả cũ. CCCD không đọc được mã QR: giữ hai ảnh đã chọn, lỗi hiện dưới ô tệp,
+                    // khách đổi ảnh mặt nào thì quét lại; chưa đọc được QR thì chưa được tải lên (không cho nhập tay).
+                    if (docFiles[type] !== front || docBackFiles[type] !== back) return;
+                    if (!data || data._status) return;
                     Object.entries(data.data.fields || {}).forEach(([k, v]) => { if (v) d.values[k] = v; });
                     d.warnings = data.data.warnings || [];
+                    d.qrOk = !!data.data.qr;
                     this.flash(data.message, (data.data.found || 0) > 0);
                 },
 
                 // Giấy tờ đã chọn tệp (và quét xong) nhưng CHƯA tải lên — sẽ được tải khi bấm nút cuối bước.
-                docPending(type) { const d = this.docs[type]; return !!d && !!d.fileName && !d.scanning; },
+                // CCCD: phải đủ hai mặt VÀ đã đọc được mã QR.
+                docPending(type) {
+                    const d = this.docs[type];
+                    if (!d || !d.fileName || d.scanning) return false;
+                    return type !== 'citizen_id' || (!!d.backName && d.qrOk);
+                },
                 // Đủ điều kiện bấm nút cuối bước: mọi giấy tờ bắt buộc đã gửi hoặc đã chọn tệp, và không còn tệp nào đang quét.
                 get docsReady() {
                     const slots = this.docSlots();
@@ -894,11 +923,13 @@
                     fd.append('type', type);
                     Object.entries(d.values).forEach(([k, v]) => { if (v) fd.append(k, v); });
                     fd.append('file', file);
+                    if (type === 'citizen_id' && docBackFiles[type]) fd.append('file_back', docBackFiles[type]);
                     const data = await this.call('POST', `${API}/${this.token}/documents`, fd, true);
                     if (!data || data._status) return false;
                     if (docInputs[type]) docInputs[type].value = '';
-                    docFiles[type] = null;
-                    this.docs[type] = { values: {}, fileName: '', warnings: [], scanning: false };
+                    if (docBackInputs[type]) docBackInputs[type].value = '';
+                    docFiles[type] = null; docBackFiles[type] = null;
+                    this.docs[type] = { values: {}, fileName: '', backName: '', qrOk: false, warnings: [], scanning: false };
                     return true;
                 },
                 // Tải lên LẦN LƯỢT mọi giấy tờ đã chọn tệp. Một giấy tờ lỗi thì dừng lại ở đó (các giấy tờ trước đã lưu), giữ nguyên thông báo lỗi của nó.

@@ -201,19 +201,26 @@ class LegalDocumentFieldsTest extends TestCase
         $base = "/api/admin/partners/{$this->partner->id}/legal-documents";
         $qr = fn (?array $data) => $this->mock(\Modules\Payment\App\Services\CccdScannerService::class, fn ($mock) => $mock->shouldReceive('scanQrImage')->andReturn($data));
         $image = fn (int $width = 800) => UploadedFile::fake()->image('cccd.jpg', $width, 500);
+        $back = fn (int $width = 810) => UploadedFile::fake()->image('cccd-sau.jpg', $width, 500);
 
         // Không đọc được mã QR (hoặc tệp PDF) → từ chối, không lưu.
         $qr(null);
-        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
-        $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '092088001234', 'file' => $image()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
-        $this->post($base, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->create('cccd.pdf', 100, 'application/pdf')], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image(), 'file_back' => $back()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '092088001234', 'file' => $image(), 'file_back' => $back()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post($base, ['type' => 'citizen_id', 'file' => UploadedFile::fake()->create('cccd.pdf', 100, 'application/pdf'), 'file_back' => $back()], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        // CCCD phải đủ hai mặt: thiếu mặt sau → từ chối ở ô mặt sau.
+        $this->post($base, ['type' => 'citizen_id', 'file' => $image()], $headers)->assertStatus(422)->assertJsonValidationErrors('file_back');
         $this->assertSame(0, $this->partner->legalDocuments()->where('type', 'citizen_id')->count());
 
         // Đọc được QR → lưu theo QR, bỏ qua số CCCD gửi tay; "Nơi cấp" do người nhập.
         $qr(['cccd' => '092088001234', 'full_name' => 'NGUYỄN VĂN AN', 'dob' => '05/03/1988', 'gender' => 'Nam', 'address' => '12 Lê Lợi, Cần Thơ', 'issued_date' => '10/07/2021', 'source' => 'qr']);
-        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image()], $headers)->assertOk()->assertJsonPath('data.fields.cccd_full_name', 'NGUYỄN VĂN AN');
-        $id = $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '111111111111', 'cccd_issuer' => 'Cục CS QLHC về TTXH', 'file' => $image()], $headers)
-            ->assertCreated()->assertJsonPath('data.document_number', '092088001234')->json('data.id');
+        $this->post("{$base}/scan", ['type' => 'citizen_id', 'file' => $image(), 'file_back' => $back()], $headers)->assertOk()->assertJsonPath('data.fields.cccd_full_name', 'NGUYỄN VĂN AN');
+        $response = $this->post($base, ['type' => 'citizen_id', 'cccd_document_number' => '111111111111', 'cccd_issuer' => 'Cục CS QLHC về TTXH', 'file' => $image(), 'file_back' => $back()], $headers)
+            ->assertCreated()->assertJsonPath('data.document_number', '092088001234')
+            ->assertJsonPath('data.needs_back_side', true)->assertJsonPath('data.file_back.name', 'cccd-sau.jpg');
+        $id = $response->json('data.id');
+        $this->assertStringContainsString('side=back', $response->json('data.file_back.download_url'));
+        $this->get($response->json('data.file_back.download_url'), $headers)->assertOk();
 
         // Sửa không kèm tệp: ô lấy từ QR không sửa tay được (đọc lại từ tệp đã lưu), Nơi cấp sửa được.
         $this->post("{$base}/{$id}", ['cccd_full_name' => 'TÊN SỬA TAY', 'cccd_issuer' => 'Bộ Công an'], $headers)->assertOk();
@@ -223,7 +230,7 @@ class LegalDocumentFieldsTest extends TestCase
 
         // Sửa kèm tệp mới không đọc được QR → từ chối, giữ nguyên dữ liệu cũ.
         $qr(null);
-        $this->post("{$base}/{$id}", ['file' => $image(900)], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
+        $this->post("{$base}/{$id}", ['file' => $image(900), 'file_back' => $back(910)], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
         $this->assertSame('092088001234', $document->fresh()->cccd_document_number);
     }
 

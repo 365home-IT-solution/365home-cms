@@ -114,6 +114,8 @@ class PartnerLegalDocument extends Model implements HasMedia
     {
         // Hồ sơ pháp lý chứa dữ liệu nhạy cảm: không lưu trên disk public và chỉ tải qua API có quyền.
         $this->addMediaCollection('file')->useDisk('local')->singleFile();
+        // CCCD nộp đủ HAI MẶT: 'file' = mặt trước, 'file_back' = mặt sau (mã QR nằm ở mặt trước với thẻ cũ, mặt sau với thẻ căn cước mới).
+        $this->addMediaCollection('file_back')->useDisk('local')->singleFile();
     }
 
     public function partner(): BelongsTo
@@ -134,6 +136,18 @@ class PartnerLegalDocument extends Model implements HasMedia
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** Loại giấy tờ phải nộp đủ hai mặt (mặt trước + mặt sau). */
+    public static function needsBackSide(?string $type): bool
+    {
+        return $type === 'citizen_id';
+    }
+
+    /** Đã có đủ tệp theo yêu cầu của loại giấy tờ: mọi loại cần 'file'; CCCD cần thêm mặt sau 'file_back'. */
+    public function hasRequiredFiles(): bool
+    {
+        return $this->hasMedia('file') && (! self::needsBackSide($this->type) || $this->hasMedia('file_back'));
     }
 
     public function isExpired(): bool

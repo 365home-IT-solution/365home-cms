@@ -106,11 +106,14 @@ class PartnerOnboardingController extends Controller
         $data = $request->validate([
             'type' => ['required', Rule::in(LegalDocumentFields::types())],
             'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-        ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, CCCD, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.'], PartnerOnboardingService::LABELS);
+            // CCCD: file = ảnh MẶT TRƯỚC, file_back = ảnh MẶT SAU (bắt buộc đủ hai mặt; mã QR nằm ở mặt nào cũng được).
+            'file_back' => ['required_if:type,citizen_id', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+        ], ['type.in' => 'Chỉ quét được Giấy phép kinh doanh, CCCD, Giấy chứng nhận an ninh trật tự và Hồ sơ phòng cháy chữa cháy.',
+            'file_back.required_if' => 'CCCD phải có ảnh mặt sau.'], PartnerOnboardingService::LABELS + ['file_back' => 'ảnh mặt sau']);
 
-        // CCCD: BẮT BUỘC đọc được mã QR trên thẻ (không OCR) — không đọc được thì báo lỗi ở ô tệp để khách chụp lại.
+        // CCCD: BẮT BUỘC đọc được mã QR trên thẻ (không OCR), thử cả mặt trước và mặt sau — không đọc được thì báo lỗi ở ô tệp để khách chụp lại.
         if ($data['type'] === 'citizen_id') {
-            $result = $scanner->scan($request->file('file'), $data['type']);
+            $result = $scanner->scan($request->file('file'), $data['type'], $request->file('file_back'));
             if (! $result['qr']) {
                 throw \Illuminate\Validation\ValidationException::withMessages(['file' => $result['warnings']]);
             }
@@ -147,13 +150,16 @@ class PartnerOnboardingController extends Controller
             'issued_at'       => ['nullable', 'date', 'before_or_equal:today'],
             'expires_at'      => ['nullable', 'date', 'after_or_equal:issued_at', 'after:today'],
             'file'            => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            // CCCD: file = ảnh MẶT TRƯỚC, file_back = ảnh MẶT SAU (bắt buộc đủ hai mặt).
+            'file_back'       => ['required_if:type,citizen_id', 'nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ], LegalDocumentFields::messages() + [
+            'file_back.required_if' => 'CCCD phải có ảnh mặt sau.',
             'issued_at.before_or_equal' => 'Ngày cấp không được ở tương lai.',
             'expires_at.after' => 'Giấy tờ đã hết hạn — vui lòng nộp giấy tờ còn hiệu lực.',
             'expires_at.after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày cấp.',
-        ], PartnerOnboardingService::LABELS + LegalDocumentFields::attributes());
+        ], PartnerOnboardingService::LABELS + LegalDocumentFields::attributes() + ['file_back' => 'ảnh mặt sau']);
 
-        $document = $this->service->addDocument($partner, $data, $request->file('file'));
+        $document = $this->service->addDocument($partner, $data, $request->file('file'), $request->file('file_back'));
 
         return response()->json(['message' => 'Đã nộp giấy tờ.', 'data' => $this->service->formatDocument($document->fresh('media'))], 201);
     }
