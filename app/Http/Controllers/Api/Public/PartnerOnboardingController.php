@@ -173,6 +173,64 @@ class PartnerOnboardingController extends Controller
         return response()->json(['message' => 'Hợp đồng đã sẵn sàng để ký.', 'data' => $this->service->status($partner)]);
     }
 
+    // POST /api/public/partner-onboarding/{token}/documents/{document} (multipart) — SỬA TẠI CHỖ giấy tờ chưa duyệt: gửi ô nào cập nhật ô đó;
+    // file / file_back là tuỳ chọn (không gửi = giữ tệp cũ). Không đổi được `type`. CCCD: đọc lại mã QR và ghi đè các ô lấy từ QR.
+    public function updateDocument(Request $request, string $token, string $document): JsonResponse
+    {
+        $partner = $this->service->findByToken($token);
+        $record = $partner->legalDocuments()->whereKey($document)->firstOrFail();
+        $data = $request->validate(LegalDocumentFields::rules() + [
+            'name'            => ['nullable', 'string', 'max:255'],
+            'document_number' => ['nullable', 'string', 'max:100'],
+            'issuer'          => ['nullable', 'string', 'max:255'],
+            'issued_at'       => ['nullable', 'date', 'before_or_equal:today'],
+            'expires_at'      => ['nullable', 'date', 'after_or_equal:issued_at', 'after:today'],
+            'file'            => ['sometimes', 'file', 'mimes:' . ($record->type === 'citizen_id' ? '' : 'pdf,') . 'jpg,jpeg,png,webp', 'max:10240'],
+            'file_back'       => ['sometimes', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+        ], LegalDocumentFields::messages() + [
+            'issued_at.before_or_equal' => 'Ngày cấp không được ở tương lai.',
+            'expires_at.after' => 'Giấy tờ đã hết hạn — vui lòng nộp giấy tờ còn hiệu lực.',
+            'expires_at.after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày cấp.',
+        ], PartnerOnboardingService::LABELS + LegalDocumentFields::attributes() + ['file_back' => 'ảnh mặt sau']);
+
+        $updated = $this->service->updateDocument($partner, $record, $data, $request->file('file'), $request->file('file_back'));
+
+        return response()->json(['message' => 'Đã cập nhật giấy tờ.', 'data' => $this->service->formatDocument($updated)]);
+    }
+
+    // GET /api/public/partner-onboarding/{token}/documents/{document}/download[?side=back] — đối tác tải lại tệp mình đã nộp
+    // (side=back: ảnh mặt sau của CCCD). Tệp lưu trên đĩa riêng tư; chỉ người giữ mã hồ sơ mới tải được.
+    public function downloadDocument(Request $request, string $token, string $document): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        $partner = $this->service->findByToken($token);
+        $record = $partner->legalDocuments()->whereKey($document)->firstOrFail();
+        $media = $record->getFirstMedia($request->query('side') === 'back' ? 'file_back' : 'file');
+        abort_unless($media && is_file($media->getPath()), 404, 'Không tìm thấy tệp.');
+
+        return response()->download($media->getPath(), $media->file_name, ['Content-Type' => $media->mime_type]);
+    }
+
+    // GET /api/public/partner-onboarding/{token}/contract — đối tác XEM LẠI hợp đồng mới nhất của hồ sơ, kể cả sau khi đã ký
+    // (lúc đó contract.signing_token trong trạng thái hồ sơ đã là null). Chưa có hợp đồng → 404.
+    public function showContract(string $token): JsonResponse
+    {
+        $contract = $this->service->contractForPartner($this->service->findByToken($token));
+        abort_unless($contract, 404, 'Hồ sơ chưa có hợp đồng.');
+
+        return response()->json(['data' => $contract]);
+    }
+
+    // GET /api/public/partner-onboarding/{token}/contract/signed-pdf — tải bản PDF hợp đồng ĐÃ KÝ SỐ (chỉ có sau khi 365 Home ký).
+    public function downloadSignedContract(string $token): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        $partner = $this->service->findByToken($token);
+        $version = $this->service->latestContract($partner);
+        $media = $version && $version->isPlatformSigned() ? $version->getFirstMedia('signed_pdf') : null;
+        abort_unless($media && is_file($media->getPath()), 404, 'Hợp đồng chưa có bản PDF đã ký.');
+
+        return response()->download($media->getPath(), $media->file_name, ['Content-Type' => 'application/pdf']);
+    }
+
     // DELETE /api/public/partner-onboarding/{token}/documents/{document}
     public function destroyDocument(string $token, string $document): JsonResponse
     {

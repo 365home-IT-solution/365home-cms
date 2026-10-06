@@ -84,6 +84,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::match(['put', 'patch'], 'partners/{partner}', [MinihousePartnerController::class, 'update'])->name('partners.update');
         Route::post('partners/{partner}/resend-credentials', [MinihousePartnerController::class, 'resendCredentials'])->name('partners.resend-credentials');
         Route::post('partners/{partner}/suspend', [MinihousePartnerController::class, 'suspend'])->name('partners.suspend');
+        Route::post('partners/{partner}/reactivate', [MinihousePartnerController::class, 'reactivate'])->name('partners.reactivate');
+        Route::get('partners/{partner}/status-logs', [MinihousePartnerController::class, 'statusLogs'])->name('partners.status-logs');
+        Route::delete('partners/{partner}', [MinihousePartnerController::class, 'destroy'])->name('partners.destroy');
+        // Super Admin gia hạn gói MiniHouse thêm N tháng (không qua thanh toán).
+        Route::post('partners/{partner}/subscription/extend', [MinihousePartnerController::class, 'extendSubscription'])->name('partners.subscription.extend');
         Route::get('partners/{partner}/financial', [MinihousePartnerController::class, 'financial'])->name('partners.financial.show');
         Route::post('partners/{partner}/financial', [MinihousePartnerController::class, 'updateFinancial'])->name('partners.financial.update');
         // Duyệt đăng ký MiniHouse (tặng dùng thử → tạo tài khoản + gửi email) hoặc từ chối.

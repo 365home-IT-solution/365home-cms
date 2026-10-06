@@ -234,6 +234,36 @@ class PartnerLegalDocumentService
         app(PartnerOnboardingService::class)->notifyDossierRejected($partner->fresh(), $reason);
     }
 
+    /**
+     * TẠM DỪNG hồ sơ đối tác (khoá đối tác, tài khoản không đăng nhập được) — dùng chung cho API admin và trang quản trị Homestay/MiniHouse.
+     */
+    public function suspend(Partner $partner, User $actor, ?string $note = null): void
+    {
+        if ($partner->verification_status === 'suspended') {
+            throw ValidationException::withMessages(['status' => 'Hồ sơ đã ở trạng thái tạm dừng.']);
+        }
+        $from = $partner->verification_status;
+        $partner->update(['verification_status' => 'suspended', 'status' => false]);
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => $from, 'to_status' => 'suspended', 'note' => filled($note) ? $note : 'Tạm dừng hồ sơ', 'changed_by' => $actor->id]);
+    }
+
+    /**
+     * MỞ LẠI hồ sơ đang tạm dừng: trả về trạng thái NGAY TRƯỚC khi tạm dừng (thường là "approved"; đang chờ duyệt thì về "pending").
+     * Trả về trạng thái mới.
+     */
+    public function reactivate(Partner $partner, User $actor, ?string $note = null): string
+    {
+        if ($partner->verification_status !== 'suspended') {
+            throw ValidationException::withMessages(['status' => 'Hồ sơ không ở trạng thái tạm dừng.']);
+        }
+        $previous = PartnerStatusLog::query()->where('partner_id', $partner->id)->where('to_status', 'suspended')->latest('id')->value('from_status');
+        $to = in_array($previous, ['approved', 'pending'], true) ? $previous : 'approved';
+        $partner->update(['verification_status' => $to, 'status' => $to === 'approved']);
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => 'suspended', 'to_status' => $to, 'note' => filled($note) ? $note : 'Mở lại hồ sơ', 'changed_by' => $actor->id]);
+
+        return $to;
+    }
+
     public function snapshot(Partner $partner): array
     {
         return $partner->legalDocuments()->with('media')->get()->map(fn (PartnerLegalDocument $document) => [

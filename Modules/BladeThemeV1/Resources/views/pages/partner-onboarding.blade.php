@@ -328,6 +328,11 @@
                                     <div class="pod-file-info">
                                         <div class="pod-file-name" x-text="d.needs_back_side ? ('Mặt trước: ' + (d.file_name || '—') + ' · Mặt sau: ' + (d.file_back_name || 'chưa có')) : (d.file_name || 'Tệp đã nộp')"></div>
                                         <div class="pod-file-meta" x-text="[d.document_number, d.status_label].filter(Boolean).join(' · ')"></div>
+                                        {{-- Đối tác xem lại tệp mình đã nộp (API tải tệp theo mã hồ sơ); CCCD có thêm mặt sau. --}}
+                                        <div class="pod-file-links">
+                                            <a :href="docUrl(d)" target="_blank" rel="noopener" x-text="d.needs_back_side ? 'Xem mặt trước' : 'Xem tệp đã nộp'"></a>
+                                            <a x-show="d.file_back_name" :href="docUrl(d, 'back')" target="_blank" rel="noopener">Xem mặt sau</a>
+                                        </div>
                                         <div class="pod-error" x-show="d.review_note" x-text="'Lý do: ' + d.review_note"></div>
                                     </div>
                                     <button type="button" class="pod-link-danger" x-show="['draft','changes_requested','rejected'].includes(d.status) && editable" @click="removeDoc(d.id)">Xoá</button>
@@ -541,6 +546,27 @@
                     </template>
                 </div>
 
+                {{-- Đối tác XEM LẠI hợp đồng mình đã ký (và tải PDF sau khi 365 HOME ký): sau khi ký, link ký hết hiệu lực nên nội dung lấy theo mã hồ sơ
+                     (GET /api/public/partner-onboarding/{token}/contract). Hiện ở bước cuối khi hồ sơ đã có chữ ký của đối tác. --}}
+                <div x-show="step === 4 && status && status.steps.contract_signed" x-cloak class="mt-5 rounded-lg border border-gray-200 p-4 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="text-sm text-gray-700">
+                            <strong>Hợp đồng hợp tác</strong>
+                            <span x-show="status && status.contract && status.contract.partner_confirmed_at" x-text="' · bạn đã ký ngày ' + (status && status.contract && status.contract.partner_confirmed_at ? new Date(status.contract.partner_confirmed_at).toLocaleDateString('vi-VN') : '')"></span>
+                            <span x-show="status && status.contract && !status.contract.platform_signed_at"> · chờ 365 HOME ký xác nhận</span>
+                            <span x-show="status && status.contract && status.contract.platform_signed_at"> · 365 HOME đã ký</span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" class="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60" :disabled="signedLoading" @click="toggleSignedContract()"
+                                x-text="signedLoading ? 'Đang tải...' : (signedOpen ? 'Ẩn hợp đồng' : 'Xem hợp đồng đã ký')"></button>
+                            <a x-show="status && status.contract && status.contract.has_signed_pdf" :href="signedPdfUrl()" target="_blank" rel="noopener"
+                                class="rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-semibold hover:bg-gray-800">Tải PDF đã ký</a>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500" x-show="status && status.contract && !status.contract.platform_signed_at">Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận; bản PDF đã ký sẽ tải được tại đây sau bước đó.</p>
+                    <div x-show="signedOpen && signedContract" class="max-h-96 overflow-y-auto rounded-lg border border-gray-200 p-4 text-sm text-gray-800" x-html="signedContract ? signedContract.content : ''"></div>
+                </div>
+
                 <div class="mt-6 border-t border-gray-100 pt-4 text-xs text-gray-500 flex flex-wrap justify-between gap-2" x-show="token">
                     <span>Mã hồ sơ đã lưu trên thiết bị này để bạn quay lại làm tiếp.</span>
                     <button type="button" class="underline" @click="reset()">Đăng ký hồ sơ khác</button>
@@ -597,6 +623,8 @@
         .pod-error { margin:6px 0 0; font-size:13px; color:#dc2626; line-height:1.45; }
         .pod-warnings { margin:0; padding:10px 14px 10px 30px; list-style:disc; font-size:12px; line-height:1.5; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; }
         .pod-state.is-pending { background:#eff6ff; color:#1d4ed8; }
+        .pod-file-links { margin-top:6px; display:flex; flex-wrap:wrap; gap:4px 14px; font-size:13px; }
+        .pod-file-links a { color:#1d4ed8; text-decoration:underline; }
         .pod-side { margin:0 0 -4px; font-size:13px; font-weight:600; color:#374151; }
         .pod-back > * + * { margin-top:12px; }
         .pod-note-pending { color:#1d4ed8; }
@@ -641,6 +669,7 @@
                 // Mỗi loại giấy tờ một form riêng (thẻ): giá trị các ô, tên tệp đã chọn, cảnh báo quét. Tệp thật giữ ngoài state (docFiles) vì Alpine bọc proxy.
                 docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', backName: '', qrOk: false, warnings: [], scanning: false }])),
                 docErrorType: null, docsUploading: false,
+                signedContract: null, signedOpen: false, signedLoading: false,
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 infoFields: [
@@ -902,6 +931,19 @@
                     this.flash(data.message, (data.data.found || 0) > 0);
                 },
 
+                // Đường dẫn tải tệp giấy tờ đã nộp (side = 'back' cho ảnh mặt sau CCCD) và bản PDF hợp đồng đã ký — đều theo mã hồ sơ.
+                docUrl(d, side) { return `${API}/${this.token}/documents/${d.id}/download` + (side === 'back' ? '?side=back' : ''); },
+                signedPdfUrl() { return `${API}/${this.token}/contract/signed-pdf`; },
+                // Mở/đóng nội dung hợp đồng đã ký; mỗi lần mở tải lại để luôn là bản mới nhất (hợp đồng có thể được tạo lại).
+                async toggleSignedContract() {
+                    if (this.signedOpen) { this.signedOpen = false; return; }
+                    this.signedLoading = true;
+                    try {
+                        const res = await fetch(`${API}/${this.token}/contract`, { headers: { Accept: 'application/json' } });
+                        if (res.ok) { this.signedContract = (await res.json()).data; this.signedOpen = true; }
+                        else this.flash('Chưa tải được hợp đồng. Vui lòng thử lại.');
+                    } catch (e) { this.flash('Lỗi kết nối. Vui lòng thử lại.'); } finally { this.signedLoading = false; }
+                },
                 // Giấy tờ đã chọn tệp (và quét xong) nhưng CHƯA tải lên — sẽ được tải khi bấm nút cuối bước.
                 // CCCD: phải đủ hai mặt VÀ đã đọc được mã QR.
                 docPending(type) {

@@ -60,6 +60,21 @@ class EditPartner extends EditRecord
                 ->visible(fn () => $this->record->verification_status !== 'suspended')
                 ->action(fn () => $this->changeStatus('suspended', 'Tạm dừng hồ sơ')),
 
+            // Mở lại hồ sơ đang tạm dừng: về đúng trạng thái trước khi tạm dừng (cùng quy tắc với API POST .../partners/{partner}/reactivate).
+            Action::make('reactivate')
+                ->label('Mở lại hồ sơ')
+                ->color('success')
+                ->icon('heroicon-o-play-circle')
+                ->requiresConfirmation()
+                ->modalDescription('Hồ sơ trở về trạng thái ngay trước khi tạm dừng; nếu trước đó đã được duyệt thì tài khoản của đối tác đăng nhập lại được.')
+                ->visible(fn () => $this->record->verification_status === 'suspended')
+                ->action(function () {
+                    $to = app(PartnerLegalDocumentService::class)->reactivate($this->record, auth()->user());
+                    $this->record->refresh();
+                    $this->refreshFormData(['status', 'verification_status']);
+                    Notification::make()->title('Đã mở lại hồ sơ')->body($to === 'approved' ? 'Hồ sơ trở về trạng thái đã duyệt.' : 'Hồ sơ trở về trạng thái chờ duyệt.')->success()->send();
+                }),
+
             Action::make('rejectDossier')
                 ->label('Từ chối hồ sơ')
                 ->color('danger')
@@ -123,7 +138,13 @@ class EditPartner extends EditRecord
                     }
                 }),
 
-            DeleteAction::make(),
+            // Cùng quy tắc với API DELETE .../partners/{partner}: hợp đồng đang hiệu lực thì phải chấm dứt trước.
+            DeleteAction::make()->before(function (DeleteAction $action) {
+                if ($reason = $this->record->deletionBlockedReason()) {
+                    Notification::make()->title('Không xoá được đối tác')->body($reason)->danger()->persistent()->send();
+                    $action->cancel();
+                }
+            }),
         ];
     }
 

@@ -116,7 +116,13 @@ class PartnerTable
                     }),
                 ViewAction::make()->label('Xem'),
                 EditAction::make()->label('Sửa'),
-                DeleteAction::make()->label('Xóa'),
+                // Cùng quy tắc với API DELETE .../partners/{partner}: hợp đồng đang hiệu lực thì phải chấm dứt trước.
+                DeleteAction::make()->label('Xóa')->before(function (DeleteAction $action, \App\Models\Partner $record) {
+                    if ($reason = $record->deletionBlockedReason()) {
+                        \Filament\Notifications\Notification::make()->title('Không xoá được đối tác')->body($reason)->danger()->persistent()->send();
+                        $action->cancel();
+                    }
+                }),
             ]);
     }
 }

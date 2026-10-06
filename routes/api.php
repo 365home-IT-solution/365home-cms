@@ -60,9 +60,15 @@ Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->gro
         // Quét giấy tờ để gợi ý giá trị các ô (gọi dịch vụ OCR bên ngoài → giới hạn riêng 10 lượt/phút).
         Route::post('documents/scan', [PartnerOnboardingController::class, 'scanDocument'])->middleware('throttle:10,1')->name('documents.scan');
         Route::delete('documents/{document}', [PartnerOnboardingController::class, 'destroyDocument'])->name('documents.destroy');
+        // Sửa tại chỗ giấy tờ chưa duyệt (multipart nên dùng POST) và tải lại tệp đã nộp (?side=back cho mặt sau CCCD).
+        Route::post('documents/{document}', [PartnerOnboardingController::class, 'updateDocument'])->name('documents.update');
+        Route::get('documents/{document}/download', [PartnerOnboardingController::class, 'downloadDocument'])->name('documents.download');
         Route::put('contract-info', [PartnerOnboardingController::class, 'updateContractInfo'])->name('contract-info');
         // Luồng "đối tác ký trước": tạo hợp đồng điều khoản chuẩn để ký ngay trên trang đăng ký (trước khi gửi duyệt).
         Route::post('contract', [PartnerOnboardingController::class, 'prepareContract'])->name('contract');
+        // Đối tác xem lại hợp đồng của hồ sơ (kể cả sau khi đã ký) và tải bản PDF đã ký số.
+        Route::get('contract', [PartnerOnboardingController::class, 'showContract'])->name('contract.show');
+        Route::get('contract/signed-pdf', [PartnerOnboardingController::class, 'downloadSignedContract'])->name('contract.signed-pdf');
         Route::post('submit', [PartnerOnboardingController::class, 'submit'])->name('submit');
         Route::post('withdraw', [PartnerOnboardingController::class, 'withdraw'])->name('withdraw');
     });

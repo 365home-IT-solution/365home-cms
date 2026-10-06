@@ -181,10 +181,19 @@ class PartnerController extends Controller
     }
 
     // GET /api/admin/partners/{partner}/contract/signed-pdf — tải lại PDF hợp đồng đã ký số lưu trên server (không ký lại).
+    // Super Admin: như cũ (hợp đồng cũ chưa lưu file thì xuất và lưu ở lần đầu). CHỦ ĐỐI TÁC (tài khoản của chính đối tác này): chỉ tải được
+    // bản đã lưu của hợp đồng mình — không kích hoạt việc ký/xuất lại.
     public function downloadSignedPdf(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
     {
-        $this->superAdmin($request);
         abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        if (! $request->user()->isSuperAdmin()) {
+            $this->partnerAccess($request, $partner);
+            $version = $partner->contractVersions()->first();
+            $media = $version && $version->isPlatformSigned() ? $version->getFirstMedia('signed_pdf') : null;
+            abort_unless($media && is_file($media->getPath()), 404, 'Hợp đồng chưa có bản PDF đã ký.');
+
+            return response()->streamDownload(fn () => print (file_get_contents($media->getPath())), $media->file_name, ['Content-Type' => 'application/pdf']);
+        }
         $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent(), reExport: true);
 
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
@@ -246,6 +255,76 @@ class PartnerController extends Controller
     }
 
     // POST /api/admin/{minihouse/}partners/{partner}/suspend — nút Filament "Tạm dừng hồ sơ": verification_status = suspended, khoá đối tác (status = false).
+    // DELETE /api/admin/{minihouse/}partners/{partner} — Super Admin XOÁ đối tác (xoá mềm, như nút Xoá ở trang quản trị): đối tác biến mất khỏi danh sách,
+    // tài khoản của đối tác không đăng nhập được nữa. Không xoá được đối tác hệ thống; hợp đồng đang hiệu lực phải chấm dứt trước.
+    public function destroy(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_if($partner->isSystemPartner(), 404);
+        abort_if((bool) ($reason = $partner->deletionBlockedReason()), 422, (string) $reason);
+
+        $from = $partner->verification_status;
+        try {
+            $partner->delete();
+        } catch (\DomainException $e) {
+            abort(422, $e->getMessage());
+        }
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => $from, 'to_status' => $from, 'note' => 'Xoá đối tác', 'changed_by' => $request->user()->id]);
+
+        return response()->json(['message' => 'Đã xoá đối tác.']);
+    }
+
+    // POST /api/admin/{minihouse/}partners/{partner}/reactivate — Super Admin MỞ LẠI hồ sơ đang tạm dừng: trả về trạng thái ngay trước khi tạm dừng
+    // (thường là "approved"; nếu trước đó đang chờ duyệt thì về "pending").
+    public function reactivate(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_if($partner->isSystemPartner(), 404);
+        abort_unless($partner->verification_status === 'suspended', 422, 'Hồ sơ không ở trạng thái tạm dừng.');
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+        app(PartnerLegalDocumentService::class)->reactivate($partner, $request->user(), $data['note'] ?? null);
+
+        return response()->json(['message' => 'Đã mở lại hồ sơ.', 'data' => $this->format($partner->fresh(), app(PartnerLegalDocumentService::class))]);
+    }
+
+    // GET /api/admin/{minihouse/}partners/{partner}/status-logs — lịch sử thay đổi trạng thái hồ sơ (mới nhất trước): ai đổi, lúc nào, ghi chú.
+    public function statusLogs(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_if($partner->isSystemPartner(), 404);
+        $logs = PartnerStatusLog::query()->where('partner_id', $partner->id)->with('changedBy:id,fullname')->latest('id')
+            ->paginate(min($request->integer('per_page', 50), 100));
+
+        return response()->json($logs->through(fn (PartnerStatusLog $log) => [
+            'id'          => $log->id,
+            'from_status' => $log->from_status,
+            'to_status'   => $log->to_status,
+            'note'        => $log->note,
+            'changed_by'  => $log->changedBy ? ['id' => $log->changedBy->id, 'name' => $log->changedBy->fullname] : null,
+            'created_at'  => $log->created_at?->toIso8601String(),
+        ]));
+    }
+
+    // POST /api/admin/minihouse/partners/{partner}/subscription/extend {months} — Super Admin GIA HẠN gói MiniHouse thêm N tháng (như nút "Gia hạn"
+    // ở trang Gói dịch vụ): cộng nối tiếp sau ngày hết hạn nếu còn hạn, hoặc tính từ hôm nay nếu đã hết hạn. Gói dùng thử chuyển thành gói thường.
+    public function extendSubscription(Request $request, Partner $partner, \App\Services\SubscriptionService $subscriptions): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->isMinihouse() && ! $partner->isSystemPartner(), 404);
+        $data = $request->validate(['months' => ['required', 'integer', 'min:1', 'max:60']], [], ['months' => 'số tháng gia hạn']);
+        $sub = $partner->subscription;
+        abort_unless($sub, 422, 'Đối tác chưa có gói dịch vụ để gia hạn.');
+
+        $sub = $subscriptions->extend($sub, (int) $data['months']);
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status,
+            'note' => "Gia hạn gói thêm {$data['months']} tháng, đến " . $sub->expires_at->format('d/m/Y'), 'changed_by' => $request->user()->id]);
+
+        return response()->json([
+            'message' => 'Đã gia hạn gói đến ' . $sub->expires_at->format('d/m/Y') . '.',
+            'data'    => ['expires_at' => $sub->expires_at->toIso8601String()] + $this->format($partner->fresh(), app(PartnerLegalDocumentService::class)),
+        ]);
+    }
+
     public function suspend(Request $request, Partner $partner): JsonResponse
     {
         $this->superAdmin($request);
@@ -253,9 +332,7 @@ class PartnerController extends Controller
         abort_if($partner->verification_status === 'suspended', 422, 'Hồ sơ đã ở trạng thái tạm dừng.');
         $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
 
-        $from = $partner->verification_status;
-        $partner->update(['verification_status' => 'suspended', 'status' => false]);
-        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => $from, 'to_status' => 'suspended', 'note' => $data['note'] ?? 'Tạm dừng hồ sơ', 'changed_by' => $request->user()->id]);
+        app(PartnerLegalDocumentService::class)->suspend($partner, $request->user(), $data['note'] ?? null);
 
         return response()->json(['message' => 'Đã tạm dừng hồ sơ.', 'data' => $this->format($partner->fresh(), app(PartnerLegalDocumentService::class))]);
     }

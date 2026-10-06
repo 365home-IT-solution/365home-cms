@@ -198,6 +198,17 @@ class Partner extends Model implements HasMedia
         return $this->usesContract() || $this->minihouseDocumentsFlow();
     }
 
+    /**
+     * Lý do KHÔNG được xoá đối tác (null = xoá được) — MỘT quy tắc dùng chung cho API admin và nút Xoá ở trang quản trị:
+     * hợp đồng đang có hiệu lực thì phải chấm dứt trước.
+     */
+    public function deletionBlockedReason(): ?string
+    {
+        return $this->usesContract() && $this->contract_status === 'active'
+            ? 'Hợp đồng đang có hiệu lực — hãy chấm dứt hợp đồng trước khi xoá đối tác.'
+            : null;
+    }
+
     /** Đối tác đăng ký trên website KÝ HỢP ĐỒNG TRƯỚC khi 365 Home duyệt hồ sơ (config partner_flow.partner_signs_before_review). */
     public function signsBeforeReview(): bool
     {
@@ -244,6 +255,10 @@ class Partner extends Model implements HasMedia
         static::deleting(function (Partner $partner): void {
             if ($partner->isSystemPartner()) {
                 throw new \DomainException('Không thể xóa đối tác MiniHouse nội bộ của hệ thống.');
+            }
+            // Chốt chặn cuối: API và trang quản trị đã kiểm tra deletionBlockedReason() trước để báo lỗi tử tế.
+            if ($reason = $partner->deletionBlockedReason()) {
+                throw new \DomainException($reason);
             }
         });
     }

@@ -92,7 +92,40 @@ class EditPartner extends EditRecord
                         Notification::make()->title('Không tạo được tài khoản')->body($result['reason'])->danger()->persistent()->send();
                     }
                 }),
-            Actions\DeleteAction::make(),
+            // Tạm dừng / mở lại hồ sơ — cùng quy tắc với API POST /api/admin/minihouse/partners/{partner}/suspend|reactivate.
+            Actions\Action::make('suspend')
+                ->label('Tạm dừng hồ sơ')
+                ->icon('heroicon-o-pause-circle')
+                ->color('gray')
+                ->visible(fn (): bool => (auth()->user()?->isSuperAdmin() ?? false) && ! $this->record->isSystemPartner()
+                    && $this->record->verification_status === 'approved')
+                ->form([Textarea::make('note')->label('Ghi chú (không bắt buộc)')->maxLength(500)])
+                ->modalDescription('Đối tác bị khoá: tài khoản của đối tác không đăng nhập được cho tới khi mở lại hồ sơ.')
+                ->action(function (array $data): void {
+                    app(\App\Services\PartnerLegalDocumentService::class)->suspend($this->record, auth()->user(), $data['note'] ?? null);
+                    $this->record->refresh();
+                    $this->refreshFormData(['status', 'verification_status']);
+                    Notification::make()->title('Đã tạm dừng hồ sơ')->success()->send();
+                }),
+            Actions\Action::make('reactivate')
+                ->label('Mở lại hồ sơ')
+                ->icon('heroicon-o-play-circle')
+                ->color('success')
+                ->visible(fn (): bool => (auth()->user()?->isSuperAdmin() ?? false) && $this->record->verification_status === 'suspended')
+                ->requiresConfirmation()
+                ->modalDescription('Hồ sơ trở về trạng thái ngay trước khi tạm dừng; nếu trước đó đã được duyệt thì tài khoản của đối tác đăng nhập lại được.')
+                ->action(function (): void {
+                    $to = app(\App\Services\PartnerLegalDocumentService::class)->reactivate($this->record, auth()->user());
+                    $this->record->refresh();
+                    $this->refreshFormData(['status', 'verification_status']);
+                    Notification::make()->title('Đã mở lại hồ sơ')->body($to === 'approved' ? 'Hồ sơ trở về trạng thái đã duyệt.' : 'Hồ sơ trở về trạng thái chờ duyệt.')->success()->send();
+                }),
+            Actions\DeleteAction::make()->before(function (Actions\DeleteAction $action) {
+                if ($reason = $this->record->deletionBlockedReason()) {
+                    Notification::make()->title('Không xoá được đối tác')->body($reason)->danger()->persistent()->send();
+                    $action->cancel();
+                }
+            }),
         ];
     }
 }

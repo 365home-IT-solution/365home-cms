@@ -338,6 +338,72 @@ class PartnerOnboardingService
         });
     }
 
+    /**
+     * Đối tác SỬA TẠI CHỖ một giấy tờ chưa được duyệt (nháp / cần bổ sung / bị từ chối): đổi các ô thông tin và/hoặc thay tệp, không cần xoá rồi nộp lại.
+     * Không đổi được loại giấy tờ. CCCD: đọc lại mã QR từ ảnh mới (mặt nào không gửi thì dùng ảnh đã lưu) và ghi đè các ô lấy từ QR.
+     * Sửa xong giấy tờ quay về "nháp" và xoá ghi chú duyệt cũ.
+     */
+    public function updateDocument(Partner $partner, PartnerLegalDocument $document, array $data, ?UploadedFile $file = null, ?UploadedFile $back = null): PartnerLegalDocument
+    {
+        $this->assertEditable($partner);
+        if (! in_array($document->status, ['draft', 'changes_requested', 'rejected'], true)) {
+            throw ValidationException::withMessages(['document' => 'Chỉ sửa được giấy tờ nháp, cần bổ sung hoặc bị từ chối.']);
+        }
+
+        $values = \App\Support\LegalDocumentFields::valuesFrom($document->type, $data, true)
+            + collect($data)->only(['name', 'document_number', 'issuer', 'issued_at', 'expires_at'])->all();
+
+        if ($document->type === 'citizen_id') {
+            $stored = fn (string $collection) => ($media = $document->getFirstMedia($collection)) && is_file($media->getPath())
+                ? new UploadedFile($media->getPath(), $media->file_name, $media->mime_type, null, true) : null;
+            $values = array_merge($values, app(LegalDocumentScanService::class)->citizenIdValues($file ?? $stored('file'), $back ?? $stored('file_back')));
+        }
+
+        return DB::transaction(function () use ($document, $values, $file, $back) {
+            $document->update($values + ['status' => 'draft', 'review_note' => null, 'reviewed_at' => null, 'reviewed_by' => null]);
+            if ($file) {
+                $document->addMedia($file)->toMediaCollection('file');
+            }
+            if ($back && PartnerLegalDocument::needsBackSide($document->type)) {
+                $document->addMedia($back)->toMediaCollection('file_back');
+            }
+
+            return $document->fresh('media');
+        });
+    }
+
+    /**
+     * Nội dung hợp đồng mới nhất của hồ sơ để đối tác XEM LẠI (kể cả sau khi đã ký, khi link ký không còn hiệu lực). Chưa có hợp đồng → null.
+     */
+    public function contractForPartner(Partner $partner): ?array
+    {
+        $version = $this->latestContract($partner);
+        if (! $version) {
+            return null;
+        }
+        $signingActive = $version->signing_token !== null && ! $version->isPartnerConfirmed();
+
+        return [
+            'version_id'           => $version->id,
+            'contract_code'        => $partner->contract_code,
+            'partner_name'         => $partner->legal_name ?? $partner->name,
+            // content = văn bản ĐẦY ĐỦ như bản in/PDF; content_body = thân hợp đồng đã lưu (nội dung tính content_hash).
+            'content'              => PartnerContractRenderer::renderFramed($version->content, $partner, $version),
+            'content_body'         => $version->content,
+            'content_hash'         => $version->content_hash,
+            'signing_active'       => $signingActive,
+            'signing_token'        => $signingActive ? $version->signing_token : null,
+            'partner_confirmed_at' => $version->partner_confirmed_at?->toIso8601String(),
+            'partner_signed_by'    => $version->partner_signed_by_name,
+            'platform_signed_at'   => $version->platform_signed_at?->toIso8601String(),
+            'is_fully_signed'      => $version->isFullySigned(),
+            'contract_status'      => $partner->contract_status,
+            'contract_expires_at'  => $version->isPlatformSigned() ? $partner->contract_expires_at?->toDateString() : null,
+            // Bản PDF đã ký số chỉ có sau khi 365 Home ký; tải qua GET .../contract/signed-pdf.
+            'has_signed_pdf'       => $version->isPlatformSigned() && $version->hasMedia('signed_pdf'),
+        ];
+    }
+
     public function deleteDocument(Partner $partner, PartnerLegalDocument $document): void
     {
         $this->assertEditable($partner);
@@ -733,7 +799,9 @@ class PartnerOnboardingService
         if ($partner->verification_status !== 'pending' || $partner->verification_submitted_at === null) {
             throw ValidationException::withMessages(['status' => 'Hồ sơ không ở trạng thái chờ duyệt nên không thể rút lại.']);
         }
-        if ($this->latestContract($partner) !== null) {
+        // Luồng cũ: đã có hợp đồng nghĩa là giấy tờ đã duyệt → không rút được. Luồng "đối tác ký trước": hợp đồng có sẵn từ trước khi gửi duyệt,
+        // nên vẫn rút được khi hồ sơ còn chờ duyệt (chữ ký giữ nguyên trừ khi đối tác sửa thông tin in trong hợp đồng).
+        if ($this->latestContract($partner) !== null && ! $partner->signsBeforeReview()) {
             throw ValidationException::withMessages(['status' => 'Hồ sơ đã được duyệt giấy tờ và gửi hợp đồng, không thể rút lại.']);
         }
 
@@ -1016,6 +1084,8 @@ class PartnerOnboardingService
                 'partner_confirmed_at' => $contract->partner_confirmed_at?->toIso8601String(),
                 'partner_signed_by'    => $contract->partner_signed_by_name,
                 'platform_signed_at'   => $contract->platform_signed_at?->toIso8601String(),
+                // Có bản PDF đã ký số để tải (GET .../contract/signed-pdf) — chỉ sau khi 365 Home ký.
+                'has_signed_pdf'       => $contract->isPlatformSigned() && $contract->hasMedia('signed_pdf'),
             ] : null,
             'account' => [
                 'created'   => $partner->users()->exists(),
