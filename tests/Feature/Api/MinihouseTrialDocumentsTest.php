@@ -200,6 +200,24 @@ class MinihouseTrialDocumentsTest extends TestCase
             ->assertJsonPath('data.dossier', null);
     }
 
+    // Hồ sơ đăng ký bị xoá khi CHƯA từng có gói không làm mất quyền dùng thử; đã từng dùng thử rồi xoá thì đăng ký lại phải thanh toán.
+    public function test_a_deleted_signup_that_never_had_a_plan_does_not_burn_the_trial(): void
+    {
+        config(['partner_flow.minihouse_trial_documents_required' => false]);
+
+        [, $deleted] = $this->register('0970000107', 'mh-docs-deleted@example.test');
+        $deleted->delete();
+        [$token] = $this->register('0970000107', 'mh-docs-deleted@example.test');
+        $this->getJson("/api/public/minihouse-purchase/{$token}")->assertJsonPath('data.stage', 'pending_approval')->assertJsonPath('data.payment', null);
+
+        [, $used] = $this->register('0970000108', 'mh-docs-used@example.test');
+        app(PartnerOnboardingService::class)->approveSignup($used->fresh(), $this->admin);
+        $used->users()->delete();
+        $used->fresh()->delete();
+        [$again] = $this->register('0970000108', 'mh-docs-used@example.test');
+        $this->getJson("/api/public/minihouse-purchase/{$again}")->assertJsonPath('data.stage', 'pending_payment');
+    }
+
     public function test_flag_off_keeps_trial_approval_without_documents(): void
     {
         config(['partner_flow.minihouse_trial_documents_required' => false]);

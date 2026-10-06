@@ -181,7 +181,9 @@ class PartnerOnboardingService
         }
         $match = fn ($q) => $q->where(fn ($w) => $w->where('phone', $phone)->orWhere('email', $email));
 
-        return ! Partner::onlyTrashed()->where('partner_type', Partner::TYPE_MINIHOUSE)->where($match)->exists()
+        // Chỉ tính đối tác ĐÃ TỪNG CÓ GÓI (dùng thử hoặc trả tiền), kể cả đã xoá. Hồ sơ đăng ký bị xoá khi CHƯA từng được kích hoạt
+        // (vd admin xoá hồ sơ thử/nhập sai) không làm mất quyền dùng thử của SĐT/email đó.
+        return ! Partner::onlyTrashed()->where('partner_type', Partner::TYPE_MINIHOUSE)->where($match)->whereHas('subscription')->exists()
             && ! Partner::query()->where('partner_type', Partner::TYPE_MINIHOUSE)->when($exceptPartnerId, fn ($q) => $q->whereKeyNot($exceptPartnerId))
                 ->where($match)->whereHas('subscription')->exists();
     }
