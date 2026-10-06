@@ -159,6 +159,10 @@ class PartnerOnboardingService
             PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => $needsApproval ? 'pending' : 'approved', 'note' => $needsApproval
                 ? 'MiniHouse đăng ký trên website — chờ Super Admin duyệt để tặng dùng thử (hoặc thanh toán gói để kích hoạt ngay).'
                 : 'MiniHouse mua gói trên website (chờ thanh toán).']);
+            // Nhánh phải thanh toán (không được tặng dùng thử): vẫn báo admin để biết có khách mới đang ở bước thanh toán.
+            if (! $needsApproval) {
+                $this->notifyAdmins($partner, 'Có đăng ký MiniHouse mới — chờ thanh toán', $this->partnerLabel($partner) . ' vừa đăng ký MiniHouse và đang ở bước thanh toán gói (không thuộc diện tặng dùng thử). Thanh toán xong hệ thống tự kích hoạt và gửi tài khoản.', 'minihouse_signup_payment', 'info', 'heroicon-o-credit-card');
+            }
             if ($needsApproval) {
                 $this->notifyAdmins($partner, 'Có đăng ký MiniHouse chờ duyệt', $this->partnerLabel($partner) . ' vừa đăng ký MiniHouse — duyệt để tặng dùng thử và gửi tài khoản đăng nhập.', 'minihouse_signup_pending', 'info', 'heroicon-o-user-plus');
                 $url = route('partner-onboarding.page') . '?mh=' . $token;
@@ -168,6 +172,12 @@ class PartnerOnboardingService
                         : '')
                     . 'Sau khi được duyệt, tài khoản đăng nhập và mật khẩu sẽ được gửi về email này.</p>');
             }
+        }
+
+        // Đăng ký LẠI bằng SĐT của hồ sơ dở (hồ sơ cũ được dùng lại): báo admin, tối đa 1 lần/giờ cho mỗi hồ sơ để không dội thông báo khi khách bấm nhiều lần.
+        if ($existing && RateLimiter::attempt('mh-resignup-notify:' . $partner->id, 1, fn () => true, 3600)) {
+            $this->notifyAdmins($partner, 'Đối tác MiniHouse đăng ký lại', $this->partnerLabel($partner) . ' vừa đăng ký lại MiniHouse bằng hồ sơ chưa hoàn tất trước đó — '
+                . ($needsApproval ? 'đang chờ duyệt để được dùng thử.' : 'đang ở bước thanh toán gói.'), 'minihouse_signup_again', 'info', 'heroicon-o-arrow-path');
         }
 
         return ['partner' => $partner->fresh(), 'token' => $token];
@@ -598,9 +608,10 @@ class PartnerOnboardingService
                 User::role(config('filament-shield.super_admin.name'))->get(),
                 'Đối tác đã ký hợp đồng hợp tác',
                 ($partner->legal_name ?: $partner->name) . ' (' . $partner->phone . ') đã ký xác nhận hợp đồng. Vào Đối tác → tab Hợp đồng để ký phía nền tảng; sau đó hệ thống tự cấp tài khoản.',
-                ['type' => 'partner_contract_signed', 'partner_id' => $partner->id],
+                $this->adminNotificationData($partner, 'partner_contract_signed'),
                 'heroicon-o-pencil-square',
                 'info',
+                $this->adminPartnerUrl($partner),
             );
         } catch (\Throwable $e) {
             report($e);
@@ -645,11 +656,12 @@ class PartnerOnboardingService
         try {
             app(AdminNotificationService::class)->notify(
                 User::role(config('filament-shield.super_admin.name'))->get(),
-                'Hồ sơ đăng ký hợp tác chờ duyệt',
+                $signedFirst ? 'Đối tác đã ký hợp đồng — hồ sơ chờ duyệt' : 'Hồ sơ đăng ký hợp tác chờ duyệt',
                 ($partner->legal_name ?: $partner->name) . ' (' . ($partner->isMinihouse() ? 'MiniHouse' : 'Homestay') . ', ' . $partner->phone . ') đã nộp giấy tờ pháp lý và thông tin hợp đồng' . ($signedFirst ? ', và ĐÃ KÝ hợp đồng điều khoản chuẩn. Vào Đối tác → tab Hồ sơ pháp lý để xem và duyệt; duyệt xong ký phía nền tảng ở tab Hợp đồng.' : '. Vào Đối tác → tab Hồ sơ pháp lý để xem và duyệt; duyệt xong hệ thống gửi hợp đồng cho đối tác ký.'),
-                ['type' => 'partner_onboarding', 'partner_id' => $partner->id],
+                $this->adminNotificationData($partner, 'partner_onboarding'),
                 'heroicon-o-document-check',
                 'info',
+                $this->adminPartnerUrl($partner),
             );
         } catch (\Throwable $e) {
             report($e);
@@ -760,12 +772,29 @@ class PartnerOnboardingService
                 User::role(config('filament-shield.super_admin.name'))->get(),
                 $title,
                 $body,
-                ['type' => $type, 'partner_id' => $partner->id],
+                $this->adminNotificationData($partner, $type),
                 $icon,
                 $color,
+                $this->adminPartnerUrl($partner),
             );
         } catch (\Throwable $e) {
             report($e);
+        }
+    }
+
+    /** Dữ liệu kèm thông báo admin của luồng hợp tác: loại thông báo + đối tác liên quan + đường dẫn trang đối tác (để web/app điều hướng khi bấm). */
+    private function adminNotificationData(Partner $partner, string $type): array
+    {
+        return ['type' => $type, 'partner_id' => $partner->id, 'partner_type' => $partner->partner_type, 'url' => $this->adminPartnerUrl($partner)];
+    }
+
+    /** Trang chi tiết đối tác trên trang quản trị (Homestay: /homestay/admin, MiniHouse: /minihouse/admin); không dựng được route thì null. */
+    private function adminPartnerUrl(Partner $partner): ?string
+    {
+        try {
+            return route($partner->isMinihouse() ? 'filament.minihouse-admin.resources.partners.edit' : 'filament.admin.resources.partners.edit', ['record' => $partner->getKey()]);
+        } catch (\Throwable) {
+            return null;
         }
     }
 
@@ -1059,6 +1088,8 @@ class PartnerOnboardingService
             'stage'        => $stage,
             // Thứ tự ký: true = đối tác ký hợp đồng TRƯỚC khi gửi duyệt (POST .../contract để tạo hợp đồng); false = duyệt xong mới ký.
             'flow'         => ['sign_before_review' => $signFirst],
+            // Kênh realtime của hồ sơ này: nhận tín hiệu khi 365 Home duyệt/ký... rồi gọi lại API trạng thái (xem PartnerOnboardingRealtimeService).
+            'realtime'     => PartnerOnboardingRealtimeService::descriptor($partner),
             'partner_type' => $partner->partner_type,
             'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS])
                 ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])->all(),

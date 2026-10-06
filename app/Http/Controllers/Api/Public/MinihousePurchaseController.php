@@ -133,6 +133,8 @@ class MinihousePurchaseController extends Controller
             },
             'partner'      => $partner->only(['name', 'phone', 'email', 'address']),
             'documents_required' => $partner->minihouseDocumentsFlow(),
+            // Kênh realtime của hồ sơ này: nhận tín hiệu khi 365 Home duyệt, kích hoạt gói, ghi nhận thanh toán... rồi gọi lại API này.
+            'realtime'     => \App\Services\PartnerOnboardingRealtimeService::descriptor($partner),
             'dossier'      => $dossier ? [
                 'required_documents' => $dossier['required_documents'],
                 'documents'          => $dossier['documents'],

@@ -63,6 +63,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->registerPartnerOnboardingRealtime();
+
         // livewire.min.js được chèn ở cuối <body> nên không chặn hiển thị ban đầu, nhưng vẫn chặn
         // trình duyệt "hoàn tất" trang (ảnh hưởng TTI) vì mặc định là <script> đồng bộ, không có
         // defer — Lighthouse xếp nó vào chuỗi phụ thuộc quan trọng. defer=true chỉ đổi THỜI ĐIỂM
@@ -192,5 +194,25 @@ class AppServiceProvider extends ServiceProvider
             return Route::post('/livewire/update', $handle)
                 ->middleware(['web', 'livewire.secure']);
         });
+    }
+
+    // Realtime cho đối tác theo dõi hồ sơ đăng ký hợp tác: bất kỳ thay đổi nào ở hồ sơ, giấy tờ, hợp đồng, gói hay đơn thanh toán của đối tác
+    // (từ trang quản trị, API admin, webhook thanh toán hay chính đối tác) đều xếp một tín hiệu "có thay đổi" — gom theo request,
+    // xem App\Services\PartnerOnboardingRealtimeService.
+    private function registerPartnerOnboardingRealtime(): void
+    {
+        $this->app->singleton(\App\Services\PartnerOnboardingRealtimeService::class);
+        $queue = fn ($partnerId) => app(\App\Services\PartnerOnboardingRealtimeService::class)->queue($partnerId);
+
+        \App\Models\Partner::updated(function (\App\Models\Partner $partner) use ($queue) {
+            if (filled($partner->onboarding_token) && $partner->wasChanged(['verification_status', 'verification_submitted_at', 'verification_note', 'contract_status', 'status', 'contract_expires_at'])) {
+                $queue($partner->getKey());
+            }
+        });
+        \App\Models\PartnerLegalDocument::saved(fn ($document) => ($document->wasRecentlyCreated || $document->wasChanged(['status', 'review_note'])) ? $queue($document->partner_id) : null);
+        \App\Models\PartnerLegalDocument::deleted(fn ($document) => $queue($document->partner_id));
+        \App\Models\PartnerContractVersion::saved(fn ($version) => $queue($version->partner_id));
+        \App\Models\PartnerSubscription::saved(fn ($subscription) => $queue($subscription->partner_id));
+        \App\Models\SubscriptionPayment::saved(fn ($payment) => ($payment->wasRecentlyCreated || $payment->wasChanged('status')) ? $queue($payment->partner_id) : null);
     }
 }

@@ -121,6 +121,16 @@ return [
         'key' => env('INDEXNOW_KEY'),
     ],
 
+    // Thông số Reverb PHÍA TRÌNH DUYỆT (cùng giá trị với VITE_REVERB_* dùng lúc build JS) — cho trang tự kết nối Reverb mà không qua bundle Vite
+    // (vd trang đăng ký hợp tác nghe kênh "partner-onboarding.{key}"). Để trống key/host thì trang bỏ qua realtime, chỉ hỏi lại định kỳ.
+    'reverb_public' => [
+        'key'    => env('VITE_REVERB_APP_KEY', env('REVERB_APP_KEY')),
+        'host'   => env('VITE_REVERB_HOST', env('REVERB_HOST')),
+        'port'   => env('VITE_REVERB_PORT', env('REVERB_PORT')),
+        'scheme' => env('VITE_REVERB_SCHEME', env('REVERB_SCHEME', 'https')),
+        'path'   => env('VITE_REVERB_PATH', ''),
+    ],
+
     'websocket' => [
         'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
         'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),

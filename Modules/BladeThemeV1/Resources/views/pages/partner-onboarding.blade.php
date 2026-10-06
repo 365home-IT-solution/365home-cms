@@ -650,6 +650,8 @@
             };
             const BUILDING_TYPES = ['fire_safety', 'security_order', 'property_ownership_or_use'];
             const docFiles = {}, docInputs = {}, docBackFiles = {}, docBackInputs = {};
+            // Kết nối realtime (Reverb) của hồ sơ đang mở — giữ ngoài state của Alpine.
+            const rt = { key: null, socket: null, retry: null, ping: null };
 
             return {
                 // Thứ tự ký (config partner_flow.partner_signs_before_review; hồ sơ đã tải thì theo status.flow): true = ký hợp đồng TRƯỚC rồi mới gửi duyệt.
@@ -670,6 +672,8 @@
                 docs: Object.fromEntries(docTypes.map((t) => [t.value, { values: {}, fileName: '', backName: '', qrOk: false, warnings: [], scanning: false }])),
                 docErrorType: null, docsUploading: false,
                 signedContract: null, signedOpen: false, signedLoading: false,
+                // Thông số Reverb phía trình duyệt (config services.reverb_public); thiếu key/host thì chỉ hỏi lại định kỳ.
+                rtCfg: @js(config('services.reverb_public')),
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 infoFields: [
@@ -755,6 +759,10 @@
                             return;
                         }
                     } catch (e) {}
+                    // Dự phòng khi realtime không kết nối được: hồ sơ Homestay đang chờ 365 HOME (duyệt / ký) thì tự hỏi lại trạng thái mỗi 20 giây.
+                    setInterval(() => {
+                        if (!this.purchase && this.status && ['pending_review', 'approved', 'contract_signed'].includes(this.status.stage)) this.onRealtimeSignal();
+                    }, 20000);
                     const saved = store.get();
                                         if (!saved.token) return;
                     this.token = saved.token;
@@ -764,7 +772,7 @@
                     await this.syncContract();
                 },
                 save() { store.set({ token: this.token }); },
-                reset() { store.clear(); this.resetPurchase(); Object.assign(this, { token: null, signingToken: null, status: null, contract: null, step: 0, message: '', errors: {} }); },
+                reset() { this.stopRealtime(); store.clear(); this.resetPurchase(); Object.assign(this, { token: null, signingToken: null, status: null, contract: null, step: 0, message: '', errors: {} }); },
 
                 async refresh() {
                     const data = await this.call('GET', `${API}/${this.token}`);
@@ -774,6 +782,7 @@
                 },
                 applyStatus(s) {
                     this.status = s;
+                    this.watchRealtime(s.realtime && s.realtime.key);
                     this.infoFields.forEach((f) => { this.info[f.key] = s.partner[f.key] ?? ''; });
                     if (!this.sign.signer_name) this.sign.signer_name = s.partner.representative_name || '';
                 },
@@ -847,7 +856,7 @@
                         if (n++ && this.purchase && this.purchase.stage === 'pending_review' && n % 6) return;
                         try {
                             const res = await fetch(`/api/public/minihouse-purchase/${token}`, { headers: { Accept: 'application/json' } });
-                            if (res.ok) { this.purchase = { ...this.purchase, ...(await res.json()).data }; await this.syncDossier(token); }
+                            if (res.ok) { this.purchase = { ...this.purchase, ...(await res.json()).data }; this.watchRealtime(this.purchase.realtime && this.purchase.realtime.key); await this.syncDossier(token); }
                         } catch (e) {}
                         // Đang nộp/bổ sung giấy tờ thì khách tự thao tác — không cần hỏi lại; gửi duyệt/rút hồ sơ sẽ bật lại.
                         if (this.purchase && ['active', 'cancelled', 'expired', 'documents', 'changes_requested', 'rejected'].includes(this.purchase.stage)) clearInterval(this.pollTimer);
@@ -931,6 +940,60 @@
                     this.flash(data.message, (data.data.found || 0) > 0);
                 },
 
+                // ── REALTIME: khi 365 HOME duyệt / yêu cầu bổ sung / ký hợp đồng / kích hoạt gói, server phát tín hiệu trên kênh Reverb
+                // "partner-onboarding.{key}" (key ở `realtime.key` của API trạng thái). Trang tự nối bằng giao thức Pusher của Reverb
+                // (không cần bundle Echo), nhận tín hiệu thì gọi lại API trạng thái — không phải tải lại trang. Mất kết nối thì tự nối lại.
+                watchRealtime(key) {
+                    if (!key || key === rt.key) return;
+                    this.stopRealtime();
+                    rt.key = key;
+                    this.openRealtime(0);
+                },
+                openRealtime(attempt) {
+                    const c = this.rtCfg || {}, key = rt.key;
+                    if (!key || !c.key || !c.host || !window.WebSocket) return;
+                    const secure = (c.scheme || 'https') === 'https';
+                    let ws;
+                    try { ws = new WebSocket(`${secure ? 'wss' : 'ws'}://${c.host}${c.port ? ':' + c.port : ''}${c.path || ''}/app/${c.key}?protocol=7&client=js&version=8.4.0&flash=false`); } catch (e) { return; }
+                    rt.socket = ws;
+                    const send = (event, data) => { try { ws.send(JSON.stringify({ event, data })); } catch (e) {} };
+                    ws.onmessage = (m) => {
+                        let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+                        if (msg.event === 'pusher:connection_established') {
+                            attempt = 0;
+                            send('pusher:subscribe', { channel: 'partner-onboarding.' + key });
+                            clearInterval(rt.ping); rt.ping = setInterval(() => send('pusher:ping', {}), 25000);
+                        } else if (msg.event === 'pusher:ping') send('pusher:pong', {});
+                        else if (msg.event === 'status-changed') this.onRealtimeSignal();
+                    };
+                    ws.onclose = () => {
+                        if (rt.socket !== ws || rt.key !== key) return;
+                        clearInterval(rt.ping);
+                        rt.retry = setTimeout(() => this.openRealtime(attempt + 1), Math.min(30000, 2000 * (attempt + 1)));
+                    };
+                },
+                stopRealtime() {
+                    clearTimeout(rt.retry); clearInterval(rt.ping);
+                    const ws = rt.socket; rt.key = null; rt.socket = null;
+                    if (ws) { try { ws.close(); } catch (e) {} }
+                },
+                // Có tín hiệu (hoặc tới lượt hỏi lại định kỳ): lấy lại trạng thái. Không làm khi đối tác đang nhập liệu ở các bước đầu
+                // (tránh ghi đè ô đang gõ); nếu giai đoạn hồ sơ đổi thì chuyển đúng màn hình và báo cho đối tác.
+                async onRealtimeSignal() {
+                    if (this.purchase) { this.pollPurchase(); return; }
+                    if (!this.token || this.loading || (this.editable && this.step < 3)) return;
+                    const before = this.status ? this.status.stage : null;
+                    try {
+                        const res = await fetch(`${API}/${this.token}`, { headers: { Accept: 'application/json' } });
+                        if (!res.ok) return;
+                        this.applyStatus((await res.json()).data);
+                    } catch (e) { return; }
+                    if (this.status.stage !== before) {
+                        await this.syncContract();
+                        this.goToStage();
+                        this.flash('Hồ sơ của bạn vừa được cập nhật.', true);
+                    }
+                },
                 // Đường dẫn tải tệp giấy tờ đã nộp (side = 'back' cho ảnh mặt sau CCCD) và bản PDF hợp đồng đã ký — đều theo mã hồ sơ.
                 docUrl(d, side) { return `${API}/${this.token}/documents/${d.id}/download` + (side === 'back' ? '?side=back' : ''); },
                 signedPdfUrl() { return `${API}/${this.token}/contract/signed-pdf`; },

@@ -185,6 +185,21 @@ io.on('connection', (socket) => {
     // Subscribe to admin notification bell (đơn hàng mới/đổi trạng thái...) — phòng CHUNG cho mọi
     // admin đang mở app/SPA riêng, không phân biệt ai xem được thông báo nào (REST API tự lọc đúng
     // theo user khi client gọi lại GET /api/admin/notifications sau khi nhận event này).
+    // Đối tác theo dõi hồ sơ đăng ký hợp tác (app): phòng riêng theo khoá realtime của hồ sơ — key lấy từ `realtime.key` trong API trạng thái
+    // hồ sơ (GET /api/public/partner-onboarding/{token} hoặc /api/public/minihouse-purchase/{token}). Chỉ nhận tín hiệu "có thay đổi"
+    // ('partner_onboarding.updated'), client tự gọi lại API trạng thái. Xem App\Services\PartnerOnboardingRealtimeService.
+    socket.on('subscribe:partner-onboarding', ({ key } = {}) => {
+        if (typeof key === 'string' && /^[a-f0-9]{40}$/.test(key)) {
+            socket.join(`partner-onboarding:${key}`);
+        }
+    });
+
+    socket.on('unsubscribe:partner-onboarding', ({ key } = {}) => {
+        if (typeof key === 'string') {
+            socket.leave(`partner-onboarding:${key}`);
+        }
+    });
+
     socket.on('subscribe:admin-notifications', () => {
         socket.join('admin:notifications');
     });
@@ -247,6 +262,24 @@ app.post('/internal/notify', (req, res) => {
     }
 
     return res.json({ ok: true, delivered: sockets ? sockets.size : 0 });
+});
+
+// ── Hồ sơ đăng ký hợp tác vừa đổi — báo cho đối tác đang theo dõi hồ sơ đó ───────
+app.post('/internal/partner-onboarding', (req, res) => {
+    const internalKey = req.headers['x-internal-key'];
+    if (internalKey !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { key } = req.body;
+
+    if (!key) {
+        return res.status(422).json({ error: 'Missing key' });
+    }
+
+    io.to(`partner-onboarding:${key}`).emit('partner_onboarding.updated', { key, updated_at: new Date().toISOString() });
+
+    return res.json({ ok: true });
 });
 
 // ── Slot availability update — broadcast to room+date channel ────────────────

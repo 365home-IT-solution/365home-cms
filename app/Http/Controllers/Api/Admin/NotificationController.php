@@ -149,6 +149,11 @@ class NotificationController extends Controller
             'body'            => $data['body'] ?? null,
             'order_code'      => $viewData['order_code'] ?? null,
             'conversation_id' => $viewData['conversation_id'] ?? null,
+            // Thông báo của luồng hợp tác đối tác (type bắt đầu bằng partner_ / minihouse_signup_): đối tác liên quan để app mở đúng màn chi tiết;
+            // partner_type = homestay | minihouse; url = trang đối tác trên trang quản trị web.
+            'partner_id'      => $viewData['partner_id'] ?? null,
+            'partner_type'    => $viewData['partner_type'] ?? null,
+            'url'             => $viewData['url'] ?? null,
             'is_read'         => $n->read_at !== null,
             'read_at'         => optional($n->read_at)->toIso8601String(),
             'created_at'      => $n->created_at->toIso8601String(),
