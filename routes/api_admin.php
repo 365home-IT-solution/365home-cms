@@ -112,6 +112,25 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('partners/{partner}', [AdminPartnerController::class, 'destroy'])->name('partners.destroy');
     Route::get('partners/{partner}/financial', [AdminPartnerController::class, 'financial'])->name('partners.financial.show');
     Route::post('partners/{partner}/financial', [AdminPartnerController::class, 'updateFinancial'])->name('partners.financial.update');
+    // Kênh PayOS riêng của đối tác: tiền đặt phòng online về thẳng tài khoản đối tác (chưa cấu hình → 365home thu hộ).
+    Route::get('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'show'])->name('partners.payment-channel.show');
+    Route::post('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'store'])->name('partners.payment-channel.store');
+    Route::put('partners/{partner}/payment-channel/permission', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'updatePermission'])->name('partners.payment-channel.permission');
+    Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
+    // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
+    Route::prefix('partners/{partner}/escrow')->name('partners.escrow.')->controller(\App\Http\Controllers\Api\Admin\PartnerEscrowController::class)->group(function () {
+        Route::get('/', 'show')->name('show');
+        Route::put('settings', 'updateSettings')->name('settings');
+        Route::get('entries', 'entries')->name('entries.index');
+        Route::post('entries', 'storeEntry')->name('entries.store');
+        Route::post('deposit-link', 'depositLink')->middleware('throttle:10,1')->name('deposit-link');
+        Route::get('deposits', 'deposits')->name('deposits.index');
+        Route::get('deductions', 'deductions')->name('deductions.index');
+        Route::post('deductions', 'storeDeduction')->name('deductions.store');
+        Route::post('deductions/{deduction}/accept', 'acceptDeduction')->whereNumber('deduction')->name('deductions.accept');
+        Route::post('deductions/{deduction}/dispute', 'disputeDeduction')->whereNumber('deduction')->name('deductions.dispute');
+        Route::post('deductions/{deduction}/resolve', 'resolveDeduction')->whereNumber('deduction')->name('deductions.resolve');
+    });
     Route::get('partners/{partner}/facilities', [AdminPartnerController::class, 'facilities'])->name('partners.facilities.index');
     Route::post('partners/{partner}/facilities', [AdminPartnerController::class, 'storeFacility'])->name('partners.facilities.store');
     Route::get('partners/{partner}/facilities/{facility}', [AdminPartnerController::class, 'showFacility'])->name('partners.facilities.show');

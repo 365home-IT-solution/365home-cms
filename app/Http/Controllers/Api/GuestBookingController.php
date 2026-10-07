@@ -151,6 +151,11 @@ class GuestBookingController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
         }
 
+        // Đối tác bị tạm ngưng bán do ký quỹ → không nhận đơn mới (423 PARTNER_ESCROW_LOW).
+        if ($blocked = \App\Services\EscrowService::salesBlockResponse($room->partner_id)) {
+            return $blocked;
+        }
+
         // ── 3. Xây dựng items ─────────────────────────────────────────────────
         $rtsCollection = collect();
         $slotSummary   = [];
