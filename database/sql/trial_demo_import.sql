@@ -20,11 +20,11 @@ SET @now := NOW();
 -- -------------------------------------------------------------------------------------
 INSERT INTO cms_partners
     (id, name, partner_type, representative_name, legal_name, phone, email, address,
-     status, verification_status, verified_at, commission_rate, created_at, updated_at)
+     status, verification_status, verified_at, commission_rate, count_in_platform_stats, created_at, updated_at)
 VALUES
     ('9e3650de-0000-4000-8000-000000000001', 'Demo Homestay (Dùng thử)', 'homestay', 'Khách dùng thử',
      'Demo Homestay (Dùng thử)', '0900000365', 'dungthu@365home.vn', '12 Nguyễn Văn Cừ, Ninh Kiều, Cần Thơ',
-     1, 'approved', @now, '20', @now, @now);
+     1, 'approved', @now, '20', 0, @now, @now);   -- count_in_platform_stats = 0: không cộng vào thống kê của Super Admin
 
 INSERT INTO cms_users
     (id, fullname, email, partner_id, email_verified_at, password, created_at, updated_at)
