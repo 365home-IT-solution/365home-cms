@@ -22,7 +22,7 @@ class ReportScope
      */
     public static function orderQuery($user, ?array $branchCategoryIds): Builder
     {
-        $query = Order::query()->where('exclude_from_stats', false);
+        $query = Order::query()->countedInStats();
 
         if ($user && ! $user->isSuperAdmin()) {
             if (empty($user->partner_id)) {

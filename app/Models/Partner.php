@@ -73,6 +73,7 @@ class Partner extends Model implements HasMedia
         'verified_by',
         'verification_note',
         'is_platform_partner',
+        'count_in_platform_stats',
         'onboarding_token',
 
         // Hợp đồng
@@ -88,6 +89,7 @@ class Partner extends Model implements HasMedia
     protected $casts = [
         'status' => 'boolean',
         'is_platform_partner' => 'boolean',
+        'count_in_platform_stats' => 'boolean',
         'representative_dob' => 'date',
         'representative_id_issued_at' => 'date',
         'business_license_date' => 'date',

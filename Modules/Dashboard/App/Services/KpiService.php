@@ -15,7 +15,7 @@ class KpiService
             $user = auth()->user();
         }
 
-        $query = Order::query()->where('exclude_from_stats', false);
+        $query = Order::query()->countedInStats();
         if ($user && ! $user->isSuperAdmin()) {
             // BelongsToPartner chỉ tự lọc partner_id khi chạy TRONG Filament panel
             // (AdminPanelContext::isActive() — xem app/Models/Concerns/BelongsToPartner.php).

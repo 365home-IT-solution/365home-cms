@@ -183,6 +183,15 @@ class Order extends Model implements Eventable
         return self::ORDER_STATUS_LABELS[$this->order_status ?? 'pending'] ?? self::ORDER_STATUS_LABELS['pending'];
     }
 
+    // Đơn được tính vào thống kê/doanh thu: không bị tắt riêng (exclude_from_stats) và — khi người xem là
+    // super_admin — không thuộc đối tác đã tắt "Tính vào thống kê hệ thống" (xem App\Support\PlatformStats).
+    public function scopeCountedInStats(Builder $query, $viewer = null): Builder
+    {
+        $query->where($query->qualifyColumn('exclude_from_stats'), false);
+
+        return \App\Support\PlatformStats::apply($query, $query->qualifyColumn('partner_id'), $viewer);
+    }
+
     protected static function booted(): void
     {
         // Lọc theo chi nhánh đang chọn ở nút "Chuyển đổi chi nhánh" (xem

@@ -437,7 +437,7 @@ class OverviewService
     private static function paidOrdersQuery(array $productIds, Carbon $start, Carbon $end)
     {
         return Order::query()
-            ->where('exclude_from_stats', false)
+            ->countedInStats()
             ->where('status', 'paid')
             ->whereIn('payment_method', array_keys(self::CHANNEL_LABELS))
             ->whereHas('items', fn ($q) => $q->whereIn('product_id', $productIds))
@@ -451,7 +451,7 @@ class OverviewService
 
     private static function baseOrderQuery($user, ?array $branchCategoryIds)
     {
-        $query = Order::query()->where('exclude_from_stats', false);
+        $query = Order::query()->countedInStats();
 
         if ($user && ! $user->isSuperAdmin()) {
             $allowedCategoryIds = $user->allowedCategoryIds();
@@ -475,6 +475,10 @@ class OverviewService
     public static function scopedProductIds($user, ?array $branchCategoryIds): array
     {
         $query = Product::query()->where('is_activated', true);
+
+        // Super admin: phòng của đối tác đã tắt "Tính vào thống kê hệ thống" không vào số liệu tổng hợp
+        // (doanh thu theo phòng, công suất, xếp hạng...) — mọi thống kê theo product đều đi qua hàm này.
+        \App\Support\PlatformStats::apply($query, $query->qualifyColumn('partner_id'), $user);
 
         if ($user && ! $user->isSuperAdmin()) {
             if (empty($user->partner_id)) {

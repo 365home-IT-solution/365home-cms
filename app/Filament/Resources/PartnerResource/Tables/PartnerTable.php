@@ -11,6 +11,7 @@ use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
@@ -77,6 +78,13 @@ class PartnerTable
                     ->counts('categories')
                     ->badge()
                     ->color('gray'),
+
+                // Tắt cho đối tác dùng thử/dữ liệu test: đơn + phòng của họ không vào số liệu tổng hợp của Super Admin
+                // (dashboard, báo cáo, API doanh thu) — chính đối tác vẫn thấy đủ số liệu của mình. Xem App\Support\PlatformStats.
+                ToggleColumn::make('count_in_platform_stats')
+                    ->label('Tính vào thống kê')
+                    ->tooltip('Tắt để doanh thu, đơn và phòng của đối tác này không cộng vào số liệu tổng hợp của Super Admin.')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false),
 
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
