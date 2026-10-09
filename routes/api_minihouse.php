@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\AmenityController;
 use App\Http\Controllers\Api\Admin\Minihouse\AnnouncementController;
 use App\Http\Controllers\Api\Admin\Minihouse\BuildingController;
 use App\Http\Controllers\Api\Admin\Minihouse\CameraController;
+use App\Http\Controllers\Api\Admin\Minihouse\CameraOptionsController;
 use App\Http\Controllers\Api\Admin\Minihouse\CameraRecordingController;
 use App\Http\Controllers\Api\Admin\Minihouse\CameraSettingsController;
 use App\Http\Controllers\Api\Admin\Minihouse\ChatController as AdminChatController;
@@ -237,8 +238,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     // route "cameras/{id}".
     Route::apiResource('cameras', CameraController::class)->except(['show'])->parameters(['cameras' => 'id']);
     Route::get('cameras/{id}', [CameraController::class, 'show'])->name('cameras.show');
+    Route::post('cameras/{id}/health-check', [CameraController::class, 'health'])->name('cameras.health');
+    Route::post('cameras/{id}/sync-source', [CameraController::class, 'syncSource'])->name('cameras.sync-source');
     Route::get('cameras/{id}/recordings/summary', [CameraRecordingController::class, 'summary'])->name('cameras.recordings.summary');
     Route::get('cameras/{id}/recordings', [CameraRecordingController::class, 'index'])->name('cameras.recordings.index');
+    Route::get('cameras/{id}/events', [CameraRecordingController::class, 'events'])->name('cameras.events.index');
+    Route::get('cameras/{id}/latest-image-url', [CameraRecordingController::class, 'latestImageUrl'])->name('cameras.latest-image-url');
+    Route::get('cameras/{id}/live-options', [CameraRecordingController::class, 'liveOptions'])->name('cameras.live-options');
+    Route::get('cameras/{id}/events/{eventId}/media-url', [CameraRecordingController::class, 'eventMediaUrl'])->name('cameras.events.media-url');
     Route::get('cameras/{id}/playback-url', [CameraRecordingController::class, 'playbackUrl'])->name('cameras.playback-url');
     Route::post('cameras/{id}/recording/start', [CameraRecordingController::class, 'start'])->name('cameras.recording.start');
     Route::post('cameras/{id}/recording/{eventId}/stop', [CameraRecordingController::class, 'stop'])->name('cameras.recording.stop');
@@ -246,6 +253,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::get('camera-settings/buildings', [CameraSettingsController::class, 'buildings'])->name('camera-settings.buildings');
     Route::get('camera-settings', [CameraSettingsController::class, 'show'])->name('camera-settings.show');
     Route::match(['put', 'patch'], 'camera-settings', [CameraSettingsController::class, 'update'])->name('camera-settings.update');
+    Route::post('camera-settings/test', [CameraSettingsController::class, 'test'])->name('camera-settings.test');
+    Route::get('camera-options', CameraOptionsController::class)->name('camera-options');
 
     // TTLock (khoá thông minh) THEO TỪNG TOÀ NHÀ — mirror Api\Admin\TtlockLockController +
     // Api\TtlockCardAppController của Home, xem 3 controller Ttlock*/RoomLock* ở namespace này. Tài

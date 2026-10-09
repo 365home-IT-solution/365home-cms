@@ -94,7 +94,30 @@
                         @endif
                     </div>
 
-                    @if ($url = $camera->wsProxyUrl())
+                    @php($caps = $camera->gatewayCapabilities())
+
+                    @if ($camera->gatewayType() === 'cloud')
+                        {{-- Camera cloud của hãng: phát thẳng HLS do API hãng cấp (không qua Node proxy). --}}
+                        @php($live = app(\App\Services\CameraRecordingService::class)->liveOptions($camera))
+
+                        @if ($live['hls_url'])
+                            <div class="relative" wire:ignore>
+                                <video
+                                    x-init="
+                                        const url = @js($live['hls_url']);
+                                        if ($el.canPlayType('application/vnd.apple.mpegurl')) { $el.src = url; }
+                                        else if (window.Hls && window.Hls.isSupported()) { const hls = new window.Hls(); hls.loadSource(url); hls.attachMedia($el); }
+                                    "
+                                    controls muted autoplay playsinline
+                                    style="display:block;width:100%;aspect-ratio:16/9;background:#000;"
+                                ></video>
+                            </div>
+                        @else
+                            <div style="width:100%;aspect-ratio:16/9;background:#000;" class="flex items-center justify-center px-4 text-center text-xs text-gray-400">
+                                {{ $live['message'] ?? 'Chưa lấy được luồng camera cloud.' }}
+                            </div>
+                        @endif
+                    @elseif ($url = $camera->wsProxyUrl())
                         {{--
                             "mode"/"src" của VideoRTC là THUỘC TÍNH JS (set src(value){...}), KHÔNG
                             phải HTML attribute thường — class không đọc getAttribute(...) ở đâu cả,
@@ -173,14 +196,27 @@
                                 <span x-text="recording ? 'Dừng ghi' : 'Ghi hình'"></span>
                             </button>
 
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                                x-on:click="window.dispatchEvent(new CustomEvent('open-camera-playback', { detail: { cameraId: {{ $camera->id }}, cameraName: @js($camera->name) } }))"
-                            >
-                                <x-heroicon-o-clock class="h-3.5 w-3.5" />
-                                Lịch sử
-                            </button>
+                            @if ($caps['playback'])
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                                    x-on:click="window.dispatchEvent(new CustomEvent('open-camera-playback', { detail: { cameraId: {{ $camera->id }}, cameraName: @js($camera->name) } }))"
+                                >
+                                    <x-heroicon-o-clock class="h-3.5 w-3.5" />
+                                    Lịch sử
+                                </button>
+                            @endif
+
+                            @if ($caps['events'])
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                                    x-on:click="window.dispatchEvent(new CustomEvent('open-camera-events', { detail: { cameraId: {{ $camera->id }}, cameraName: @js($camera->name) } }))"
+                                >
+                                    <x-heroicon-o-bell-alert class="h-3.5 w-3.5" />
+                                    Sự kiện
+                                </button>
+                            @endif
                         </div>
                     @else
                         <div style="width:100%;aspect-ratio:16/9;background:#000;" class="flex items-center justify-center text-xs text-gray-400">
@@ -295,6 +331,8 @@
                 </div>
             </div>
         </div>
+
+        @include('filament.pages.partials.camera-events-modal')
 
         @once
             {{--

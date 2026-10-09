@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\Minihouse\App\Filament\Pages\Setting;
 
+use App\Filament\Support\CameraGatewayForm;
+use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -23,11 +25,15 @@ class ManageCameraSettings extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-video-camera';
+    protected static ?string $navigationIcon = 'heroicon-o-video-camera';
+
     protected static ?string $navigationGroup = 'Hệ thống';
+
     protected static ?string $navigationLabel = 'Cấu hình Camera';
-    protected static ?string $title           = 'Cấu hình Camera theo Toà nhà';
-    protected static ?int    $navigationSort  = 97;
+
+    protected static ?string $title = 'Cấu hình Camera theo Toà nhà';
+
+    protected static ?int $navigationSort = 97;
 
     protected static string $view = 'minihouse::filament.pages.setting.manage-camera-settings';
 
@@ -58,9 +64,7 @@ class ManageCameraSettings extends Page implements HasForms
             return;
         }
 
-        $this->form->fill(CameraSetting::forBuilding((int) $this->buildingId)->only([
-            'base_url', 'api_key', 'username', 'password',
-        ]));
+        $this->form->fill(CameraGatewayForm::fill(CameraSetting::forBuilding((int) $this->buildingId)));
     }
 
     // Chỉ liệt kê Toà nhà tài khoản đang đăng nhập ĐƯỢC PHÉP quản lý — giống hệt phạm vi dùng ở
@@ -78,35 +82,20 @@ class ManageCameraSettings extends Page implements HasForms
     public function form(Form $form): Form
     {
         return $form
-            ->schema([
-                Forms\Components\Section::make('Server go2rtc / Frigate')
-                    ->description('Địa chỉ server chuyển đổi luồng camera CỦA TOÀ NHÀ NÀY — mỗi toà nhà có thể dùng 1 server hoàn toàn riêng, không chung với toà nhà khác.')
-                    ->schema([
-                        Forms\Components\TextInput::make('base_url')
-                            ->label('Địa chỉ server')
-                            ->placeholder('http://192.168.1.10:1984')
-                            ->helperText('Ví dụ: http://<IP-server>:1984 (go2rtc) hoặc http://<IP-server>:5000 (Frigate). Không thêm dấu / ở cuối.')
-                            ->url()
-                            ->required()
-                            ->columnSpanFull(),
-
-                        Forms\Components\TextInput::make('api_key')
-                            ->label('API key (chỉ dùng cho go2rtc trần, KHÔNG áp dụng cho Frigate)')
-                            ->password()
-                            ->revealable()
-                            ->helperText('Frigate không dùng API key — bỏ qua ô này nếu server là Frigate, xem 2 ô tài khoản bên dưới.')
-                            ->columnSpanFull(),
-                    ]),
-
-                Forms\Components\Section::make('Tài khoản đăng nhập Frigate')
-                    ->description('Frigate xác thực bằng tài khoản/mật khẩu (không phải API key). Server tự đăng nhập bằng tài khoản này để lấy luồng camera thay bạn.')
-                    ->schema([
-                        Forms\Components\TextInput::make('username')->label('Tài khoản Frigate'),
-                        Forms\Components\TextInput::make('password')->label('Mật khẩu Frigate')->password()->revealable(),
-                    ])
-                    ->columns(2),
-            ])
+            ->schema(CameraGatewayForm::schema())
             ->statePath('data');
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('testConnection')
+                ->label('Kiểm tra kết nối')
+                ->icon('heroicon-o-signal')
+                ->color('gray')
+                ->visible(fn (): bool => filled($this->buildingId))
+                ->action(fn () => CameraGatewayForm::notifyTestResult(CameraSetting::forBuilding((int) $this->buildingId))),
+        ];
     }
 
     public function save(): void
@@ -120,7 +109,7 @@ class ManageCameraSettings extends Page implements HasForms
         $data = $this->form->getState();
 
         $settings = CameraSetting::forBuilding((int) $this->buildingId);
-        $settings->fill($data);
+        CameraGatewayForm::apply($settings, $data);
         $settings->building_id = (int) $this->buildingId;
         $settings->save();
 

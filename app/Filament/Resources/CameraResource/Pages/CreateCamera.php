@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\CameraResource\Pages;
 
 use App\Filament\Resources\CameraResource;
-use App\Services\Go2RtcClient;
+use App\Services\CameraSourceManager;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -20,11 +20,11 @@ class CreateCamera extends CreateRecord
     // nhập.
     protected function afterCreate(): void
     {
-        if (blank($this->record->rtsp_url)) {
+        if (! $this->record->isManagedSource()) {
             return;
         }
 
-        $error = Go2RtcClient::forPartner($this->record->partner_id)->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = app(CameraSourceManager::class)->sync($this->record);
 
         if ($error !== null) {
             Notification::make()

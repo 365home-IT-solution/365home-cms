@@ -44,8 +44,19 @@ class CameraMediaProxyController extends Controller
             return response('Token không hợp lệ hoặc đã hết hạn.', 401);
         }
 
+        // HLS needs unsigned sibling filenames, but they must never escape the signed directory.
+        if ($filename === '' || str_contains($filename, '..') || str_contains($filename, '\\') || str_starts_with($filename, '/')) {
+            return response('Invalid media filename.', 400);
+        }
+
         $settings = Camera::resolveSettingsFor($claims['partner_id'], $claims['branch_id']);
-        $session  = new FrigateSessionClient($settings);
+
+        // go2rtc trần (không Frigate): ảnh khung hình lấy thẳng từ go2rtc bằng Bearer API key.
+        if ($claims['gateway'] === CameraSetting::GATEWAY_GO2RTC) {
+            return $this->streamGo2RtcFrame($claims['path'], $settings);
+        }
+
+        $session = new FrigateSessionClient($settings);
 
         $cookie = $session->getSessionCookie(error: $error);
 
@@ -60,12 +71,42 @@ class CameraMediaProxyController extends Controller
         return $this->streamPassthrough($claims['path'], $filename, $cookie, $request->header('Range'), $settings, $session);
     }
 
+    // Ảnh khung hình JPEG của go2rtc trần ("/api/frame.jpeg?src=..."): đường dẫn nằm trong token đã ký nên
+    // không cần kiểm tra thêm tên file; trả ảnh cho app/trình duyệt không có Bearer key của go2rtc.
+    private function streamGo2RtcFrame(string $path, CameraSetting $settings): Response
+    {
+        if (! $settings->isGo2RtcConfigured()) {
+            return response('Chưa cấu hình địa chỉ go2rtc.', 502);
+        }
+
+        $http = Http::timeout(15);
+
+        if (filled($settings->api_key)) {
+            $http = $http->withHeader('Authorization', 'Bearer '.$settings->api_key);
+        }
+
+        try {
+            $upstream = $http->get(rtrim((string) $settings->go2rtcBaseUrl(), '/').$path);
+        } catch (\Throwable $e) {
+            return response('Không kết nối được tới go2rtc.', 502);
+        }
+
+        if (! $upstream->successful()) {
+            return response("go2rtc trả lỗi {$upstream->status()}.", 502);
+        }
+
+        return response($upstream->body(), 200, [
+            'Content-Type' => $upstream->header('Content-Type') ?: 'image/jpeg',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
     // Chuyển tiếp NGUYÊN VĂN — camera H.264, trình duyệt tự phát HLS được, không cần đụng gì thêm.
     // Forward nguyên header Range (bắt buộc để tua/seek hoạt động đúng) và trả nguyên Content-Range/
     // Accept-Ranges/206 Partial Content nếu Frigate/nginx trả về.
     private function streamPassthrough(string $pathPrefix, string $filename, string $cookie, ?string $range, CameraSetting $settings, FrigateSessionClient $session): StreamedResponse|Response
     {
-        $url = rtrim((string) $settings->base_url, '/') . $pathPrefix . '/' . $filename;
+        $url = rtrim((string) $settings->base_url, '/').$pathPrefix.'/'.$filename;
 
         $upstream = $this->fetch($url, $cookie, $range);
 
@@ -84,11 +125,11 @@ class CameraMediaProxyController extends Controller
         }
 
         $headers = array_filter([
-            'Content-Type'   => $upstream->header('Content-Type') ?: 'application/octet-stream',
+            'Content-Type' => $upstream->header('Content-Type') ?: 'application/octet-stream',
             'Content-Length' => $upstream->header('Content-Length'),
-            'Content-Range'  => $upstream->header('Content-Range'),
-            'Accept-Ranges'  => $upstream->header('Accept-Ranges') ?: 'bytes',
-            'Cache-Control'  => 'no-store',
+            'Content-Range' => $upstream->header('Content-Range'),
+            'Accept-Ranges' => $upstream->header('Accept-Ranges') ?: 'bytes',
+            'Cache-Control' => 'no-store',
         ]);
 
         $body = $upstream->toPsrResponse()->getBody();
@@ -121,7 +162,7 @@ class CameraMediaProxyController extends Controller
     // pipe (không phải đợi ffmpeg chạy xong mới có "moov atom" như MP4 thường).
     private function streamTranscoded(string $pathPrefix, string $cookie, CameraSetting $settings): StreamedResponse|Response
     {
-        $inputUrl = rtrim((string) $settings->base_url, '/') . $pathPrefix . '/master.m3u8';
+        $inputUrl = rtrim((string) $settings->base_url, '/').$pathPrefix.'/master.m3u8';
 
         $binary = (string) config('services.ffmpeg.binary', 'ffmpeg');
 
@@ -178,7 +219,7 @@ class CameraMediaProxyController extends Controller
                 ]);
             }
         }, 200, [
-            'Content-Type'  => 'video/mp4',
+            'Content-Type' => 'video/mp4',
             'Cache-Control' => 'no-store',
         ]);
     }
@@ -187,7 +228,7 @@ class CameraMediaProxyController extends Controller
     {
         return Http::withHeaders(array_filter([
             'Cookie' => $cookie,
-            'Range'  => $range,
+            'Range' => $range,
         ]))
             ->withOptions(['stream' => true])
             ->timeout(30)

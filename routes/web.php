@@ -1072,6 +1072,16 @@ Route::post('/internal/frigate-session', function (\Illuminate\Http\Request $req
         return response()->json(['error' => 'Thiếu partner_id.'], 422);
     }
 
+    // go2rtc trần không có phiên đăng nhập Frigate: Node chỉ cần header xác thực (Bearer API key, nếu có).
+    if ($request->input('gateway') === \App\Models\CameraSetting::GATEWAY_GO2RTC) {
+        $settings = \App\Models\Camera::resolveSettingsFor($partnerId, $branchId);
+
+        return response()->json([
+            'cookie' => null,
+            'authorization' => filled($settings->api_key) ? 'Bearer '.$settings->api_key : null,
+        ]);
+    }
+
     $error  = null;
     $cookie = \App\Services\FrigateSessionClient::forScope($partnerId, $branchId)->getSessionCookie(false, $error);
 

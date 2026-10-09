@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Admin\Minihouse;
 
 use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
+use App\Http\Controllers\Api\Concerns\HandlesCameraSettings;
 use App\Http\Controllers\Controller;
+use App\Services\Camera\CameraSettingsTester;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Minihouse\App\Models\Building;
@@ -19,7 +21,7 @@ use Modules\Minihouse\App\Models\CameraSetting;
 // đường vào camera của Toà nhà đó.
 class CameraSettingsController extends Controller
 {
-    use ScopesToMinihouseBuilding;
+    use HandlesCameraSettings, ScopesToMinihouseBuilding;
 
     // GET /api/admin/minihouse/camera-settings/buildings — DÀNH RIÊNG super_admin, mirror
     // App\Filament\Pages\Setting\ManageCamera::partnerOptions() (Home) / ManageCameraSettings::
@@ -68,10 +70,12 @@ class CameraSettingsController extends Controller
 
         $data = $request->validate([
             'building_id' => 'required|integer',
-            'base_url'    => 'nullable|url|max:255',
-            'api_key'     => 'nullable|string|max:255',
-            'username'    => 'nullable|string|max:255',
-            'password'    => 'nullable|string|max:255',
+            'base_url' => 'nullable|url|max:255',
+            'go2rtc_url' => 'nullable|url|max:255',
+            'api_key' => 'nullable|string|max:255',
+            'username' => 'nullable|string|max:255',
+            'password' => 'nullable|string|max:255',
+            ...$this->gatewayRules(),
         ]);
 
         $buildingId = (int) $data['building_id'];
@@ -85,6 +89,9 @@ class CameraSettingsController extends Controller
         if ($request->has('base_url')) {
             $settings->base_url = $data['base_url'];
         }
+        if ($request->has('go2rtc_url')) {
+            $settings->go2rtc_url = $data['go2rtc_url'];
+        }
         if ($request->has('api_key')) {
             $settings->api_key = $data['api_key'];
         }
@@ -95,10 +102,28 @@ class CameraSettingsController extends Controller
             $settings->password = $data['password'];
         }
 
+        $this->applyGatewaySettings($settings, $request, $data);
+
         $settings->building_id = $buildingId;
         $settings->save();
 
         return response()->json(['data' => $this->transform($buildingId, $settings)]);
+    }
+
+    // POST /api/admin/minihouse/camera-settings/test — kiểm tra cấu hình ĐÃ LƯU của 1 Toà nhà (building_id).
+    public function test(Request $request): JsonResponse
+    {
+        if (! $this->authorized($request)) {
+            return response()->json(['message' => 'Không có quyền kiểm tra cấu hình camera.'], 403);
+        }
+
+        $buildingId = $request->integer('building_id');
+
+        if (! $buildingId || ! $this->isBuildingAllowed($request, $buildingId)) {
+            return response()->json(['message' => 'Thiếu building_id hoặc không có quyền trên Toà nhà này.'], 422);
+        }
+
+        return response()->json(['data' => app(CameraSettingsTester::class)->run(CameraSetting::forBuilding($buildingId))]);
     }
 
     private function authorized(Request $request): bool
@@ -112,13 +137,16 @@ class CameraSettingsController extends Controller
     private function transform(int $buildingId, CameraSetting $settings): array
     {
         return [
-            'building_id'     => $buildingId,
-            'base_url'        => $settings->base_url,
-            'username'        => $settings->username,
-            'has_api_key'     => filled($settings->api_key),
-            'has_password'    => filled($settings->password),
+            'building_id' => $buildingId,
+            'base_url' => $settings->base_url,
+            'go2rtc_url' => $settings->go2rtc_url,
+            'username' => $settings->username,
+            'has_api_key' => filled($settings->api_key),
+            'has_password' => filled($settings->password),
             'has_credentials' => $settings->hasFrigateCredentials(),
-            'is_configured'   => $settings->isConfigured(),
+            'is_configured' => $settings->isConfigured(),
+            'go2rtc_configured' => $settings->isGo2RtcConfigured(),
+            ...$this->gatewaySettingsFields($settings),
         ];
     }
 }

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Camera;
+use App\Services\Camera\CameraGatewayManager;
 use App\Support\CameraMediaToken;
+use App\Support\CameraMediaUrl;
 
 // Điểm dùng CHUNG cho "xem lại lịch sử" + "ghi hình thủ công" — cả App\Http\Controllers\Api\Admin\
 // CameraRecordingController (API cho app ngoài) LẪN App\Filament\Pages\CameraMonitor (giao diện
@@ -33,12 +35,91 @@ class CameraRecordingService
 
     public function recordingsSummary(Camera $camera, string $timezone = 'Asia/Ho_Chi_Minh'): array
     {
+        if (! $this->supports($camera, 'recordings')) {
+            return $this->unsupported($camera, 'recordings');
+        }
+
         return $this->frigateFor($camera)->recordingsSummary($camera->frigateCameraName(), $timezone);
     }
 
     public function recordings(Camera $camera, ?float $after = null, ?float $before = null): array
     {
+        if (! $this->supports($camera, 'recordings')) {
+            return $this->unsupported($camera, 'recordings');
+        }
+
         return $this->frigateFor($camera)->recordings($camera->frigateCameraName(), $after, $before);
+    }
+
+    public function events(Camera $camera, array $filters = []): array
+    {
+        if (! $this->supports($camera, 'events')) {
+            return $this->unsupported($camera, 'events');
+        }
+
+        return $this->frigateFor($camera)->events($camera->frigateCameraName(), $filters);
+    }
+
+    public function event(Camera $camera, string $eventId): array
+    {
+        if (! $this->supports($camera, 'events')) {
+            return $this->unsupported($camera, 'events');
+        }
+
+        $result = $this->frigateFor($camera)->event($eventId);
+
+        if ($result['success'] && ($result['data']['camera'] ?? null) !== $camera->frigateCameraName()) {
+            return ['success' => false, 'error' => 'Sự kiện không thuộc camera này.', 'not_found' => true];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Player choices for clients, via the camera's gateway (Frigate, bare go2rtc or vendor cloud).
+     * Every key is always present; unsupported ones are null.
+     */
+    public function liveOptions(Camera $camera): array
+    {
+        return app(CameraGatewayManager::class)->for($camera)->liveOptions($camera);
+    }
+
+    /** URL ảnh mới nhất, hoặc null (kèm $error) nếu gateway của camera không lấy được. */
+    public function latestImageUrl(Camera $camera, ?string &$error = null): ?string
+    {
+        return app(CameraGatewayManager::class)->for($camera)->latestImageUrl($camera, $error);
+    }
+
+    public function supports(Camera $camera, string $capability): bool
+    {
+        return app(CameraGatewayManager::class)->supports($camera, $capability);
+    }
+
+    /** Kết quả chuẩn khi camera không có tính năng này (controller trả 422, giao diện ẩn nút). */
+    public function unsupported(Camera $camera, string $capability): array
+    {
+        return [
+            'success' => false,
+            'unsupported' => true,
+            'capability' => $capability,
+            'gateway_type' => $camera->gatewayType(),
+            'error' => 'Camera này ('.$camera->gatewayType().') không hỗ trợ tính năng "'.$capability.'".',
+        ];
+    }
+
+    public function eventSnapshotUrl(Camera $camera, string $eventId): string
+    {
+        return $this->signedMediaUrl($camera, '/api/events/'.rawurlencode($eventId), 'snapshot.jpg', 900);
+    }
+
+    public function eventClipUrl(Camera $camera, string $eventId): string
+    {
+        return $this->signedMediaUrl($camera, '/api/events/'.rawurlencode($eventId), 'clip.mp4', 3600);
+    }
+
+    private function signedMediaUrl(Camera $camera, string $path, string $filename, int $ttl): string
+    {
+        return CameraMediaUrl::signed($camera, $path, $filename, $ttl);
     }
 
     /**
@@ -95,11 +176,23 @@ class CameraRecordingService
         bool $includeRecording = true,
         ?int $preCapture = null,
     ): array {
+        if (! $this->supports($camera, 'manual_recording')) {
+            return $this->unsupported($camera, 'manual_recording');
+        }
+
         return $this->frigateFor($camera)->createManualEvent($camera->frigateCameraName(), $label, $duration, $includeRecording, $preCapture);
     }
 
     public function stopRecording(Camera $camera, string $eventId): array
     {
+        // Never allow a caller that can access one camera on a Frigate server to end an
+        // arbitrary event belonging to another camera on that same server.
+        $event = $this->event($camera, $eventId);
+
+        if (! $event['success']) {
+            return $event;
+        }
+
         return $this->frigateFor($camera)->endManualEvent($eventId);
     }
 }

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Filament\Pages;
 
 use App\Models\Camera;
+use App\Models\Partner;
 use App\Services\CameraRecordingService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Support\Collection;
 
 // Trang xem trực tiếp camera công ty — nhúng luồng phát ra từ go2rtc (chạy độc lập hoặc lõi bên
 // trong Frigate) qua thẻ <video>, KHÔNG chứa logic ghi hình/AI gì ở đây. Chỉ liệt kê camera đang
@@ -27,12 +29,17 @@ use Filament\Pages\Page;
 // kho lưu trữ liên tục của camera (24/7), khác hẳn thao tác "bấm ghi 1 đoạn thủ công" ở trên.
 class CameraMonitor extends Page
 {
-    protected static string  $view            = 'filament.pages.camera-monitor';
+    protected static string $view = 'filament.pages.camera-monitor';
+
     protected static ?string $navigationGroup = 'Quản lý';
-    protected static ?string $navigationIcon  = 'heroicon-o-video-camera';
+
+    protected static ?string $navigationIcon = 'heroicon-o-video-camera';
+
     protected static ?string $navigationLabel = 'Xem camera';
-    protected static ?string $title           = 'Xem camera trực tiếp';
-    protected static ?int    $navigationSort  = 21;
+
+    protected static ?string $title = 'Xem camera trực tiếp';
+
+    protected static ?int $navigationSort = 21;
 
     // Chỉ super_admin hoặc tài khoản được tích quyền "Xem camera" (Shield: page_CameraMonitor).
     public static function canAccess(): bool
@@ -42,13 +49,13 @@ class CameraMonitor extends Page
         return $user?->isSuperAdmin() || ($user?->can('page_CameraMonitor') ?? false);
     }
 
-    public function getCameras(): \Illuminate\Support\Collection
+    public function getCameras(): Collection
     {
         return Camera::query()
             // MiniHouse dùng panel và cấu hình Frigate riêng theo từng tòa nhà. Super admin không bị
             // global partner scope giới hạn nên nếu không loại trừ ở đây, cùng một camera MiniHouse
             // sẽ bị mở đồng thời ở cả trang Home lẫn MiniHouse, nhân đôi kết nối MSE tới go2rtc.
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY))
             ->where('status', true)
             ->orderBy('name')
             ->get();
@@ -59,9 +66,17 @@ class CameraMonitor extends Page
     // từ chối (VD ngoài khoảng còn lưu trữ).
     public function loadPlayback(int $cameraId, float $after, float $before): ?string
     {
-        $camera = Camera::find($cameraId);
+        $camera = Camera::query()
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY))
+            ->find($cameraId);
 
         if (! $camera) {
+            return null;
+        }
+
+        if (! $camera->supportsCapability('playback')) {
+            Notification::make()->title('Camera này không hỗ trợ xem lại lịch sử ghi hình')->warning()->send();
+
             return null;
         }
 
@@ -72,5 +87,36 @@ class CameraMonitor extends Page
         }
 
         return app(CameraRecordingService::class)->playbackUrl($camera, $after, $before);
+    }
+
+    public function loadRecentEvents(int $cameraId): array
+    {
+        $camera = Camera::query()
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY))
+            ->find($cameraId);
+
+        if (! $camera) {
+            return [];
+        }
+
+        if (! $camera->supportsCapability('events')) {
+            return [];
+        }
+
+        $service = app(CameraRecordingService::class);
+        $result = $service->events($camera, ['limit' => 50, 'timezone' => 'Asia/Ho_Chi_Minh']);
+
+        if (! $result['success']) {
+            Notification::make()->title($result['error'])->danger()->send();
+
+            return [];
+        }
+
+        return collect($result['data'])->map(function (array $event) use ($camera, $service): array {
+            $event['snapshot_url'] = ($event['has_snapshot'] ?? false) ? $service->eventSnapshotUrl($camera, (string) $event['id']) : null;
+            $event['clip_url'] = ($event['has_clip'] ?? false) ? $service->eventClipUrl($camera, (string) $event['id']) : null;
+
+            return $event;
+        })->all();
     }
 }

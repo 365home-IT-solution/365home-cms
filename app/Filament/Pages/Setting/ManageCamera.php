@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Filament\Pages\Setting;
 
+use App\Filament\Support\CameraGatewayForm;
 use App\Models\CameraSetting;
 use App\Models\Partner;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
+use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -63,64 +65,53 @@ class ManageCamera extends Page
 
     private function fillFormForPartner(): void
     {
-        if (blank($this->partnerId)) {
+        if (blank($this->partnerId) || ! Partner::query()
+            ->whereKey($this->partnerId)
+            ->where('partner_type', Partner::TYPE_HOMESTAY)
+            ->exists()) {
+            $this->partnerId = null;
             $this->form->fill([]);
 
             return;
         }
 
-        $this->form->fill(CameraSetting::forPartner($this->partnerId)->only([
-            'base_url', 'api_key', 'username', 'password',
-        ]));
+        $this->form->fill(CameraGatewayForm::fill(CameraSetting::forPartner($this->partnerId)));
     }
 
     public function partnerOptions(): array
     {
-        return Partner::query()->orderBy('name')->pluck('name', 'id')->all();
+        return Partner::query()
+            ->where('partner_type', Partner::TYPE_HOMESTAY)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
     }
 
     public function form(Form $form): Form
     {
         return $form
-            ->schema([
-                Forms\Components\Section::make('Server go2rtc / Frigate')
-                    ->description('Địa chỉ server chuyển đổi luồng camera CỦA ĐỐI TÁC NÀY (đặt tại nơi có camera hoặc VPS đã kết nối VPN tới camera) — mỗi đối tác có thể dùng 1 server hoàn toàn riêng, không chung với đối tác khác. Trang "Xem camera" và mục "Camera" dùng địa chỉ này để dựng link phát trực tiếp.')
-                    ->schema([
-                        Forms\Components\TextInput::make('base_url')
-                            ->label('Địa chỉ server')
-                            ->placeholder('http://192.168.1.10:1984')
-                            ->helperText('Ví dụ: http://<IP-server>:1984 (go2rtc) hoặc http://<IP-server>:5000 (Frigate). Không thêm dấu / ở cuối.')
-                            ->url()
-                            ->required()
-                            ->columnSpanFull(),
-
-                        Forms\Components\TextInput::make('api_key')
-                            ->label('API key (chỉ dùng cho go2rtc trần, KHÔNG áp dụng cho Frigate)')
-                            ->password()
-                            ->revealable()
-                            ->helperText('Frigate không dùng API key — bỏ qua ô này nếu server là Frigate, xem 2 ô tài khoản bên dưới.')
-                            ->columnSpanFull(),
-                    ]),
-
-                Forms\Components\Section::make('Tài khoản đăng nhập Frigate')
-                    ->description('Frigate xác thực bằng tài khoản/mật khẩu (không phải API key). Server 365home-cms tự đăng nhập bằng tài khoản này để lấy luồng camera thay bạn — trình duyệt của người xem KHÔNG cần đăng nhập Frigate. Đây là tài khoản Frigate thật (trang đăng nhập bạn thấy khi vào thẳng domain Frigate), KHÔNG phải tài khoản Frigate+.')
-                    ->schema([
-                        Forms\Components\TextInput::make('username')
-                            ->label('Tài khoản Frigate'),
-
-                        Forms\Components\TextInput::make('password')
-                            ->label('Mật khẩu Frigate')
-                            ->password()
-                            ->revealable(),
-                    ])
-                    ->columns(2),
-            ])
+            ->schema(CameraGatewayForm::schema())
             ->statePath('data');
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('testConnection')
+                ->label('Kiểm tra kết nối')
+                ->icon('heroicon-o-signal')
+                ->color('gray')
+                ->visible(fn (): bool => filled($this->partnerId))
+                ->action(fn () => CameraGatewayForm::notifyTestResult(CameraSetting::forPartner($this->partnerId))),
+        ];
     }
 
     public function save(): void
     {
-        if (blank($this->partnerId)) {
+        if (blank($this->partnerId) || ! Partner::query()
+            ->whereKey($this->partnerId)
+            ->where('partner_type', Partner::TYPE_HOMESTAY)
+            ->exists()) {
             Notification::make()->title('Chưa chọn đối tác cần cấu hình.')->danger()->send();
 
             return;
@@ -129,7 +120,7 @@ class ManageCamera extends Page
         $data = $this->form->getState();
 
         $settings = CameraSetting::forPartner($this->partnerId);
-        $settings->fill($data);
+        CameraGatewayForm::apply($settings, $data);
         $settings->partner_id = $this->partnerId;
         $settings->save();
 

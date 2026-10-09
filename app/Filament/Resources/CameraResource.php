@@ -6,19 +6,27 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CameraResource\Pages;
 use App\Models\Camera;
+use App\Models\Partner;
+use App\Services\Camera\CameraOptions;
+use App\Services\CameraSourceManager;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\Category\Entities\Category;
 
 // Danh mục camera công ty — khai báo TÊN + RTSP + "stream_key" NGAY TRÊN WEB, tự đẩy sang server
@@ -29,10 +37,10 @@ class CameraResource extends Resource
 {
     protected static ?string $model = Camera::class;
 
-    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
     }
 
     protected static ?int $navigationSort = 20;
@@ -85,6 +93,37 @@ class CameraResource extends Resource
                 ->helperText('Dùng cho API xem lại lịch sử/ghi hình — Frigate có thể đặt tên camera khác với "Tên nguồn" go2rtc ở trên (khác hoa/thường/dấu gạch). Để trống nếu 2 tên giống hệt nhau.')
                 ->maxLength(255),
 
+            Select::make('provider')
+                ->label('Hãng / nhà cung cấp')
+                ->options(fn (Get $get): array => $get('source_type') === 'cloud'
+                    ? app(CameraOptions::class)->cloudProviderOptions()
+                    : app(CameraOptions::class)->providerOptions())
+                ->default('generic')->required(),
+
+            Select::make('source_type')
+                ->label('Phương thức kết nối')
+                ->options(CameraOptions::SOURCE_TYPE_LABELS)
+                ->default('existing')->live()->required(),
+
+            TextInput::make('source_url')
+                ->label('Địa chỉ nguồn camera')
+                ->placeholder('rtsp://..., https://.../live.m3u8, onvif://..., tapo://...')
+                ->helperText('Được mã hóa trong CSDL. Để trống khi nguồn đã có sẵn trong Frigate/go2rtc.')
+                ->password()->revealable()->maxLength(4000)
+                ->visible(fn (Get $get): bool => ! in_array($get('source_type'), ['existing', 'cloud'], true))
+                ->required(fn (Get $get): bool => ! in_array($get('source_type'), ['existing', 'cloud'], true)),
+
+            TextInput::make('external_device_id')
+                ->label('Mã/serial thiết bị')
+                ->maxLength(255)
+                ->visible(fn (Get $get): bool => in_array($get('source_type'), ['sdk_bridge', 'cloud'], true))
+                ->required(fn (Get $get): bool => $get('source_type') === 'cloud'),
+
+            TextInput::make('external_channel')
+                ->label('Kênh (để trống dùng mặc định của hãng)')
+                ->maxLength(20)
+                ->visible(fn (Get $get): bool => $get('source_type') === 'cloud'),
+
             // Đa số camera của bạn ĐÃ khai báo sẵn trong Frigate (thấy ở "Enable/Disable Cameras")
             // — không cần nhập lại RTSP ở đây. Chỉ điền khi thêm 1 camera THẬT SỰ MỚI mà Frigate
             // chưa biết tới, lúc đó hệ thống mới gọi API khai báo nguồn giúp bạn.
@@ -94,7 +133,8 @@ class CameraResource extends Resource
                 ->helperText('Để trống nếu camera này đã được khai báo sẵn trong Frigate (đa số trường hợp) — chỉ cần đúng "Tên nguồn" ở trên là xem được ngay.')
                 ->password()
                 ->revealable()
-                ->maxLength(2000),
+                ->maxLength(2000)
+                ->hidden(),
 
             self::branchInput(),
             self::partnerHidden(),
@@ -117,11 +157,31 @@ class CameraResource extends Resource
             ->columns([
                 TextColumn::make('name')->label('Tên camera')->searchable(),
                 TextColumn::make('stream_key')->label('Stream key')->fontFamily('mono'),
+                TextColumn::make('source_type')->label('Nguồn')->badge(),
+                TextColumn::make('connection_status')->label('Kết nối')->badge(),
                 TextColumn::make('branch.name')->label('Chi nhánh')->toggleable(),
                 ToggleColumn::make('status')->label('Hoạt động'),
                 TextColumn::make('created_at')->label('Tạo lúc')->dateTime('d/m/Y H:i')->sortable(),
             ])
             ->actions([
+                Action::make('syncSource')
+                    ->label('Đồng bộ nguồn')
+                    ->icon('heroicon-o-arrow-path')
+                    ->visible(fn (Camera $record): bool => $record->supportsCapability('source_sync'))
+                    ->action(function (Camera $record): void {
+                        $error = app(CameraSourceManager::class)->sync($record);
+                        Notification::make()
+                            ->title($error ? 'Chưa đồng bộ được nguồn' : 'Đã đồng bộ nguồn với go2rtc')
+                            ->body($error)->status($error ? 'warning' : 'success')->send();
+                    }),
+                Action::make('healthCheck')
+                    ->label('Kiểm tra')
+                    ->icon('heroicon-o-signal')
+                    ->action(function (Camera $record): void {
+                        $result = app(CameraSourceManager::class)->health($record);
+                        Notification::make()->title($result['message'])
+                            ->status($result['online'] ? 'success' : 'warning')->send();
+                    }),
                 EditAction::make(),
                 DeleteAction::make(),
             ])
@@ -133,9 +193,9 @@ class CameraResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListCameras::route('/'),
+            'index' => Pages\ListCameras::route('/'),
             'create' => Pages\CreateCamera::route('/create'),
-            'edit'   => Pages\EditCamera::route('/{record}/edit'),
+            'edit' => Pages\EditCamera::route('/{record}/edit'),
         ];
     }
 
@@ -177,7 +237,7 @@ class CameraResource extends Resource
                     $narrowedIds = self::headerActiveBranchIds();
 
                     $query = Category::query()
-                        ->whereDoesntHave('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
+                        ->whereHas('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', Partner::TYPE_HOMESTAY))
                         ->where('category_type', 'product')
                         ->whereNull('parent_id');
 
@@ -189,14 +249,14 @@ class CameraResource extends Resource
                 }
 
                 return Category::query()
-                    ->whereDoesntHave('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
+                    ->whereHas('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', Partner::TYPE_HOMESTAY))
                     ->whereIn('id', $user?->effectiveBranchIds() ?? [])
                     ->orderBy('name')
                     ->pluck('name', 'id')
                     ->all();
             })
             ->default(fn () => self::singleActiveBranch()?->id)
-            ->afterStateUpdated(function ($state, \Filament\Forms\Set $set) {
+            ->afterStateUpdated(function ($state, Set $set) {
                 $set('partner_id', Category::find($state)?->partner_id);
             })
             ->live()

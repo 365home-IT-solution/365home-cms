@@ -26,15 +26,18 @@ class CameraMediaToken
     // Quyết định này đưa ra 1 LẦN lúc phát hành token (đã kiểm tra codec thật, xem
     // CameraRecordingService::playbackUrl()), không kiểm tra lại mỗi request để đỡ tốn 1 lượt gọi
     // Frigate cho mỗi file .ts/.m4s trong cùng 1 phiên xem.
-    public static function issue(string $frigatePathPrefix, string $partnerId, ?int $branchId, int $ttlSeconds = 3600, bool $transcode = false): string
+    public static function issue(string $frigatePathPrefix, string $partnerId, ?int $branchId, int $ttlSeconds = 3600, bool $transcode = false, string $gateway = 'frigate'): string
     {
-        $payload = base64_encode(json_encode([
+        // base64 an toàn cho URL (-_ thay +/, bỏ =): token nằm trong 1 đoạn đường dẫn, mà "/" (kể cả dạng
+        // %2F) bị router coi là dấu phân cách đoạn nên token chứa "/" sẽ bị từ chối ngẫu nhiên.
+        $payload = rtrim(strtr(base64_encode(json_encode([
             'path'       => $frigatePathPrefix,
             'partner_id' => $partnerId,
             'branch_id'  => $branchId,
             'exp'        => time() + $ttlSeconds,
             'transcode'  => $transcode,
-        ]));
+            'gateway'    => $gateway,
+        ])), '+/', '-_'), '=');
 
         $signature = hash_hmac('sha256', $payload, self::secret());
 
@@ -42,7 +45,7 @@ class CameraMediaToken
     }
 
     /**
-     * @return array{path: string, partner_id: string, branch_id: ?int, transcode: bool}|null null nếu token sai chữ ký/hết hạn.
+     * @return array{path: string, partner_id: string, branch_id: ?int, transcode: bool, gateway: string}|null null nếu token sai chữ ký/hết hạn.
      */
     public static function verify(string $token): ?array
     {
@@ -58,7 +61,7 @@ class CameraMediaToken
             return null;
         }
 
-        $decoded = json_decode((string) base64_decode($payload, true), true);
+        $decoded = json_decode((string) base64_decode(strtr($payload, '-_', '+/'), true), true);
 
         if (! is_array($decoded) || ! isset($decoded['path'], $decoded['partner_id'], $decoded['exp'])) {
             return null;
@@ -73,6 +76,7 @@ class CameraMediaToken
             'partner_id' => (string) $decoded['partner_id'],
             'branch_id'  => isset($decoded['branch_id']) ? (int) $decoded['branch_id'] : null,
             'transcode'  => (bool) ($decoded['transcode'] ?? false),
+            'gateway'    => (string) ($decoded['gateway'] ?? 'frigate'),
         ];
     }
 

@@ -761,7 +761,7 @@ function verifyCameraToken(token) {
     try {
         const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
         // partner_id — mỗi đối tác có thể dùng server Frigate RIÊNG (App\Models\CameraSetting bên
-        // Laravel); bắt buộc có để fetchFrigateSessionCookie() biết xin phiên đăng nhập của ĐÚNG
+        // Laravel); bắt buộc có để fetchUpstreamAuth() biết xin phiên đăng nhập của ĐÚNG
         // server nào, không còn 1 server go2rtc dùng chung toàn hệ thống như trước.
         if (!payload.stream_key || !payload.base_url || !payload.partner_id || !payload.exp) return null;
         if (payload.exp * 1000 < Date.now()) return null; // hết hạn — chỉ dùng được ngay lúc tải trang
@@ -771,17 +771,19 @@ function verifyCameraToken(token) {
     }
 }
 
-async function fetchFrigateSessionCookie(partnerId, branchId) {
+// Xin Laravel thông tin xác thực để mở kết nối upstream. Frigate: cookie phiên đăng nhập. go2rtc trần
+// (gateway = 'go2rtc'): không có cookie, chỉ có thể có header Authorization (Bearer API key).
+async function fetchUpstreamAuth(partnerId, branchId, gateway) {
     const resp = await fetch(`${LARAVEL_INTERNAL_URL}/internal/frigate-session`, {
         method: 'POST',
         headers: { 'x-internal-key': INTERNAL_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_id: partnerId, branch_id: branchId }),
+        body: JSON.stringify({ partner_id: partnerId, branch_id: branchId, gateway }),
     });
     const data = await resp.json();
-    if (!resp.ok || !data.cookie) {
+    if (!resp.ok || (gateway !== 'go2rtc' && !data.cookie)) {
         throw new Error(data.error || `Laravel trả về lỗi (HTTP ${resp.status})`);
     }
-    return data.cookie;
+    return { cookie: data.cookie || null, authorization: data.authorization || null };
 }
 
 // perMessageDeflate: false — thư viện `ws` MẶC ĐỊNH nén mọi khung qua permessage-deflate. Với
@@ -857,9 +859,11 @@ cameraWss.on('connection', (clientWs, request) => {
             return;
         }
 
-        let cookie;
+        const gateway = payload.gateway || 'frigate';
+
+        let upstreamAuth;
         try {
-            cookie = await fetchFrigateSessionCookie(payload.partner_id, payload.branch_id ?? null);
+            upstreamAuth = await fetchUpstreamAuth(payload.partner_id, payload.branch_id ?? null, gateway);
         } catch (e) {
             console.error('[CameraProxy] không lấy được cookie phiên Frigate:', e.message);
             closeBoth(4002, 'Cannot get Frigate session');
@@ -869,11 +873,16 @@ cameraWss.on('connection', (clientWs, request) => {
         if (closed) return; // trình duyệt đã đóng kết nối trong lúc ta còn đang chờ xin cookie ở trên
 
         const upstreamBase = payload.base_url.replace(/^http/, 'ws').replace(/\/$/, '');
-        const upstreamUrl  = `${upstreamBase}/live/mse/api/ws?src=${encodeURIComponent(payload.stream_key)}`;
+        // Frigate chuyển tiếp go2rtc ở /live/mse/api/ws; go2rtc trần phục vụ MSE ngay ở /api/ws.
+        const upstreamPath = gateway === 'go2rtc' ? '/api/ws' : '/live/mse/api/ws';
+        const upstreamUrl  = `${upstreamBase}${upstreamPath}?src=${encodeURIComponent(payload.stream_key)}`;
+        const upstreamHeaders = {};
+        if (upstreamAuth.cookie) upstreamHeaders.Cookie = upstreamAuth.cookie;
+        if (upstreamAuth.authorization) upstreamHeaders.Authorization = upstreamAuth.authorization;
 
         console.log(`[CameraProxy] connecting upstream: src=${payload.stream_key}`);
 
-        upstreamWs = new WebSocket(upstreamUrl, { headers: { Cookie: cookie }, perMessageDeflate: false });
+        upstreamWs = new WebSocket(upstreamUrl, { headers: upstreamHeaders, perMessageDeflate: false });
         upstreamWs.binaryType = 'arraybuffer';
 
         upstreamWs.on('open', () => {

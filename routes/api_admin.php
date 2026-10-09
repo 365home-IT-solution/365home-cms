@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
 use App\Http\Controllers\Api\Admin\CameraController as AdminCameraController;
+use App\Http\Controllers\Api\Admin\CameraOptionsController;
 use App\Http\Controllers\Api\Admin\CameraRecordingController;
 use App\Http\Controllers\Api\Admin\CameraSettingsController;
 use App\Http\Controllers\Api\CameraMediaProxyController;
@@ -1092,6 +1093,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cameras')->name('api.admin.cameras.')->group(function () {
     Route::get('/', [AdminCameraController::class, 'index'])->name('index');
     Route::get('/{id}', [AdminCameraController::class, 'show'])->name('show')->whereNumber('id');
+    Route::post('/{id}/health-check', [AdminCameraController::class, 'health'])->name('health')->whereNumber('id');
+    Route::post('/{id}/sync-source', [AdminCameraController::class, 'syncSource'])->name('sync-source')->whereNumber('id');
     Route::post('/', [AdminCameraController::class, 'store'])->name('store');
     Route::match(['put', 'patch'], '/{id}', [AdminCameraController::class, 'update'])->name('update')->whereNumber('id');
     Route::delete('/{id}', [AdminCameraController::class, 'destroy'])->name('destroy')->whereNumber('id');
@@ -1100,6 +1103,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cameras')->name(
     // đúng endpoint Frigate thật đứng sau các route này.
     Route::get('/{id}/recordings/summary', [CameraRecordingController::class, 'summary'])->name('recordings.summary')->whereNumber('id');
     Route::get('/{id}/recordings', [CameraRecordingController::class, 'index'])->name('recordings.index')->whereNumber('id');
+    Route::get('/{id}/events', [CameraRecordingController::class, 'events'])->name('events.index')->whereNumber('id');
+    Route::get('/{id}/latest-image-url', [CameraRecordingController::class, 'latestImageUrl'])->name('latest-image-url')->whereNumber('id');
+    Route::get('/{id}/live-options', [CameraRecordingController::class, 'liveOptions'])->name('live-options')->whereNumber('id');
+    Route::get('/{id}/events/{eventId}/media-url', [CameraRecordingController::class, 'eventMediaUrl'])->name('events.media-url')->whereNumber('id');
     Route::get('/{id}/playback-url', [CameraRecordingController::class, 'playbackUrl'])->name('playback-url')->whereNumber('id');
     Route::post('/{id}/recording/start', [CameraRecordingController::class, 'start'])->name('recording.start')->whereNumber('id');
     Route::post('/{id}/recording/{eventId}/stop', [CameraRecordingController::class, 'stop'])->name('recording.stop')->whereNumber('id');
@@ -1117,4 +1124,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/camera-settings'
     Route::get('partners', [CameraSettingsController::class, 'partners'])->name('partners');
     Route::get('/', [CameraSettingsController::class, 'show'])->name('show');
     Route::match(['put', 'patch'], '/', [CameraSettingsController::class, 'update'])->name('update');
+    Route::post('test', [CameraSettingsController::class, 'test'])->name('test');
 });
+
+// Danh mục lựa chọn camera (gateway, loại kết nối, hãng, tính năng) để FE dựng form động.
+Route::middleware(['auth:sanctum', 'admin.api'])->get('admin/camera-options', CameraOptionsController::class)->name('api.admin.camera-options');

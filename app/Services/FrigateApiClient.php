@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\CameraSetting;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -22,8 +23,7 @@ class FrigateApiClient
     public function __construct(
         private readonly CameraSetting $settings,
         private readonly FrigateSessionClient $session,
-    ) {
-    }
+    ) {}
 
     public static function forPartner(?string $partnerId): self
     {
@@ -42,9 +42,38 @@ class FrigateApiClient
     public function recordings(string $cameraName, ?float $after = null, ?float $before = null): array
     {
         return $this->get("/api/{$cameraName}/recordings", array_filter([
-            'after'  => $after,
+            'after' => $after,
             'before' => $before,
         ], fn ($v) => $v !== null));
+    }
+
+    // GET /api/go2rtc/streams — Frigate chuyển tiếp danh sách nguồn của go2rtc bên trong nó (đi qua
+    // phiên đăng nhập Frigate, không cần mở cổng 1984): dùng kiểm tra camera có producer đang chạy.
+    public function go2rtcStreams(): array
+    {
+        return $this->get('/api/go2rtc/streams');
+    }
+
+    /** Return Frigate events belonging to one camera only. */
+    public function events(string $cameraName, array $filters = []): array
+    {
+        return $this->get('/api/events', array_filter([
+            'camera' => $cameraName,
+            'limit' => $filters['limit'] ?? 100,
+            'after' => $filters['after'] ?? null,
+            'before' => $filters['before'] ?? null,
+            'label' => $filters['label'] ?? null,
+            'has_clip' => $filters['has_clip'] ?? null,
+            'has_snapshot' => $filters['has_snapshot'] ?? null,
+            'in_progress' => $filters['in_progress'] ?? null,
+            'timezone' => $filters['timezone'] ?? null,
+        ], static fn ($value) => $value !== null && $value !== ''));
+    }
+
+    /** Return one event by its Frigate identifier. */
+    public function event(string $eventId): array
+    {
+        return $this->get('/api/events/'.rawurlencode($eventId));
     }
 
     // POST /api/events/{camera_name}/{label}/create — tạo 1 "sự kiện thủ công", cách THẬT SỰ để
@@ -103,7 +132,7 @@ class FrigateApiClient
         try {
             $response = Http::withHeaders(['Cookie' => $cookie])->timeout(15)->get($this->url($path));
         } catch (\Throwable $e) {
-            return ['success' => false, 'error' => 'Không kết nối được tới Frigate: ' . $e->getMessage()];
+            return ['success' => false, 'error' => 'Không kết nối được tới Frigate: '.$e->getMessage()];
         }
 
         if ($response->status() === 401) {
@@ -116,12 +145,12 @@ class FrigateApiClient
             try {
                 $response = Http::withHeaders(['Cookie' => $retryCookie])->timeout(15)->get($this->url($path));
             } catch (\Throwable $e) {
-                return ['success' => false, 'error' => 'Không kết nối được tới Frigate: ' . $e->getMessage()];
+                return ['success' => false, 'error' => 'Không kết nối được tới Frigate: '.$e->getMessage()];
             }
         }
 
         if (! $response->successful()) {
-            return ['success' => false, 'error' => "Frigate trả lỗi {$response->status()} cho {$path}: " . $response->body()];
+            return ['success' => false, 'error' => "Frigate trả lỗi {$response->status()} cho {$path}: ".$response->body()];
         }
 
         return ['success' => true, 'data' => $response->body()];
@@ -148,16 +177,16 @@ class FrigateApiClient
     // khi mảng rỗng — xác nhận qua lỗi 422 thật khi gọi PUT .../end không kèm end_time.
     private function jsonBody(array $body): array|\stdClass
     {
-        return $body === [] ? new \stdClass() : $body;
+        return $body === [] ? new \stdClass : $body;
     }
 
     private function url(string $path): string
     {
-        return rtrim((string) $this->settings->base_url, '/') . $path;
+        return rtrim((string) $this->settings->base_url, '/').$path;
     }
 
     /**
-     * @param callable(\Illuminate\Http\Client\PendingRequest): Response $callback
+     * @param  callable(PendingRequest): Response  $callback
      */
     private function handle(callable $callback, string $path): array
     {
@@ -170,7 +199,7 @@ class FrigateApiClient
         try {
             $response = $callback(Http::withHeaders(['Cookie' => $cookie])->timeout(15)->acceptJson());
         } catch (\Throwable $e) {
-            return ['success' => false, 'error' => 'Không kết nối được tới Frigate: ' . $e->getMessage()];
+            return ['success' => false, 'error' => 'Không kết nối được tới Frigate: '.$e->getMessage()];
         }
 
         // Cookie hết hạn giữa chừng (Frigate trả 401) — thử đăng nhập lại 1 LẦN rồi gọi lại, tránh
@@ -185,14 +214,15 @@ class FrigateApiClient
             try {
                 $response = $callback(Http::withHeaders(['Cookie' => $retryCookie])->timeout(15)->acceptJson());
             } catch (\Throwable $e) {
-                return ['success' => false, 'error' => 'Không kết nối được tới Frigate: ' . $e->getMessage()];
+                return ['success' => false, 'error' => 'Không kết nối được tới Frigate: '.$e->getMessage()];
             }
         }
 
         if (! $response->successful()) {
             return [
                 'success' => false,
-                'error'   => "Frigate trả lỗi {$response->status()} cho {$path}: " . $response->body(),
+                'error' => "Frigate trả lỗi {$response->status()} cho {$path}: ".$response->body(),
+                'status' => $response->status(),
             ];
         }
 

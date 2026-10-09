@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Minihouse\App\Filament\Resources\CameraResource\Forms;
 
+use App\Services\Camera\CameraOptions;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -51,13 +52,44 @@ class CameraForm
                 ->helperText('Dùng cho API xem lại lịch sử/ghi hình — Frigate có thể đặt tên camera khác với "Tên nguồn" go2rtc ở trên. Để trống nếu 2 tên giống hệt nhau.')
                 ->maxLength(255),
 
+            Select::make('provider')
+                ->label('Hãng / nhà cung cấp')
+                ->options(fn (Get $get): array => $get('source_type') === 'cloud'
+                    ? app(CameraOptions::class)->cloudProviderOptions()
+                    : app(CameraOptions::class)->providerOptions())
+                ->default('generic')->required(),
+
+            Select::make('source_type')
+                ->label('Phương thức kết nối')
+                ->options(CameraOptions::SOURCE_TYPE_LABELS)
+                ->default('existing')->live()->required(),
+
+            TextInput::make('source_url')
+                ->label('Địa chỉ nguồn camera')
+                ->placeholder('rtsp://..., https://.../live.m3u8, onvif://..., tapo://...')
+                ->helperText('Được mã hóa trong CSDL. Để trống khi nguồn đã có sẵn trong Frigate/go2rtc.')
+                ->password()->revealable()->maxLength(4000)
+                ->visible(fn (Get $get): bool => ! in_array($get('source_type'), ['existing', 'cloud'], true))
+                ->required(fn (Get $get): bool => ! in_array($get('source_type'), ['existing', 'cloud'], true)),
+
+            TextInput::make('external_device_id')
+                ->label('Mã/serial thiết bị')
+                ->maxLength(255)
+                ->visible(fn (Get $get): bool => in_array($get('source_type'), ['sdk_bridge', 'cloud'], true))
+                ->required(fn (Get $get): bool => $get('source_type') === 'cloud'),
+
+            TextInput::make('external_channel')
+                ->label('Kênh (để trống dùng mặc định của hãng)')
+                ->maxLength(20)
+                ->visible(fn (Get $get): bool => $get('source_type') === 'cloud'),
+
             TextInput::make('rtsp_url')
                 ->label('Địa chỉ RTSP camera (chỉ điền nếu camera CHƯA có trong Frigate)')
                 ->placeholder('rtsp://admin:matkhau@192.168.1.20:554/cam/realmonitor?channel=1&subtype=0')
                 ->helperText('Để trống nếu camera này đã được khai báo sẵn trong Frigate (đa số trường hợp) — chỉ cần đúng "Tên nguồn" ở trên là xem được ngay.')
                 ->password()
                 ->revealable()
-                ->maxLength(2000),
+                ->maxLength(2000)->hidden(),
 
             Select::make('branch_id')
                 ->label('Toà nhà')

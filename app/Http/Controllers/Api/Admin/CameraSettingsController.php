@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Api\Concerns\HandlesCameraSettings;
 use App\Http\Controllers\Controller;
 use App\Models\CameraSetting;
 use App\Models\Partner;
 use App\Models\User;
+use App\Services\Camera\CameraSettingsTester;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,6 +28,8 @@ use Illuminate\Http\Request;
 // request/response hay DevTools.
 class CameraSettingsController extends Controller
 {
+    use HandlesCameraSettings;
+
     // GET /api/admin/camera-settings/partners — DÀNH RIÊNG cho super_admin, mirror
     // App\Filament\Pages\Setting\ManageCamera::partnerOptions(): danh sách đối tác để dựng ô chọn
     // "Đối tác cần cấu hình" TRƯỚC khi gọi show()/update() — tài khoản thường không cần endpoint
@@ -39,7 +43,10 @@ class CameraSettingsController extends Controller
             return response()->json(['message' => 'Chỉ super_admin mới xem được danh sách đối tác để chọn cấu hình.'], 403);
         }
 
-        $partners = Partner::query()->orderBy('name')->get(['id', 'name']);
+        $partners = Partner::query()
+            ->where('partner_type', Partner::TYPE_HOMESTAY)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         return response()->json(['data' => $partners]);
     }
@@ -62,21 +69,13 @@ class CameraSettingsController extends Controller
         // thẳng: đọc với partner_id giả vô hại (CameraSetting::forPartner() chỉ trả instance chưa
         // lưu), nhưng update() sẽ cố INSERT với partner_id không tồn tại, vi phạm khoá ngoại
         // camera_settings.partner_id -> partners.id, ném lỗi DB thô (500) thay vì 422 rõ ràng.
-        if (! Partner::whereKey($partnerId)->exists()) {
-            return response()->json(['message' => 'Đối tác không tồn tại.'], 422);
+        if (! $this->isHomestayPartner($partnerId)) {
+            return response()->json(['message' => 'Đối tác Homestay không tồn tại.'], 422);
         }
 
         $settings = CameraSetting::forPartner($partnerId);
 
-        return response()->json(['data' => [
-            'partner_id'       => $partnerId,
-            'base_url'         => $settings->base_url,
-            'username'         => $settings->username,
-            'has_api_key'      => filled($settings->api_key),
-            'has_password'     => filled($settings->password),
-            'has_credentials'  => $settings->hasFrigateCredentials(),
-            'is_configured'    => $settings->isConfigured(),
-        ]]);
+        return response()->json(['data' => $this->transform($partnerId, $settings)]);
     }
 
     // PUT /api/admin/camera-settings
@@ -96,21 +95,26 @@ class CameraSettingsController extends Controller
             return response()->json(['message' => 'Thiếu partner_id.'], 422);
         }
 
-        if (! Partner::whereKey($partnerId)->exists()) {
-            return response()->json(['message' => 'Đối tác không tồn tại.'], 422);
+        if (! $this->isHomestayPartner($partnerId)) {
+            return response()->json(['message' => 'Đối tác Homestay không tồn tại.'], 422);
         }
 
         $data = $request->validate([
             'base_url' => 'nullable|url|max:255',
-            'api_key'  => 'nullable|string|max:255',
+            'go2rtc_url' => 'nullable|url|max:255',
+            'api_key' => 'nullable|string|max:255',
             'username' => 'nullable|string|max:255',
             'password' => 'nullable|string|max:255',
+            ...$this->gatewayRules(),
         ]);
 
         $settings = CameraSetting::forPartner($partnerId);
 
         if ($request->has('base_url')) {
             $settings->base_url = $data['base_url'];
+        }
+        if ($request->has('go2rtc_url')) {
+            $settings->go2rtc_url = $data['go2rtc_url'];
         }
         if ($request->has('api_key')) {
             $settings->api_key = $data['api_key'];
@@ -122,17 +126,51 @@ class CameraSettingsController extends Controller
             $settings->password = $data['password'];
         }
 
+        $this->applyGatewaySettings($settings, $request, $data);
+
         $settings->save();
 
-        return response()->json(['data' => [
-            'partner_id'      => $partnerId,
-            'base_url'        => $settings->base_url,
-            'username'        => $settings->username,
-            'has_api_key'     => filled($settings->api_key),
-            'has_password'    => filled($settings->password),
+        return response()->json(['data' => $this->transform($partnerId, $settings)]);
+    }
+
+    // POST /api/admin/camera-settings/test — kiểm tra cấu hình ĐÃ LƯU của đối tác (partner_id bắt buộc với
+    // super_admin) có kết nối được không: Frigate đăng nhập, go2rtc truy cập, hoặc tài khoản developer cloud.
+    public function test(Request $request): JsonResponse
+    {
+        if (! $this->authorized($request)) {
+            return response()->json(['message' => 'Không có quyền kiểm tra cấu hình camera.'], 403);
+        }
+
+        $partnerId = $this->resolvePartnerId($request);
+
+        if ($partnerId === null) {
+            return response()->json(['message' => 'Thiếu partner_id.'], 422);
+        }
+
+        if (! $this->isHomestayPartner($partnerId)) {
+            return response()->json(['message' => 'Đối tác Homestay không tồn tại.'], 422);
+        }
+
+        return response()->json(['data' => app(CameraSettingsTester::class)->run(CameraSetting::forPartner($partnerId))]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function transform(string $partnerId, CameraSetting $settings): array
+    {
+        return [
+            'partner_id' => $partnerId,
+            'base_url' => $settings->base_url,
+            'go2rtc_url' => $settings->go2rtc_url,
+            'username' => $settings->username,
+            'has_api_key' => filled($settings->api_key),
+            'has_password' => filled($settings->password),
             'has_credentials' => $settings->hasFrigateCredentials(),
-            'is_configured'   => $settings->isConfigured(),
-        ]]);
+            'is_configured' => $settings->isConfigured(),
+            'go2rtc_configured' => $settings->isGo2RtcConfigured(),
+            ...$this->gatewaySettingsFields($settings),
+        ];
     }
 
     // Tài khoản thường CHỈ được thao tác trên ĐÚNG đối tác của mình — bỏ qua partner_id client tự
@@ -150,6 +188,14 @@ class CameraSettingsController extends Controller
         $partnerId = (string) $request->input('partner_id', '');
 
         return $partnerId !== '' ? $partnerId : null;
+    }
+
+    private function isHomestayPartner(string $partnerId): bool
+    {
+        return Partner::query()
+            ->whereKey($partnerId)
+            ->where('partner_type', Partner::TYPE_HOMESTAY)
+            ->exists();
     }
 
     // super_admin bypass qua Gate::before; tài khoản thường phải có đúng quyền trang Filament

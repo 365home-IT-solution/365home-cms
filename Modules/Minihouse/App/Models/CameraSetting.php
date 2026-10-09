@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Minihouse\App\Models;
 
 use App\Models\CameraSetting as BaseCameraSetting;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 // Cấu hình server go2rtc/Frigate THEO TỪNG TOÀ NHÀ (khoá chính = building_id) — kế thừa
 // App\Models\CameraSetting để dùng lại nguyên vẹn casts encrypted + isConfigured()/
@@ -13,24 +14,25 @@ use App\Models\CameraSetting as BaseCameraSetting;
 class CameraSetting extends BaseCameraSetting
 {
     use Concerns\LogsMinihouseActivity;
+
     protected $table = 'minihouse_camera_settings';
 
     protected $primaryKey = 'building_id';
 
     protected $keyType = 'int';
 
-    protected $fillable = ['building_id', 'base_url', 'api_key', 'username', 'password'];
+    protected $fillable = ['building_id', 'base_url', 'go2rtc_url', 'api_key', 'username', 'password', 'gateway_type', 'provider_credentials'];
 
     public static function forBuilding(?int $buildingId): self
     {
         if (blank($buildingId)) {
-            return new self();
+            return new self;
         }
 
         return static::query()->find($buildingId) ?? new self(['building_id' => $buildingId]);
     }
 
-    public function building(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function building(): BelongsTo
     {
         return $this->belongsTo(Building::class, 'building_id');
     }

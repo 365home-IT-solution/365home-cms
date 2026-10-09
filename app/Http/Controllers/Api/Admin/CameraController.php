@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Api\Concerns\HandlesCameraSource;
 use App\Http\Controllers\Controller;
 use App\Models\Camera;
+use App\Models\Partner;
 use App\Models\User;
-use App\Services\Go2RtcClient;
+use App\Services\CameraSourceManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -24,6 +26,8 @@ use Modules\Category\Entities\Category;
 // nguyên tắc mọi controller Api\Admin khác (WarehouseCategoryController, BranchController...).
 class CameraController extends Controller
 {
+    use HandlesCameraSource;
+
     /**
      * GET /api/admin/cameras
      *
@@ -40,8 +44,9 @@ class CameraController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = Camera::query()->with('branch:id,name')
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
+        $query = Camera::query()->with('branch:id,name');
+
+        $query->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -81,8 +86,9 @@ class CameraController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = Camera::query()->with('branch:id,name')
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
+        $query = Camera::query()->with('branch:id,name');
+
+        $query->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -117,22 +123,32 @@ class CameraController extends Controller
         $user = $request->user();
 
         $data = $request->validate([
-            'name'                 => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             // Chỉ cần duy nhất TRONG CÙNG 1 branch_id (= cùng 1 server go2rtc/Frigate, xem
             // App\Models\Camera::resolveCameraSettings()) — KHÔNG còn kiểm tra trùng CẢ bảng
             // "cameras" như trước (2 chi nhánh/Toà nhà khác nhau chạy 2 server khác nhau, tên nguồn
             // trùng nhau không xung đột gì thật sự). Mirror ĐÚNG rule đã sửa ở CameraForm (Filament,
             // Modules\Minihouse) — tránh 1 bên (API) và 1 bên (Filament) chặn khác nhau.
-            'stream_key'           => [
+            'stream_key' => [
                 'required', 'string', 'max:255',
                 Rule::unique('cameras', 'stream_key')->where(fn ($q) => $q->where('branch_id', $request->input('branch_id'))),
             ],
-            'frigate_camera_name'  => 'nullable|string|max:255',
-            'rtsp_url'             => 'nullable|string|max:2000',
-            'branch_id'            => 'required|integer',
-            'status'               => 'nullable|boolean',
-            'note'                 => 'nullable|string',
+            'frigate_camera_name' => 'nullable|string|max:255',
+            'rtsp_url' => 'nullable|string|max:2000',
+            'provider' => ['nullable', 'string', 'max:50'],
+            'source_type' => ['nullable', Rule::in(Camera::SOURCE_TYPES)],
+            'source_url' => 'nullable|string|max:4000',
+            'external_device_id' => 'nullable|string|max:255',
+            'external_channel' => 'nullable|string|max:20',
+            'branch_id' => 'required|integer',
+            'status' => 'nullable|boolean',
+            'note' => 'nullable|string',
         ]);
+
+        $sourceType = $data['source_type'] ?? (filled($data['rtsp_url'] ?? null) ? 'rtsp' : 'existing');
+        if ($error = $this->sourceError($sourceType, $data['provider'] ?? null, $data['external_device_id'] ?? null, $data['source_url'] ?? $data['rtsp_url'] ?? null)) {
+            return $error;
+        }
 
         $branch = $this->resolveAllowedBranch($user, (int) $data['branch_id']);
 
@@ -141,20 +157,26 @@ class CameraController extends Controller
         }
 
         $camera = Camera::create([
-            'partner_id'           => $branch->partner_id,
-            'branch_id'            => $branch->id,
-            'name'                 => $data['name'],
-            'stream_key'           => $data['stream_key'],
-            'frigate_camera_name'  => $data['frigate_camera_name'] ?? null,
-            'rtsp_url'             => $data['rtsp_url'] ?? null,
-            'status'               => $data['status'] ?? true,
-            'note'                 => $data['note'] ?? null,
+            'partner_id' => $branch->partner_id,
+            'branch_id' => $branch->id,
+            'name' => $data['name'],
+            'stream_key' => $data['stream_key'],
+            'frigate_camera_name' => $data['frigate_camera_name'] ?? null,
+            'rtsp_url' => $data['rtsp_url'] ?? null,
+            'provider' => $data['provider'] ?? 'generic',
+            'source_type' => $sourceType,
+            'source_url' => $data['source_url'] ?? null,
+            'managed_source' => filled($data['source_url'] ?? null) || filled($data['rtsp_url'] ?? null),
+            'external_device_id' => $data['external_device_id'] ?? null,
+            'external_channel' => $data['external_channel'] ?? null,
+            'status' => $data['status'] ?? true,
+            'note' => $data['note'] ?? null,
         ]);
 
         $warning = $this->syncGo2Rtc($camera);
 
         return response()->json([
-            'data'    => $this->transform($camera->fresh('branch:id,name')),
+            'data' => $this->transform($camera->fresh('branch:id,name')),
             'warning' => $warning,
         ], 201);
     }
@@ -181,21 +203,34 @@ class CameraController extends Controller
         }
 
         $data = $request->validate([
-            'name'                 => 'sometimes|required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
             // Cùng phạm vi kiểm tra trùng như store() — duy nhất trong đúng branch_id SẼ LƯU (branch
             // mới nếu request đổi chi nhánh, branch hiện tại nếu không đổi), không phải cả bảng.
-            'stream_key'           => [
+            'stream_key' => [
                 'sometimes', 'required', 'string', 'max:255',
                 Rule::unique('cameras', 'stream_key')
                     ->where(fn ($q) => $q->where('branch_id', $request->input('branch_id', $camera->branch_id)))
                     ->ignore($camera->id),
             ],
-            'frigate_camera_name'  => 'nullable|string|max:255',
-            'rtsp_url'             => 'nullable|string|max:2000',
-            'branch_id'            => 'sometimes|required|integer',
-            'status'               => 'nullable|boolean',
-            'note'                 => 'nullable|string',
+            'frigate_camera_name' => 'nullable|string|max:255',
+            'rtsp_url' => 'nullable|string|max:2000',
+            'provider' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'source_type' => ['sometimes', Rule::in(Camera::SOURCE_TYPES)],
+            'source_url' => 'nullable|string|max:4000',
+            'external_device_id' => 'nullable|string|max:255',
+            'external_channel' => 'nullable|string|max:20',
+            'branch_id' => 'sometimes|required|integer',
+            'status' => 'nullable|boolean',
+            'note' => 'nullable|string',
         ]);
+
+        $resultingType = $data['source_type'] ?? $camera->source_type;
+        $resultingSource = array_key_exists('source_url', $data) ? $data['source_url'] : $camera->sourceUrl();
+        $resultingProvider = array_key_exists('provider', $data) ? $data['provider'] : $camera->provider;
+        $resultingDevice = array_key_exists('external_device_id', $data) ? $data['external_device_id'] : $camera->external_device_id;
+        if ($error = $this->sourceError($resultingType, $resultingProvider, $resultingDevice, $resultingSource)) {
+            return $error;
+        }
 
         if (array_key_exists('branch_id', $data)) {
             $branch = $this->resolveAllowedBranch($user, (int) $data['branch_id']);
@@ -204,18 +239,23 @@ class CameraController extends Controller
                 return response()->json(['message' => 'Không có quyền chuyển camera sang chi nhánh này.'], 403);
             }
 
-            $data['branch_id']  = $branch->id;
+            $data['branch_id'] = $branch->id;
             $data['partner_id'] = $branch->partner_id;
         }
 
         $originalStreamKey = $camera->stream_key;
+        $originalCamera = $camera->replicate();
+
+        if (array_key_exists('source_url', $data) || array_key_exists('rtsp_url', $data)) {
+            $data['managed_source'] = filled($data['source_url'] ?? $data['rtsp_url'] ?? null);
+        }
 
         $camera->update($data);
 
-        $warning = $this->syncGo2Rtc($camera, $originalStreamKey);
+        $warning = app(CameraSourceManager::class)->sync($camera, $originalStreamKey, $originalCamera);
 
         return response()->json([
-            'data'    => $this->transform($camera->fresh('branch:id,name')),
+            'data' => $this->transform($camera->fresh('branch:id,name')),
             'warning' => $warning,
         ]);
     }
@@ -247,6 +287,47 @@ class CameraController extends Controller
         return response()->json(['message' => 'Đã xoá camera.']);
     }
 
+    public function health(Request $request, int $id): JsonResponse
+    {
+        if ($denied = $this->deny($request->user(), ['view_any_camera', 'view_camera', 'page_CameraMonitor'])) {
+            return $denied;
+        }
+
+        $camera = $this->findInScope($request->user(), $id);
+
+        if (! $camera) {
+            return response()->json(['message' => 'Không tìm thấy.'], 404);
+        }
+
+        return response()->json(['data' => app(CameraSourceManager::class)->health($camera)]);
+    }
+
+    public function syncSource(Request $request, int $id): JsonResponse
+    {
+        if ($denied = $this->deny($request->user(), ['update_camera'])) {
+            return $denied;
+        }
+
+        $camera = $this->findInScope($request->user(), $id);
+
+        if (! $camera) {
+            return response()->json(['message' => 'Không tìm thấy.'], 404);
+        }
+
+        if (! $camera->supportsCapability('source_sync')) {
+            return $this->unsupportedResponse($camera, 'source_sync');
+        }
+
+        $error = app(CameraSourceManager::class)->sync($camera);
+
+        return response()->json([
+            'success' => $error === null,
+            'message' => $error ?? ($camera->isManagedSource()
+                ? 'Đã đồng bộ nguồn với go2rtc.'
+                : 'Camera dùng nguồn có sẵn trong Frigate/go2rtc, không có gì để đồng bộ.'),
+        ], $error === null ? 200 : 502);
+    }
+
     // Phân quyền theo quyền Shield đã tích cho vai trò (super_admin luôn được). Phạm vi đối tác/chi nhánh do findInScope()/query lọc.
     private function deny(?User $user, array $permissions): ?JsonResponse
     {
@@ -260,7 +341,7 @@ class CameraController extends Controller
     private function findInScope(User $user, int $id): ?Camera
     {
         $query = Camera::query()
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -277,11 +358,12 @@ class CameraController extends Controller
     // ở Filament).
     private function resolveAllowedBranch(User $user, int $branchId): ?Category
     {
-        $branch = Category::query()
+        $query = Category::query()
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY))
             ->where('category_type', 'product')
-            ->whereNull('parent_id')
-            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
-            ->find($branchId);
+            ->whereNull('parent_id');
+
+        $branch = $query->find($branchId);
 
         if (! $branch) {
             return null;
@@ -299,17 +381,7 @@ class CameraController extends Controller
     // EditCamera (Filament) đang áp dụng.
     private function syncGo2Rtc(Camera $camera, ?string $originalStreamKey = null): ?string
     {
-        if (blank($camera->rtsp_url)) {
-            return null;
-        }
-
-        $client = new Go2RtcClient($camera->resolveCameraSettings());
-
-        if ($originalStreamKey !== null && $originalStreamKey !== $camera->stream_key) {
-            $client->deleteStream($originalStreamKey);
-        }
-
-        return $client->addStream($camera->stream_key, $camera->rtsp_url);
+        return app(CameraSourceManager::class)->sync($camera, $originalStreamKey);
     }
 
     /**
@@ -318,18 +390,27 @@ class CameraController extends Controller
     private function transform(Camera $camera): array
     {
         return [
-            'id'                   => $camera->id,
-            'name'                 => $camera->name,
-            'stream_key'           => $camera->stream_key,
-            'frigate_camera_name'  => $camera->frigateCameraName(),
-            'branch'               => $camera->branch ? [
-                'id'   => $camera->branch->id,
+            'id' => $camera->id,
+            'name' => $camera->name,
+            'stream_key' => $camera->stream_key,
+            'frigate_camera_name' => $camera->frigateCameraName(),
+            'provider' => $camera->provider,
+            'source_type' => $camera->source_type,
+            'external_device_id' => $camera->external_device_id,
+            'managed_source' => $camera->isManagedSource(),
+            'connection_status' => $camera->connection_status,
+            'connection_message' => $camera->connection_message,
+            'last_checked_at' => $camera->last_checked_at?->toIso8601String(),
+            'last_online_at' => $camera->last_online_at?->toIso8601String(),
+            'branch' => $camera->branch ? [
+                'id' => $camera->branch->id,
                 'name' => $camera->branch->name,
             ] : null,
-            'status'             => $camera->status,
-            'ws_url'             => $camera->wsProxyUrl(),
-            'go2rtc_configured'  => $camera->resolveCameraSettings()->isConfigured(),
-            'note'               => $camera->note,
+            'status' => $camera->status,
+            'ws_url' => $camera->wsProxyUrl(),
+            'go2rtc_configured' => $camera->resolveCameraSettings()->isGo2RtcConfigured(),
+            'note' => $camera->note,
+            ...$this->gatewayFields($camera),
         ];
     }
 }

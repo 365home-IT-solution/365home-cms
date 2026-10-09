@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Modules\Minihouse\App\Filament\Resources\CameraResource\Pages;
 
-use App\Services\Go2RtcClient;
+use App\Models\Camera;
+use App\Services\CameraSourceManager;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Modules\Minihouse\App\Filament\Resources\CameraResource;
-use Modules\Minihouse\App\Models\CameraSetting;
 
 // Mirror App\Filament\Resources\CameraResource\Pages\EditCamera (Home), khác đúng 1 chỗ: server
 // go2rtc lấy theo TOÀ NHÀ (branch_id) thay vì đối tác — xem CreateCamera cùng thư mục. Đổi camera
@@ -23,6 +23,18 @@ class EditCamera extends EditRecord
 
     private ?int $originalBranchId = null;
 
+    private ?Camera $originalCamera = null;
+
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        if (blank($data['source_url'] ?? null) && filled($this->record->rtsp_url)) {
+            $data['source_url'] = $this->record->rtsp_url;
+            $data['source_type'] = 'rtsp';
+        }
+
+        return $data;
+    }
+
     protected function getHeaderActions(): array
     {
         return [DeleteAction::make()];
@@ -32,24 +44,17 @@ class EditCamera extends EditRecord
     {
         $this->originalStreamKey = $this->record->getOriginal('stream_key');
         $this->originalBranchId = $this->record->getOriginal('branch_id');
+        $this->originalCamera = $this->record->replicate();
+        $this->originalCamera->forceFill(['branch_id' => $this->originalBranchId]);
     }
 
     protected function afterSave(): void
     {
-        if (blank($this->record->rtsp_url)) {
+        if (! $this->record->isManagedSource()) {
             return;
         }
 
-        $streamKeyChanged = $this->originalStreamKey !== null && $this->originalStreamKey !== $this->record->stream_key;
-        $branchChanged = $this->originalBranchId !== null && $this->originalBranchId !== $this->record->branch_id;
-
-        if ($streamKeyChanged || $branchChanged) {
-            (new Go2RtcClient(CameraSetting::forBuilding($this->originalBranchId)))
-                ->deleteStream($this->originalStreamKey ?? $this->record->stream_key);
-        }
-
-        $error = (new Go2RtcClient(CameraSetting::forBuilding($this->record->branch_id)))
-            ->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = app(CameraSourceManager::class)->sync($this->record, $this->originalStreamKey, $this->originalCamera);
 
         if ($error !== null) {
             Notification::make()

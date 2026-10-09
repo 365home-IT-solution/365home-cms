@@ -6,21 +6,27 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
+use App\Services\Camera\CameraGatewayManager;
 use App\Services\Go2RtcClient;
 use App\Support\CameraWsToken;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Partner;
 use Modules\Category\Entities\Category;
 
 class Camera extends Model
 {
     use BelongsToBranch, BelongsToPartner;
 
+    public const SOURCE_TYPES = ['existing', 'rtsp', 'onvif', 'hls', 'http', 'rtmp', 'webrtc', 'tapo', 'tuya', 'sdk_bridge', 'cloud'];
+
     protected static function booted(): void
     {
         static::saving(function (Camera $camera): void {
             if ($camera->branch_id && ($camera->isDirty('branch_id') || blank($camera->partner_id))) {
                 $camera->partner_id = Category::withoutGlobalScopes()->whereKey($camera->branch_id)->value('partner_id');
+            }
+
+            if ($camera->isDirty('source_type') || $camera->isDirty('source_url')) {
+                $camera->managed_source = $camera->source_type !== 'existing' && filled($camera->source_url);
             }
         });
         // Xoá bản ghi ở BẤT KỲ đâu (nút Xoá trên trang sửa, bulk action trên danh sách...) đều dọn
@@ -29,7 +35,7 @@ class Camera extends Model
         // (rtsp_url để trống) — xoá bản ghi ở web KHÔNG được phép động tới go2rtc trong trường hợp
         // đó, nếu không sẽ làm gãy luồng thật Frigate đang chạy dù chỉ đang xoá 1 dòng tham chiếu.
         static::deleted(function (Camera $camera) {
-            if (filled($camera->rtsp_url)) {
+            if ($camera->isManagedSource()) {
                 (new Go2RtcClient($camera->resolveCameraSettings()))->deleteStream($camera->stream_key);
             }
         });
@@ -41,17 +47,54 @@ class Camera extends Model
         'name',
         'stream_key',
         'frigate_camera_name',
+        'provider',
+        'source_type',
+        'source_url',
+        'managed_source',
+        'external_device_id',
+        'external_channel',
+        'capabilities',
+        'connection_status',
+        'connection_message',
+        'last_checked_at',
+        'last_online_at',
         'rtsp_url',
         'note',
         'status',
     ];
 
     protected $casts = [
-        'status'   => 'boolean',
+        'status' => 'boolean',
+        'managed_source' => 'boolean',
+        'source_url' => 'encrypted',
+        'capabilities' => 'array',
+        'last_checked_at' => 'datetime',
+        'last_online_at' => 'datetime',
         // Mã hoá bằng APP_KEY — địa chỉ RTSP thường chứa sẵn tài khoản/mật khẩu camera
         // (rtsp://admin:matkhau@192.168.x.x/...), không lưu dạng thô trong CSDL.
         'rtsp_url' => 'encrypted',
     ];
+
+    /** The source understood by go2rtc. Legacy RTSP records remain usable. */
+    public function sourceUrl(): ?string
+    {
+        return filled($this->source_url) ? (string) $this->source_url : (filled($this->rtsp_url) ? (string) $this->rtsp_url : null);
+    }
+
+    public function isManagedSource(): bool
+    {
+        // Camera cloud lấy link xem qua API hãng, không có nguồn nào để đăng ký vào go2rtc.
+        if ($this->source_type === 'cloud') {
+            return false;
+        }
+
+        if ($this->source_type === 'existing') {
+            // Legacy records predate source_type and only contain encrypted rtsp_url.
+            return blank($this->source_url) && filled($this->rtsp_url);
+        }
+
+        return (bool) $this->managed_source || filled($this->sourceUrl());
+    }
 
     // URL WebSocket để nhúng vào <video-rtc> (public/vendor/go2rtc/video-rtc.js, client chính thức
     // của go2rtc) — trỏ về Node proxy CỦA CHÍNH DỰ ÁN NÀY (websocket/server.js, endpoint
@@ -100,13 +143,49 @@ class Camera extends Model
         return CameraSetting::forPartner($partnerId);
     }
 
+    // Camera cloud (source_type = cloud) hoặc đối tác đặt gateway = cloud đi đường cloud; còn lại theo
+    // gateway của đối tác/toà nhà: frigate (mặc định) hoặc go2rtc trần.
+    public function gatewayType(): string
+    {
+        if ($this->source_type === 'cloud') {
+            return CameraSetting::GATEWAY_CLOUD;
+        }
+
+        return $this->resolveCameraSettings()->gatewayType();
+    }
+
+    /** @return array<string, bool> các tính năng camera này dùng được (live, snapshot, events...). */
+    public function gatewayCapabilities(): array
+    {
+        $gateway = app(CameraGatewayManager::class)->for($this);
+
+        return $gateway->capabilities($this);
+    }
+
+    public function supportsCapability(string $capability): bool
+    {
+        return $this->gatewayCapabilities()[$capability] ?? false;
+    }
+
     public function wsProxyUrl(): ?string
     {
+        $gatewayType = $this->gatewayType();
+
+        // Camera cloud không đi qua Node proxy — app/web phát thẳng HLS (xem CloudGateway).
+        if ($gatewayType === CameraSetting::GATEWAY_CLOUD) {
+            return null;
+        }
+
         $settings = $this->resolveCameraSettings();
 
         if (! $settings->isConfigured()) {
             return null;
         }
+
+        // go2rtc trần: Node nối thẳng go2rtc (không có bước đăng nhập Frigate).
+        $upstreamUrl = $gatewayType === CameraSetting::GATEWAY_GO2RTC
+            ? (string) $settings->go2rtcBaseUrl()
+            : (string) $settings->base_url;
 
         $publicUrl = rtrim((string) config('services.websocket.public_url'), '/');
 
@@ -123,12 +202,13 @@ class Camera extends Model
         // 1 ca làm việc xem liên tục, hết hạn thì tải lại trang "Xem camera" là có token mới.
         $token = CameraWsToken::issue(
             $this->stream_key,
-            (string) $settings->base_url,
+            $upstreamUrl,
             (string) $this->partner_id,
             $this->branch_id === null ? null : (int) $this->branch_id,
             ttlSeconds: 12 * 3600,
+            gateway: $gatewayType,
         );
 
-        return "{$wsBase}/camera-proxy?token=" . urlencode($token);
+        return "{$wsBase}/camera-proxy?token=".urlencode($token);
     }
 }

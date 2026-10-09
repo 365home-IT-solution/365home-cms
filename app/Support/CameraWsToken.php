@@ -18,13 +18,14 @@ namespace App\Support;
 // server Frigate mà camera đó thuộc về.
 class CameraWsToken
 {
-    public static function issue(string $streamKey, string $baseUrl, string $partnerId, ?int $branchId = null, int $ttlSeconds = 60): string
+    public static function issue(string $streamKey, string $baseUrl, string $partnerId, ?int $branchId = null, int $ttlSeconds = 60, string $gateway = 'frigate'): string
     {
         $payload = base64_encode(json_encode([
             'stream_key' => $streamKey,
             'base_url'   => $baseUrl,
             'partner_id' => $partnerId,
             'branch_id'  => $branchId,
+            'gateway'    => $gateway,
             'exp'        => time() + $ttlSeconds,
         ]));
 

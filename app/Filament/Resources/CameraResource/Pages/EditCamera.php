@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Filament\Resources\CameraResource\Pages;
 
 use App\Filament\Resources\CameraResource;
-use App\Services\Go2RtcClient;
+use App\Models\Camera;
+use App\Services\CameraSourceManager;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -16,7 +17,17 @@ class EditCamera extends EditRecord
 
     private ?string $originalStreamKey = null;
 
-    private ?string $originalPartnerId = null;
+    private ?Camera $originalCamera = null;
+
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        if (blank($data['source_url'] ?? null) && filled($this->record->rtsp_url)) {
+            $data['source_url'] = $this->record->rtsp_url;
+            $data['source_type'] = 'rtsp';
+        }
+
+        return $data;
+    }
 
     protected function getHeaderActions(): array
     {
@@ -31,7 +42,11 @@ class EditCamera extends EditRecord
         // CameraSetting), nếu người dùng đổi camera sang chi nhánh của đối tác KHÁC thì nguồn cũ
         // phải xoá trên server go2rtc CŨ (của partner cũ), không phải server mới.
         $this->originalStreamKey = $this->record->getOriginal('stream_key');
-        $this->originalPartnerId = $this->record->getOriginal('partner_id');
+        $this->originalCamera = $this->record->replicate();
+        $this->originalCamera->forceFill([
+            'partner_id' => $this->record->getOriginal('partner_id'),
+            'branch_id' => $this->record->getOriginal('branch_id'),
+        ]);
     }
 
     protected function afterSave(): void
@@ -39,15 +54,11 @@ class EditCamera extends EditRecord
         // CHỈ động vào go2rtc khi bản ghi này CÓ RTSP (nghĩa là do chính web này khai báo nguồn) —
         // đa số camera là tham chiếu tới nguồn ĐÃ CÓ SẴN trong Frigate (rtsp_url để trống), TUYỆT
         // ĐỐI không được gọi xoá/ghi đè nguồn đó, nếu không sẽ làm gãy luồng thật Frigate đang chạy.
-        if (blank($this->record->rtsp_url)) {
+        if (! $this->record->isManagedSource()) {
             return;
         }
 
-        if ($this->originalStreamKey !== null && $this->originalStreamKey !== $this->record->stream_key) {
-            Go2RtcClient::forPartner($this->originalPartnerId)->deleteStream($this->originalStreamKey);
-        }
-
-        $error = Go2RtcClient::forPartner($this->record->partner_id)->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = app(CameraSourceManager::class)->sync($this->record, $this->originalStreamKey, $this->originalCamera);
 
         if ($error !== null) {
             Notification::make()

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Minihouse\App\Filament\Resources\CameraResource\Pages;
 
-use App\Services\Go2RtcClient;
+use App\Services\CameraSourceManager;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Modules\Minihouse\App\Filament\Resources\CameraResource;
@@ -21,12 +21,11 @@ class CreateCamera extends CreateRecord
 
     protected function afterCreate(): void
     {
-        if (blank($this->record->rtsp_url)) {
+        if (! $this->record->isManagedSource()) {
             return;
         }
 
-        $error = (new Go2RtcClient(CameraSetting::forBuilding($this->record->branch_id)))
-            ->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = app(CameraSourceManager::class)->sync($this->record);
 
         if ($error !== null) {
             Notification::make()
