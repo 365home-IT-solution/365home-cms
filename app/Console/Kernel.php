@@ -25,6 +25,18 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Ký quỹ đối tác Homestay: tự trừ đề xuất hết hạn phản hồi, cập nhật cảnh báo/tạm ngưng bán theo hạn nạp.
+        $schedule->command('escrow:process')
+            ->hourly()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
+        // Đối soát hoa hồng đối tác Homestay: sinh bảng cho kỳ vừa đóng, nhắc trước hạn, tự trừ ký quỹ khi quá hạn.
+        $schedule->command('settlements:process')
+            ->dailyAt('01:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
         $schedule->command('orders:expire-pending')
             ->everyMinute()
             ->timezone('Asia/Ho_Chi_Minh')

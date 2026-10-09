@@ -25,6 +25,7 @@ class PartnerContractVersion extends Model implements HasMedia
     protected $fillable = [
         'partner_id',
         'version_label',
+        'kind',
         'change_note',
         'changed_by',
         'content',
@@ -56,6 +57,11 @@ class PartnerContractVersion extends Model implements HasMedia
         'platform_signature_certificate' => 'array',
         'legal_document_snapshot' => 'array',
     ];
+
+    public function isAddendum(): bool
+    {
+        return $this->kind === 'addendum';
+    }
 
     protected static function booted(): void
     {

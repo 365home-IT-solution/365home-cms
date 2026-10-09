@@ -45,6 +45,13 @@ class ContractVerifyController extends Controller
                 'tenant' => $tenantSignature?->signed_at?->toIso8601String(),
                 'owner'  => $ownerSignature?->signed_at?->toIso8601String(),
             ],
+            // Chữ ký số CA của chủ trọ (Mức C) — null nếu hợp đồng chỉ ký tay + OTP.
+            'digital_signature' => $ownerSignature?->pki_provider ? [
+                'provider'  => $ownerSignature->pki_provider,
+                'signer'    => $ownerSignature->pki_certificate['cert_subject'] ?? null,
+                'issuer'    => $ownerSignature->pki_certificate['cert_issuer'] ?? null,
+                'signed_at' => $ownerSignature->pki_signed_at?->toIso8601String(),
+            ] : null,
         ]]);
     }
 

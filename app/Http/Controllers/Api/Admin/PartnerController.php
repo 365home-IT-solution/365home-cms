@@ -142,6 +142,8 @@ class PartnerController extends Controller
         abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         abort_if($partner->contract_status === 'terminated', 422, 'Hợp đồng đã được đánh dấu chấm dứt.');
         $partner->update(['contract_status' => 'terminated']);
+        // Luồng tiền mới: ngưng bán, bắt đầu thời gian giữ ký quỹ nhận khiếu nại.
+        app(\App\Services\EscrowService::class)->onContractTerminated($partner->fresh(), $request->user());
 
         return response()->json(['message' => 'Đã đánh dấu hợp đồng chấm dứt.', 'data' => ['contract_status' => 'terminated']]);
     }
@@ -151,7 +153,7 @@ class PartnerController extends Controller
         $doc = $version->getFirstMedia('document');
 
         return [
-            'id' => $version->id, 'version_label' => $version->version_label, 'change_note' => $version->change_note,
+            'id' => $version->id, 'kind' => $version->kind, 'version_label' => $version->version_label, 'change_note' => $version->change_note,
             'changed_by' => $version->changedBy ? ['id' => $version->changedBy->id, 'name' => $version->changedBy->fullname] : null,
             'content_hash' => $version->content_hash, 'is_partner_confirmed' => $version->isPartnerConfirmed(), 'is_platform_signed' => $version->isPlatformSigned(),
             'document' => $doc ? ['name' => $doc->file_name, 'mime_type' => $doc->mime_type, 'size' => $doc->size, 'url' => $doc->getUrl()] : null,
@@ -167,6 +169,20 @@ class PartnerController extends Controller
 
         return response()->json(['message' => 'Đã tạo hợp đồng và xử lý gửi email.', 'data' => [
             'version_id' => $result['version']->id, 'contract_code' => $partner->fresh()->contract_code, 'content_hash' => $result['version']->content_hash,
+            'mail_sent' => $result['mailSent'], 'email' => $result['email'], 'signing_url' => $result['signingUrl'],
+        ]], 201);
+    }
+
+    // POST …/contract/addendum — phụ lục "Ký quỹ và thanh toán" cho Homestay đã ký hợp đồng mẫu cũ (365home thu hộ). Ký bằng đúng luồng OTP của hợp đồng;
+    // chỉ khi phụ lục có hiệu lực (nền tảng ký) đối tác mới chuyển sang luồng tiền đặt phòng về thẳng tài khoản của mình.
+    public function createAddendum(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $result = $workflow->createAddendumAndSend($partner, $request->user());
+
+        return response()->json(['message' => 'Đã tạo phụ lục và xử lý gửi email.', 'data' => [
+            'version_id' => $result['version']->id, 'kind' => 'addendum', 'content_hash' => $result['version']->content_hash,
             'mail_sent' => $result['mailSent'], 'email' => $result['email'], 'signing_url' => $result['signingUrl'],
         ]], 201);
     }

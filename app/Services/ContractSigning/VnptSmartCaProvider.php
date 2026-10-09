@@ -33,7 +33,14 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
         private readonly ?string $clientSecret,
         private readonly ?string $subscriberUserId,
         private readonly ?string $subscriberPassword,
+        // Khoá lưu token OAuth: mỗi BÊN (Homestay / MiniHouse) có tài khoản VNPT riêng nên token lưu riêng, không dẫm lên nhau.
+        private readonly ?string $tokenKey = null,
     ) {
+    }
+
+    private function tokenKey(): string
+    {
+        return $this->tokenKey ?: $this->name();
     }
 
     public function name(): string
@@ -271,7 +278,7 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
     // dùng), đăng nhập lại bằng Resource Owner Password Credentials (cần subscriber_password).
     private function getValidAccessToken(): string
     {
-        $token = ContractSigningToken::current($this->name());
+        $token = ContractSigningToken::current($this->tokenKey());
 
         if ($token && ! $token->isExpired()) {
             return $token->access_token;
@@ -329,7 +336,7 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
         $data = $response->json();
 
         ContractSigningToken::updateOrCreate(
-            ['provider' => $this->name()],
+            ['provider' => $this->tokenKey()],
             [
                 'access_token'  => $data['access_token'],
                 'refresh_token' => $data['refresh_token'] ?? null,

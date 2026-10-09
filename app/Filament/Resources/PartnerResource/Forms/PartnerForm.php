@@ -656,6 +656,14 @@ class PartnerForm
                             }
                         }]),
 
+                    // Mức ký quỹ tối thiểu đi cùng điều khoản hoa hồng/thời hạn — lưu qua EscrowService::setMinAmount() (xem EditPartner::afterSave()), không ghi thẳng
+                    // vào cột vì số dư/trạng thái khoá bán phải được tính lại. Để trống = bỏ áp dụng ký quỹ.
+                    Forms\Components\TextInput::make('escrow_min_amount')
+                        ->label('Mức ký quỹ tối thiểu (đ)')
+                        ->numeric()->minValue(0)->suffix('đ')
+                        ->visible(fn (?Partner $record) => $record !== null && ! $record->isMinihouse() && ! $record->isSystemPartner())
+                        ->helperText(fn (?Partner $record) => $record ? 'Gợi ý theo số phòng đang bán: ' . number_format(app(\App\Services\EscrowService::class)->suggestedMinAmount($record), 0, ',', '.') . 'đ. Đối tác mới phải nạp đủ trước khi mở bán online; đối tác đang hoạt động có ' . config('escrow.initial_grace_days') . ' ngày. Số dư và sổ bút toán xem ở mục "Ký quỹ đối tác".' : null),
+
                     Forms\Components\Textarea::make('cancellation_policy')
                         ->label('Chính sách hủy/hoàn tiền')
                         ->rows(3)
@@ -782,6 +790,18 @@ class PartnerForm
                                             ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ. Mã số hợp đồng tự sinh; thiếu tỷ lệ hoa hồng (Homestay) hoặc ngày hết hạn thì hệ thống không cho tạo. Khi đối tác đã xác nhận, không tạo lại được nữa.')
                                             ->action(fn (?Partner $record) => self::createAndSendContract($record)),
 
+                                        // Đối tác đã ký hợp đồng mẫu cũ (365home thu hộ): phụ lục "Ký quỹ và thanh toán" ký bằng đúng luồng OTP hiện có;
+                                        // chỉ khi phụ lục có hiệu lực (nền tảng ký) đối tác mới chuyển sang luồng tiền đặt phòng về thẳng tài khoản của mình.
+                                        Forms\Components\Actions\Action::make('createAddendum')
+                                            ->label('Tạo & gửi phụ lục ký quỹ')
+                                            ->icon('heroicon-o-document-plus')
+                                            ->color('warning')
+                                            ->visible(fn (?Partner $record) => $record && ! $record->isMinihouse() && $record->contract_status === 'active' && filled($record->contract_signed_at) && ! $record->usesDirectPayment())
+                                            ->requiresConfirmation()
+                                            ->modalHeading('Tạo phụ lục Ký quỹ & thanh toán')
+                                            ->modalDescription('Phụ lục sửa điều thanh toán (tiền đặt phòng về thẳng đối tác, đối soát hoa hồng theo kỳ) và thêm điều Ký quỹ. Link ký được gửi qua email đối tác, ký bằng OTP như hợp đồng. Chỉ khi phụ lục có hiệu lực (nền tảng ký số) đối tác mới chuyển sang luồng tiền mới; trước đó 365home vẫn thu hộ.')
+                                            ->action(fn (?Partner $record) => self::createAddendum($record)),
+
                                         Forms\Components\Actions\Action::make('signAndExportContract')
                                             ->label('Ký số & xuất PDF hợp đồng')
                                             ->icon('heroicon-o-shield-check')
@@ -890,6 +910,8 @@ class PartnerForm
                             ->modalDescription('Chấm dứt hợp đồng với đối tác này? Hành động này nên đi kèm quy trình pháp lý ngoài hệ thống.')
                             ->action(function (?Partner $record) {
                                 $record->update(['contract_status' => 'terminated']);
+                                // Luồng tiền mới: ngưng bán, bắt đầu thời gian giữ ký quỹ nhận khiếu nại.
+                                app(\App\Services\EscrowService::class)->onContractTerminated($record->fresh(), auth()->user());
 
                                 Notification::make()
                                     ->title('Đã đánh dấu hợp đồng chấm dứt')
@@ -1001,6 +1023,31 @@ class PartnerForm
             ->title($result['mailSent']
                 ? "Đã tạo hợp đồng & gửi link ký tới {$result['email']}"
                 : 'Đã tạo hợp đồng — chưa gửi được email, xem "Xem toàn văn hợp đồng" để lấy link gửi thủ công')
+            ->success()
+            ->send();
+    }
+
+    private static function createAddendum(?Partner $record): void
+    {
+        if (! $record) {
+            return;
+        }
+
+        try {
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->createAddendumAndSend($record, auth()->user());
+        } catch (ValidationException $e) {
+            Notification::make()
+                ->title('Chưa thể tạo phụ lục')
+                ->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))
+                ->danger()->persistent()->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title($result['mailSent']
+                ? "Đã tạo phụ lục & gửi link ký tới {$result['email']}"
+                : 'Đã tạo phụ lục — chưa gửi được email, xem "Xem toàn văn hợp đồng" để lấy link gửi thủ công')
             ->success()
             ->send();
     }

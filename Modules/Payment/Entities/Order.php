@@ -99,6 +99,17 @@ class Order extends Model implements Eventable
         'refund_reason',
         'refunded_at',
         'refunded_by',
+        'refund_paid_by',
+        // Hoa hồng / ai chịu khuyến mãi / kỳ đối soát — chỉ App\Services\OrderCommissionService và SettlementService ghi.
+        'collected_by',
+        'commission_rate',
+        'commission_amount',
+        'platform_subsidy',
+        'discounts',
+        'settlement_id',
+        'commission_finalized_at',
+        'subsidy_held_at',
+        'subsidy_held_reason',
     ];
 
     protected $casts = [
@@ -113,6 +124,11 @@ class Order extends Model implements Eventable
         'extra_charge_expired_at' => 'datetime',
         'extra_refund_paid_at'    => 'datetime',
         'refunded_at'             => 'datetime',
+        'discounts'               => 'array',
+        'commission_amount'       => 'integer',
+        'platform_subsidy'        => 'integer',
+        'commission_finalized_at' => 'datetime',
+        'subsidy_held_at'         => 'datetime',
         'exclude_from_stats'     => 'boolean',
         'unlock_anytime'         => 'boolean',
         'checked_in_at'          => 'datetime',

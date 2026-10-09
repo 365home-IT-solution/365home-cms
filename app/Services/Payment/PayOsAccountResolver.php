@@ -6,14 +6,19 @@ use Illuminate\Support\Facades\Config;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\BranchPayOsAccount;
 use Modules\Payment\Entities\Order;
+use Modules\Payment\Entities\PartnerPayOsAccount;
 use PayOS\PayOS;
 use RuntimeException;
 
-// Chọn tài khoản PayOS cho đơn Homestay: chi nhánh của đơn (orders.category_id, dò ngược lên chi
-// nhánh gốc nếu là khu vực con) có tài khoản PayOS RIÊNG đang bật (BranchPayOsAccount) thì tiền vào
-// thẳng tài khoản chủ nhà; không có thì dùng tài khoản CHUNG (payment_configurations, nạp vào
-// config('payos.*') ở PaymentServiceProvider::boot()). Mọi chỗ tạo/tra/huỷ link PayOS của Order PHẢI
-// đi qua đây — không tự đọc config('payos.*') nữa, nếu không link sẽ rơi nhầm về tài khoản chung.
+// Chọn tài khoản PayOS cho đơn Homestay, theo thứ tự:
+//   1. Ghi đè theo CHI NHÁNH (BranchPayOsAccount: orders.category_id, dò ngược lên chi nhánh gốc nếu là
+//      khu vực con) — chỉ dùng khi một chi nhánh có pháp nhân/tài khoản khác với đối tác.
+//   2. Kênh RIÊNG CỦA ĐỐI TÁC sở hữu chi nhánh của đơn (PartnerPayOsAccount) — nơi cấu hình CHÍNH, áp
+//      dụng cho mọi chi nhánh của đối tác; tiền vào thẳng tài khoản đối tác.
+//   3. Tài khoản CHUNG của 365home (payment_configurations, nạp vào config('payos.*') ở
+//      PaymentServiceProvider::boot()) — đối tác chưa cấu hình kênh thì 365home thu hộ như cũ.
+// Mọi chỗ tạo/tra/huỷ link PayOS của Order PHẢI đi qua đây — không tự đọc config('payos.*') nữa, nếu
+// không link sẽ rơi nhầm về tài khoản chung.
 class PayOsAccountResolver
 {
     // Đủ sâu cho cây chi nhánh -> khu vực hiện có (2 cấp), chặn vòng lặp nếu parent_id bị trỏ vòng.
@@ -54,36 +59,103 @@ class PayOsAccountResolver
         return null;
     }
 
-    public static function forCategory(?int $categoryId): ?PayOsGateway
+    /** Đối tác sở hữu chi nhánh/khu vực này (partner_id của chính nó, không có thì của chi nhánh cha gần nhất). */
+    public static function partnerIdForCategory(?int $categoryId): ?string
     {
-        $active   = self::branchAccountFor($categoryId);
-        $inactive = $active ? null : self::branchAccountFor($categoryId, activeOnly: false);
-        $global   = self::globalCredentials();
+        $depth = 0;
 
-        $primary = $active?->credentials() ?? $global;
+        while ($categoryId && $depth++ < self::MAX_PARENT_DEPTH) {
+            $category = Category::query()->whereKey($categoryId)->first(['id', 'parent_id', 'partner_id']);
+
+            if (! $category) {
+                return null;
+            }
+
+            if ($category->partner_id) {
+                return (string) $category->partner_id;
+            }
+
+            $categoryId = $category->parent_id;
+        }
+
+        return null;
+    }
+
+    // Đối tác nhận tiền của đơn: chủ chi nhánh của đơn; đơn không gắn chi nhánh thì theo orders.partner_id.
+    public static function partnerIdForOrder(?Order $order): ?string
+    {
+        if (! $order) {
+            return null;
+        }
+
+        return self::partnerIdForCategory($order->category_id ? (int) $order->category_id : null)
+            ?? ($order->partner_id ? (string) $order->partner_id : null);
+    }
+
+    /**
+     * Kênh PayOS riêng của đối tác.
+     *
+     * @param  bool  $activeOnly  false = lấy cả kênh đang tắt (chỉ dùng làm dự phòng tra link cũ)
+     */
+    public static function partnerAccountFor(?string $partnerId, bool $activeOnly = true): ?PartnerPayOsAccount
+    {
+        if (! $partnerId) {
+            return null;
+        }
+
+        $account = PartnerPayOsAccount::where('partner_id', $partnerId)->first();
+
+        if (! $account || ! $account->isComplete() || ($activeOnly && ! $account->is_active)) {
+            return null;
+        }
+
+        // Kênh riêng của đối tác chỉ dùng để nhận tiền đặt phòng SAU KHI hợp đồng mới/phụ lục có hiệu lực — trước đó 365home thu hộ.
+        // (Link tạo trước đó vẫn tra cứu được qua nhánh $activeOnly = false.)
+        if ($activeOnly && ! \App\Models\Partner::withTrashed()->whereKey($partnerId)->whereNotNull('payment_flow_effective_at')->exists()) {
+            return null;
+        }
+
+        return $account;
+    }
+
+    public static function forCategory(?int $categoryId, ?string $partnerId = null): ?PayOsGateway
+    {
+        $partnerId ??= self::partnerIdForCategory($categoryId);
+
+        $branch  = self::branchAccountFor($categoryId);
+        $partner = self::partnerAccountFor($partnerId);
+        $global  = self::globalCredentials();
+
+        $primary = $branch?->credentials() ?? $partner?->credentials() ?? $global;
 
         if (! $primary) {
             return null;
         }
 
-        // Dự phòng: tài khoản chung (link tạo trước khi chi nhánh bật PayOS riêng) và tài khoản
-        // riêng đã tắt (link tạo trước khi tắt) — bỏ trùng theo client_id.
+        // Dự phòng để tra/huỷ/xác thực link tạo TRƯỚC khi đổi tài khoản: kênh đối tác (khi chi nhánh
+        // vừa bật ghi đè), tài khoản chung (link tạo trước khi có kênh riêng) và các kênh riêng đã
+        // tắt — bỏ trùng theo client_id.
         $fallbacks = [];
         $seen      = [$primary[0] => true];
 
-        foreach ([$global, $inactive?->credentials()] as $credentials) {
+        foreach ([
+            $partner?->credentials(),
+            $global,
+            self::branchAccountFor($categoryId, activeOnly: false)?->credentials(),
+            self::partnerAccountFor($partnerId, activeOnly: false)?->credentials(),
+        ] as $credentials) {
             if ($credentials && ! isset($seen[$credentials[0]])) {
                 $seen[$credentials[0]] = true;
                 $fallbacks[]           = new PayOS(...$credentials);
             }
         }
 
-        return new PayOsGateway($primary[0], $primary[1], $primary[2], $fallbacks, $active?->id);
+        return new PayOsGateway($primary[0], $primary[1], $primary[2], $fallbacks, $branch?->id, $branch ? null : $partner?->partner_id);
     }
 
     public static function forOrder(?Order $order): ?PayOsGateway
     {
-        return self::forCategory($order?->category_id ? (int) $order->category_id : null);
+        return self::forCategory($order?->category_id ? (int) $order->category_id : null, self::partnerIdForOrder($order));
     }
 
     public static function forOrderOrFail(?Order $order): PayOsGateway
@@ -121,11 +193,14 @@ class PayOsAccountResolver
     public static function checksumKeysForOrder(Order $order): array
     {
         $categoryId = $order->category_id ? (int) $order->category_id : null;
+        $partnerId  = self::partnerIdForOrder($order);
 
         return array_values(array_unique(array_filter([
             self::branchAccountFor($categoryId)?->checksum_key,
+            self::partnerAccountFor($partnerId)?->checksum_key,
             self::globalCredentials()[2] ?? null,
             self::branchAccountFor($categoryId, activeOnly: false)?->checksum_key,
+            self::partnerAccountFor($partnerId, activeOnly: false)?->checksum_key,
         ])));
     }
 
@@ -138,9 +213,10 @@ class PayOsAccountResolver
      */
     public static function allBranchChecksumKeys(): array
     {
-        return BranchPayOsAccount::where('is_active', true)->get()
-            ->filter(fn (BranchPayOsAccount $account) => $account->isComplete())
-            ->map(fn (BranchPayOsAccount $account) => $account->checksum_key)
+        return collect(BranchPayOsAccount::where('is_active', true)->get())
+            ->concat(PartnerPayOsAccount::where('is_active', true)->get())
+            ->filter(fn (BranchPayOsAccount|PartnerPayOsAccount $account) => $account->isComplete())
+            ->map(fn (BranchPayOsAccount|PartnerPayOsAccount $account) => $account->checksum_key)
             ->unique()
             ->values()
             ->all();

@@ -17,6 +17,8 @@ use Modules\Payment\Entities\BranchPayOsAccount;
 use PayOS\PayOS;
 use Throwable;
 
+// Từ khi có "PayOS theo đối tác" (PartnerPayOsAccountResource — nơi cấu hình CHÍNH), trang này chỉ còn
+// dùng để GHI ĐÈ cho chi nhánh có tài khoản khác với đối tác; chi nhánh có dòng ở đây thắng kênh của đối tác.
 // "PayOS theo chi nhánh" — kết nối tài khoản PayOS RIÊNG của chủ nhà cho 1 chi nhánh Homestay: khách
 // đặt phòng ở chi nhánh đó thanh toán thẳng vào tài khoản chủ nhà thay vì tài khoản chung ("Thanh
 // toán online"). Chỉ super_admin — đây là nơi đổi tiền chảy về tài khoản nào. Toà nhà MiniHouse có

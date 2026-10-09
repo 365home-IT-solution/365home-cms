@@ -24,6 +24,11 @@ class EditPartner extends EditRecord
 
     private array $pendingUserIds = [];
 
+    // Mức ký quỹ nhập ở tab Hợp đồng (không phải cột ghi trực tiếp) — áp dụng ở afterSave() qua EscrowService.
+    private bool $escrowMinSubmitted = false;
+
+    private ?int $pendingEscrowMin = null;
+
     public function getTitle(): string|Htmlable
     {
         return "Xác minh đối tác: {$this->record->name}";
@@ -37,6 +42,10 @@ class EditPartner extends EditRecord
         $this->pendingUserIds = $data['user_ids'] ?? [];
         unset($data['branch_ids'], $data['user_ids']);
 
+        $this->escrowMinSubmitted = array_key_exists('escrow_min_amount', $data);
+        $this->pendingEscrowMin = filled($data['escrow_min_amount'] ?? null) ? (int) $data['escrow_min_amount'] : null;
+        unset($data['escrow_min_amount']);
+
         if (! empty($data['legal_name'])) {
             $data['name'] = $data['legal_name'];
         }
@@ -47,6 +56,10 @@ class EditPartner extends EditRecord
     protected function afterSave(): void
     {
         PartnerForm::syncAssignments($this->record, $this->pendingBranchIds, $this->pendingUserIds);
+
+        if ($this->escrowMinSubmitted && $this->pendingEscrowMin !== ($this->record->escrow_min_amount !== null ? (int) $this->record->escrow_min_amount : null)) {
+            app(\App\Services\EscrowService::class)->setMinAmount($this->record, $this->pendingEscrowMin ?: null, null, auth()->user());
+        }
     }
 
     protected function getHeaderActions(): array

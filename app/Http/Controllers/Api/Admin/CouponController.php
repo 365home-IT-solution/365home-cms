@@ -133,9 +133,11 @@ class CouponController extends Controller
         }
 
         $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? null) : $user->partner_id;
+        $funding = Coupon::resolveFunding($user->isSuperAdmin(), $partnerId, $data['funded_by'] ?? null, $data['partner_share_pct'] ?? null);
 
-        $coupon = DB::transaction(function () use ($data, $partnerId, $user) {
+        $coupon = DB::transaction(function () use ($data, $partnerId, $user, $funding) {
             $coupon = Coupon::create([
+                ...$funding,
                 'partner_id'      => $partnerId,
                 'code'            => strtoupper($data['code']),
                 'name'            => $data['name'],
@@ -207,7 +209,12 @@ class CouponController extends Controller
             return response()->json(['message' => $roomError], 422);
         }
 
-        DB::transaction(function () use ($coupon, $data, $applyType) {
+        $funding = null;
+        if ($user->isSuperAdmin() && (array_key_exists('funded_by', $data) || array_key_exists('partner_share_pct', $data))) {
+            $funding = Coupon::resolveFunding(true, $coupon->partner_id, $data['funded_by'] ?? $coupon->funded_by, $data['partner_share_pct'] ?? $coupon->partner_share_pct);
+        }
+
+        DB::transaction(function () use ($coupon, $data, $applyType, $funding) {
             $fields = collect($data)->only([
                 'name', 'description', 'type', 'value', 'apply_type', 'min_order_value',
                 'max_discount', 'usage_limit', 'start_at', 'end_at', 'validity_days', 'is_active',
@@ -216,6 +223,10 @@ class CouponController extends Controller
 
             if (array_key_exists('code', $data)) {
                 $fields['code'] = strtoupper($data['code']);
+            }
+
+            if ($funding) {
+                $fields += $funding;
             }
 
             if (array_key_exists('apply_type', $data) || array_key_exists('room_id', $data)) {
@@ -315,6 +326,11 @@ class CouponController extends Controller
             // KHÁC với API gán mã có sẵn cho khách (POST .../customers/{id}/assign-coupon).
             'customer_id' => 'nullable|uuid|exists:customers,id',
             'partner_id'  => 'nullable|uuid|exists:partners,id',
+
+            // Ai chịu tiền giảm của mã (xem App\Services\OrderCommissionService) — chỉ Super Admin chọn được, đối
+            // tác luôn là 'partner'. shared = đồng tài trợ, partner_share_pct = % đối tác chịu.
+            'funded_by'         => 'nullable|in:partner,platform,shared',
+            'partner_share_pct' => 'nullable|integer|min:1|max:99',
 
             // Giới hạn chi nhánh được dùng coupon (xem docblock class) — bỏ trống/không gửi = áp
             // dụng mọi chi nhánh.
@@ -450,6 +466,9 @@ class CouponController extends Controller
             'validity_days'   => $coupon->validity_days,
             'is_active'       => (bool) $coupon->is_active,
             'is_exclusive'    => (bool) $coupon->is_exclusive,
+            // Ai chịu tiền giảm: partner | platform | shared (partner_share_pct = % đối tác chịu khi đồng tài trợ).
+            'funded_by'         => $coupon->funded_by,
+            'partner_share_pct' => $coupon->partner_share_pct,
             'is_personal'     => $coupon->isPersonal(),
             'customer'        => $coupon->customer ? [
                 'id' => $coupon->customer->id, 'fullname' => $coupon->customer->fullname, 'phone' => $coupon->customer->phone,

@@ -114,6 +114,11 @@ class BookingController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
         }
 
+        // Đối tác bị tạm ngưng bán do ký quỹ → không nhận đơn mới (423 PARTNER_ESCROW_LOW).
+        if ($blocked = \App\Services\EscrowService::salesBlockResponse($room->partner_id)) {
+            return $blocked;
+        }
+
         // ── 4. Xây dựng items đặt phòng ──────────────────────────────────────
         $rtsCollection = collect();
         $slotSummary   = [];
@@ -406,11 +411,14 @@ class BookingController extends Controller
         $appliedCouponCodes = collect($appliedCoupons)->pluck('code')->values()->all();
 
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
+        // Dòng giảm của phòng (khuyến mãi bảng giá + chiết khấu hệ thống, do đối tác chịu) — ghi vào orders.discounts để đối soát.
+        $roomDiscountLines = \App\Services\OrderCommissionService::roomDiscountLines((int) round($promotionDiscount), (int) round($systemDiscount));
+
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $guestCccdRows
+            $guestCccdRows, $roomDiscountLines
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -448,6 +456,7 @@ class BookingController extends Controller
                 // Order::depositDueAmount(), không lưu trực tiếp vào 2 cột này.
                 'amount'          => $finalAmount,
                 'full_amount'     => $finalAmount,
+                'discounts'       => $roomDiscountLines ?: null,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,           // backward compat
                 'coupon_codes'    => $appliedCouponCodes ?: null,

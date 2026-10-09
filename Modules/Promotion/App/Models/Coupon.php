@@ -43,6 +43,38 @@ class Coupon extends Model
         'validity_days',
         'template_coupon_id',
         'auto_issue_tier_id',
+        'funded_by',
+        'partner_share_pct',
+    ];
+
+    // Ai chịu tiền giảm của mã (xem App\Services\OrderCommissionService): đối tác / 365home / đồng tài trợ.
+    public const FUNDED_PARTNER = 'partner';
+    public const FUNDED_PLATFORM = 'platform';
+    public const FUNDED_SHARED = 'shared';
+
+    protected static function booted(): void
+    {
+        // Chuẩn hoá người chịu tiền giảm ở MỌI đường lưu (Filament, API, cấp tự động): đối tác thường chỉ chịu được
+        // mã của chính họ; mã không thuộc đối tác nào không thể do đối tác chịu; % chỉ có nghĩa khi đồng tài trợ.
+        static::saving(function (self $coupon) {
+            $user = auth()->user();
+
+            if ($user && ! $user->isSuperAdmin() && $coupon->isDirty('funded_by')) {
+                $coupon->funded_by = self::FUNDED_PARTNER;
+            }
+            if ($coupon->funded_by === self::FUNDED_PARTNER && $coupon->partner_id === null) {
+                $coupon->funded_by = self::FUNDED_PLATFORM;
+            }
+            if ($coupon->funded_by !== self::FUNDED_SHARED) {
+                $coupon->partner_share_pct = null;
+            }
+        });
+    }
+
+    public const FUNDED_BY = [
+        self::FUNDED_PARTNER  => 'Đối tác chịu',
+        self::FUNDED_PLATFORM => '365home chịu',
+        self::FUNDED_SHARED   => 'Đồng tài trợ',
     ];
 
     protected $casts = [
@@ -56,6 +88,38 @@ class Coupon extends Model
         'validity_days' => 'integer',
         'auto_issue_tier_id' => 'integer',
     ];
+
+    /**
+     * Chuẩn hoá "ai chịu tiền giảm" khi tạo/sửa mã: đối tác chỉ tạo được mã do chính họ chịu; Super Admin chọn được cả
+     * ba (mã không thuộc đối tác nào thì mặc định 365home chịu; đồng tài trợ phải có phần trăm đối tác chịu 1–99).
+     *
+     * @return array{funded_by: string, partner_share_pct: ?int}
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public static function resolveFunding(bool $isSuperAdmin, ?string $partnerId, ?string $fundedBy, mixed $sharePct): array
+    {
+        if (! $isSuperAdmin) {
+            return ['funded_by' => self::FUNDED_PARTNER, 'partner_share_pct' => null];
+        }
+
+        $fundedBy ??= $partnerId === null ? self::FUNDED_PLATFORM : self::FUNDED_PARTNER;
+
+        if ($fundedBy === self::FUNDED_PARTNER && $partnerId === null) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['funded_by' => ['Mã không thuộc đối tác nào thì không thể do đối tác chịu.']]);
+        }
+
+        if ($fundedBy === self::FUNDED_SHARED) {
+            $share = (int) $sharePct;
+            if ($share < 1 || $share > 99) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['partner_share_pct' => ['Đồng tài trợ cần phần trăm đối tác chịu từ 1 đến 99.']]);
+            }
+
+            return ['funded_by' => $fundedBy, 'partner_share_pct' => $share];
+        }
+
+        return ['funded_by' => $fundedBy, 'partner_share_pct' => null];
+    }
 
     /**
      * Quan hệ nhiều-nhiều với RoomTimeSlot
@@ -180,7 +244,30 @@ class Coupon extends Model
             default          => false,
         };
 
-        return $applies && $this->passesBranchRestriction($roomId);
+        return $applies && $this->passesBranchRestriction($roomId) && $this->partnerHasJoined($roomId);
+    }
+
+    /**
+     * Chiến dịch ĐỒNG TÀI TRỢ (funded_by = shared) chỉ áp lên phòng của chi nhánh mà đối tác đã đồng ý tham gia
+     * (App\Models\CouponPartnerParticipation). Mã do đối tác tự tạo hoặc 365home chịu 100% không cần đồng ý —
+     * không làm đối tác thiệt.
+     */
+    private function partnerHasJoined(string $roomId): bool
+    {
+        if ($this->funded_by !== self::FUNDED_SHARED || $this->partner_id !== null) {
+            return true;
+        }
+
+        $room = Product::withoutGlobalScopes()->with('categories:id,parent_id')->find($roomId);
+        if (! $room) {
+            return false;
+        }
+
+        $branchIds = $room->categories->flatMap(fn ($category) => array_filter([(int) $category->id, (int) $category->parent_id]))->unique()->all();
+
+        return \App\Models\CouponPartnerParticipation::query()
+            ->where('coupon_id', $this->id)->where('is_enabled', true)
+            ->whereIn('category_id', $branchIds)->exists();
     }
 
     private function passesBranchRestriction(string $roomId): bool

@@ -30,6 +30,30 @@ return [
             'subscriber_password' => env('VNPT_SMARTCA_SUBSCRIBER_PASSWORD'), // chỉ cần đúng 1 lần đăng nhập đầu
         ],
 
+        // Chữ ký số từ xa theo chuẩn CSC (Cloud Signature Consortium API v1) — xem CscRemoteSigningProvider. Nhập ở web (Cấu hình web > Chữ ký số)
+        // hoặc .env; các nhà cung cấp chỉ cấp tài liệu/tài khoản tích hợp cho đối tác đã ký hợp đồng.
+        'misa_esign' => [
+            'base_url'      => env('MISA_ESIGN_BASE_URL'),
+            'client_id'     => env('MISA_ESIGN_CLIENT_ID'),
+            'client_secret' => env('MISA_ESIGN_CLIENT_SECRET'),
+            'username'      => env('MISA_ESIGN_USERNAME'),       // tài khoản thuê bao (khi grant_type = password)
+            'password'      => env('MISA_ESIGN_PASSWORD'),
+            'credential_id' => env('MISA_ESIGN_CREDENTIAL_ID'),  // trống = lấy chứng thư đầu tiên của thuê bao
+            'pin'           => env('MISA_ESIGN_PIN'),
+            'grant_type'    => env('MISA_ESIGN_GRANT_TYPE', 'client_credentials'),
+        ],
+
+        'csc_custom' => [
+            'base_url'      => env('CSC_BASE_URL'),
+            'client_id'     => env('CSC_CLIENT_ID'),
+            'client_secret' => env('CSC_CLIENT_SECRET'),
+            'username'      => env('CSC_USERNAME'),
+            'password'      => env('CSC_PASSWORD'),
+            'credential_id' => env('CSC_CREDENTIAL_ID'),
+            'pin'           => env('CSC_PIN'),
+            'grant_type'    => env('CSC_GRANT_TYPE', 'client_credentials'),
+        ],
+
     ],
 
 ];

@@ -154,6 +154,11 @@ class BookingController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
         }
 
+        // Đối tác bị tạm ngưng bán do ký quỹ → nhân viên đặt hộ cũng không tạo được đơn mới (423 PARTNER_ESCROW_LOW).
+        if ($blocked = \App\Services\EscrowService::salesBlockResponse($room->partner_id)) {
+            return $blocked;
+        }
+
         // Nhân viên đối tác nền tảng (vd 365home) được đặt hộ cho MỌI đối tác — xem
         // User::belongsToPlatformPartner(). Nhân viên đối tác thường chỉ được đặt phòng
         // thuộc chính đối tác mình.
@@ -379,11 +384,14 @@ class BookingController extends Controller
         $initialStatus = $paymentMethod === 'PayOS' ? 'pending' : $request->input('status', 'pending');
 
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
+        // Dòng giảm của phòng (khuyến mãi bảng giá + chiết khấu hệ thống, do đối tác chịu) — ghi vào orders.discounts để đối soát.
+        $roomDiscountLines = \App\Services\OrderCommissionService::roomDiscountLines((int) round($promotionDiscount), (int) round($systemDiscount));
+
         $order = DB::transaction(function () use (
             $room, $finalAmount, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $depositPercentToSave,
-            $admin, $initialStatus, $cccdFront, $cccdBack, $cccdData, $guestCccdRows, $cccdQr
+            $admin, $initialStatus, $cccdFront, $cccdBack, $cccdData, $guestCccdRows, $cccdQr, $roomDiscountLines
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -409,6 +417,7 @@ class BookingController extends Controller
             $order = Order::create([
                 'amount'          => $finalAmount,
                 'full_amount'     => $finalAmount,
+                'discounts'       => $roomDiscountLines ?: null,
                 'deposit_percent' => $depositPercentToSave,
                 // Admin có thể tự nhập mô tả; không gửi thì fallback về mô tả tự sinh như trước.
                 'description'       => $request->input('description') ?: ('Đặt phòng (admin) - ' . $room->name),

@@ -163,9 +163,11 @@ class RoomOccupancyMapWidget extends Widget
     // giữa lúc đang chọn.
     public function bulkToggleRepair(array $roomIds): void
     {
-        $rooms = Room::whereIn('id', $roomIds)
-            ->whereHas('detail', fn ($q) => $q->whereNotIn('status', [Room::STATUS_RENTED, Room::STATUS_RESERVED]))
-            ->get();
+        // Lọc phòng đang có khách ở bằng $room->status (accessor: phòng CHƯA có dòng chi tiết — vd phòng tạo từ luồng khác, "Chưa rõ tầng" — mặc
+        // định là Trống) chứ KHÔNG whereHas('detail'): whereHas loại bỏ luôn các phòng chưa có dòng chi tiết nên chọn nhiều không khoá được chúng,
+        // trong khi khoá từng phòng (toggleRoomRepair) vẫn khoá được.
+        $rooms = Room::whereIn('id', $roomIds)->get()
+            ->reject(fn (Room $room) => in_array($room->status, [Room::STATUS_RENTED, Room::STATUS_RESERVED], true));
 
         foreach ($rooms as $room) {
             $room->update([

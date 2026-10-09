@@ -21,6 +21,7 @@ class PayOsGateway extends PayOS
         string $checksumKey,
         private readonly array $fallbacks = [],
         public readonly ?int $branchAccountId = null,
+        public readonly ?string $partnerAccountPartnerId = null,
     ) {
         parent::__construct($clientId, $apiKey, $checksumKey);
     }
@@ -28,6 +29,18 @@ class PayOsGateway extends PayOS
     public function usesBranchAccount(): bool
     {
         return $this->branchAccountId !== null;
+    }
+
+    public function usesPartnerAccount(): bool
+    {
+        return $this->partnerAccountPartnerId !== null;
+    }
+
+    // Tiền của link tạo qua gateway này về đâu: 'partner' (kênh riêng của đối tác/chi nhánh) hay
+    // 'platform' (365home thu hộ).
+    public function collectedBy(): string
+    {
+        return $this->usesBranchAccount() || $this->usesPartnerAccount() ? 'partner' : 'platform';
     }
 
     public function getPaymentLinkInformation(string|int $orderCode): array

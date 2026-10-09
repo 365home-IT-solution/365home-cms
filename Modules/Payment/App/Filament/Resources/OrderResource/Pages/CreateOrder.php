@@ -163,6 +163,15 @@ class CreateOrder extends CreateRecord
             }
         }
 
+        // Đối tác bị tạm ngưng bán do ký quỹ → nhân viên đặt hộ trong khu quản trị cũng không tạo được đơn mới.
+        if (\App\Services\EscrowService::isSalesSuspended($data['partner_id'] ?? null)) {
+            Notification::make()->title('Đối tác đang tạm ngưng bán')
+                ->body('Đối tác này đang bị tạm ngưng nhận đơn mới do ký quỹ chưa đủ. Nạp đủ ký quỹ để mở bán lại.')
+                ->danger()->send();
+
+            throw new \Filament\Support\Exceptions\Halt();
+        }
+
         // Ghi nhận người tạo — dùng để nhân viên đối tác nền tảng xem lại đúng đơn CHÍNH HỌ đã
         // đặt hộ cho đối tác khác (xem OrderResource::getEloquentQuery()).
         $data['created_by'] = auth()->id();

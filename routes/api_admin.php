@@ -93,6 +93,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::match(['put', 'patch'], 'partners/{partner}', [AdminPartnerController::class, 'update'])->name('partners.update');
     Route::get('partners/{partner}/contract', [AdminPartnerController::class, 'contract'])->name('partners.contract.show');
     Route::post('partners/{partner}/contract/send', [AdminPartnerController::class, 'createContract'])->name('partners.contract.send');
+    Route::post('partners/{partner}/contract/addendum', [AdminPartnerController::class, 'createAddendum'])->name('partners.contract.addendum');
     Route::post('partners/{partner}/contract/platform-sign', [AdminPartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
     // Điều khoản Homestay (loại partner_homestay được ép theo đường dẫn). MiniHouse dùng /api/admin/minihouse/terms/... (routes/api_minihouse.php).
     Route::get('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'versions'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.index');
@@ -113,6 +114,51 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('partners/{partner}', [AdminPartnerController::class, 'destroy'])->name('partners.destroy');
     Route::get('partners/{partner}/financial', [AdminPartnerController::class, 'financial'])->name('partners.financial.show');
     Route::post('partners/{partner}/financial', [AdminPartnerController::class, 'updateFinancial'])->name('partners.financial.update');
+    // Kênh PayOS riêng của đối tác: tiền đặt phòng online về thẳng tài khoản đối tác (chưa cấu hình → 365home thu hộ).
+    Route::get('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'show'])->name('partners.payment-channel.show');
+    Route::post('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'store'])->name('partners.payment-channel.store');
+    Route::put('partners/{partner}/payment-channel/permission', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'updatePermission'])->name('partners.payment-channel.permission');
+    Route::post('partners/{partner}/payment-channel/otp', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'sendOtp'])->middleware('throttle:5,1')->name('partners.payment-channel.otp');
+    Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
+    // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
+    Route::prefix('partners/{partner}/escrow')->name('partners.escrow.')->controller(\App\Http\Controllers\Api\Admin\PartnerEscrowController::class)->group(function () {
+        Route::get('/', 'show')->name('show');
+        Route::put('settings', 'updateSettings')->name('settings');
+        Route::get('entries', 'entries')->name('entries.index');
+        Route::post('entries', 'storeEntry')->name('entries.store');
+        Route::post('deposit-link', 'depositLink')->middleware('throttle:10,1')->name('deposit-link');
+        Route::get('deposits', 'deposits')->name('deposits.index');
+        Route::get('deductions', 'deductions')->name('deductions.index');
+        Route::post('deductions', 'storeDeduction')->name('deductions.store');
+        Route::post('chargebacks', 'storeChargeback')->name('chargebacks.store');
+        Route::post('deductions/{deduction}/accept', 'acceptDeduction')->whereNumber('deduction')->name('deductions.accept');
+        Route::post('deductions/{deduction}/dispute', 'disputeDeduction')->whereNumber('deduction')->name('deductions.dispute');
+        Route::post('deductions/{deduction}/resolve', 'resolveDeduction')->whereNumber('deduction')->name('deductions.resolve');
+    });
+    // Đối soát hoa hồng theo kỳ: bảng đối soát, QR nộp, khiếu nại từng đơn, xác nhận chi, đơn bị giữ khoản bù — xem PartnerSettlementController.
+    Route::prefix('partners/{partner}/settlements')->name('partners.settlements.')->controller(\App\Http\Controllers\Api\Admin\PartnerSettlementController::class)->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->name('store');
+        Route::get('held-orders', 'heldOrders')->name('held-orders');
+        Route::post('held-orders/{orderCode}/resolve', 'resolveHeldOrder')->name('held-orders.resolve');
+        Route::get('{settlement}', 'show')->whereNumber('settlement')->name('show');
+        Route::post('{settlement}/send', 'send')->whereNumber('settlement')->name('send');
+        Route::post('{settlement}/payment-link', 'paymentLink')->middleware('throttle:10,1')->whereNumber('settlement')->name('payment-link');
+        Route::post('{settlement}/dispute', 'dispute')->whereNumber('settlement')->name('dispute');
+        Route::post('{settlement}/disputes/{dispute}/resolve', 'resolveDispute')->whereNumber(['settlement', 'dispute'])->name('disputes.resolve');
+        Route::post('{settlement}/mark-paid', 'markPaid')->whereNumber('settlement')->name('mark-paid');
+        Route::post('{settlement}/paid-out', 'paidOut')->whereNumber('settlement')->name('paid-out');
+        Route::get('{settlement}/invoice', 'invoice')->whereNumber('settlement')->name('invoice.show');
+        Route::post('{settlement}/invoice', 'markInvoiced')->whereNumber('settlement')->name('invoice.store');
+    });
+    // Chiến dịch đồng tài trợ của 365home: đối tác đồng ý tham gia theo từng chi nhánh — xem PartnerCouponCampaignController.
+    Route::get('partners/{partner}/coupon-campaigns', [\App\Http\Controllers\Api\Admin\PartnerCouponCampaignController::class, 'index'])->name('partners.coupon-campaigns.index');
+    Route::put('partners/{partner}/coupon-campaigns/{coupon}/participation', [\App\Http\Controllers\Api\Admin\PartnerCouponCampaignController::class, 'update'])->whereNumber('coupon')->name('partners.coupon-campaigns.participation');
+    // Yêu cầu hoàn tiền khách (đơn có tiền ở đối tác): đối tác có 24 giờ, quá hạn 365home hoàn thay rồi trừ ký quỹ — xem PartnerRefundClaimController.
+    Route::get('partners/{partner}/refund-claims', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'index'])->name('partners.refund-claims.index');
+    Route::post('partners/{partner}/refund-claims/{claim}/refund-on-behalf', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'refundOnBehalf'])->whereNumber('claim')->name('partners.refund-claims.refund-on-behalf');
+    Route::post('partners/{partner}/refund-claims/{claim}/cancel', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'cancel'])->whereNumber('claim')->name('partners.refund-claims.cancel');
+    Route::post('orders/{order_code}/refund-claims', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'store'])->name('orders.refund-claims.store');
     Route::get('partners/{partner}/facilities', [AdminPartnerController::class, 'facilities'])->name('partners.facilities.index');
     Route::post('partners/{partner}/facilities', [AdminPartnerController::class, 'storeFacility'])->name('partners.facilities.store');
     Route::get('partners/{partner}/facilities/{facility}', [AdminPartnerController::class, 'showFacility'])->name('partners.facilities.show');

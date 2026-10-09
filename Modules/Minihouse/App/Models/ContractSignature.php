@@ -27,12 +27,15 @@ class ContractSignature extends Model
         'document_id', 'party', 'signer_type', 'signer_id', 'signer_name', 'signer_phone',
         'signature_path', 'signed_document_hash', 'signed_at', 'ip', 'user_agent',
         'auth_method', 'otp_request_id', 'otp_verified_at', 'consent_text', 'created_at',
+        'pki_provider', 'pki_certificate', 'pki_signed_at',
     ];
 
     protected $casts = [
         'signed_at'       => 'datetime',
         'otp_verified_at' => 'datetime',
         'created_at'      => 'datetime',
+        'pki_certificate' => 'array',
+        'pki_signed_at'   => 'datetime',
     ];
 
     public function document(): BelongsTo

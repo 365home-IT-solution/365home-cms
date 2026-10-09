@@ -478,6 +478,19 @@ private function buildTelegramMessage(Order $order, string $status): string
                 return response()->json($subscriptionResponse, 200);
             }
 
+            // Nạp ký quỹ đối tác cũng về tài khoản PayOS chung (mã đơn dải 9..., hoặc nội dung chứa mã KQxxxxxx) — cùng
+            // lý do đặt sau bước xác thực chữ ký.
+            $escrowResponse = app(\App\Services\EscrowPayosService::class)->handleWebhook($webhookData);
+            if ($escrowResponse !== null) {
+                return response()->json($escrowResponse, 200);
+            }
+
+            // QR nộp hoa hồng kỳ đối soát (mã đơn dải 6..., hoặc nội dung chứa mã bảng DSyymm-XXXXX) — cùng lý do.
+            $settlementResponse = app(\App\Services\SettlementPayosService::class)->handleWebhook($webhookData);
+            if ($settlementResponse !== null) {
+                return response()->json($settlementResponse, 200);
+            }
+
             if (!$orderCode) {
                 Log::error('PayOS Webhook: No orderCode provided', ['data' => $webhookData]);
                 return response()->json(['error' => 'No orderCode provided'], 400);

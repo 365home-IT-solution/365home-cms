@@ -115,8 +115,18 @@ class Product extends Model implements HasMedia, Resourceable
     // mọi danh sách/tìm kiếm, bất kể lọc theo tỉnh/ward/chi nhánh cụ thể hay tìm toàn quốc. Chỉ
     // LOẠI (whereDoesntHave) phòng thuộc chi nhánh KHÔNG active — phòng chưa gắn chi nhánh nào vẫn
     // giữ nguyên hiển thị như trước (không phải điều được yêu cầu ở đây).
+    //
+    // Cùng chỗ này ẩn luôn phòng của đối tác đang bị TẠM NGƯNG BÁN do ký quỹ (xem
+    // App\Services\EscrowService) — cùng ý nghĩa "không bán online nữa", và mọi danh sách/tìm kiếm
+    // công khai (API lẫn web) đều đã đi qua scope này.
     public function scopeActiveBranch($query)
     {
+        $suspendedPartnerIds = \App\Services\EscrowService::suspendedPartnerIds();
+
+        if ($suspendedPartnerIds !== []) {
+            $query->where(fn ($q) => $q->whereNull($q->qualifyColumn('partner_id'))->orWhereNotIn($q->qualifyColumn('partner_id'), $suspendedPartnerIds));
+        }
+
         $inactiveCatIds = Category::inactiveBranchCategoryIds();
 
         if ($inactiveCatIds->isEmpty()) {
@@ -172,6 +182,19 @@ class Product extends Model implements HasMedia, Resourceable
         // Phòng MiniHouse (Room) không bị ảnh hưởng vì Room ghi đè booted() (xem ghi chú phía trên).
         static::addGlobalScope('has_branch', function (Builder $query) {
             $query->whereHas('categories');
+        });
+
+        // Đối tác Homestay thêm/mở bán phòng → mức ký quỹ gợi ý có thể tăng: báo đối tác nạp thêm (không khoá bán ngay) — xem EscrowService::syncMinWithRooms().
+        static::saved(function (Product $product) {
+            if (! $product->partner_id || ! ($product->wasRecentlyCreated || $product->wasChanged('is_activated'))) {
+                return;
+            }
+
+            try {
+                app(\App\Services\EscrowService::class)->syncMinWithRooms((string) $product->partner_id);
+            } catch (\Throwable $e) {
+                report($e);
+            }
         });
     }
 
