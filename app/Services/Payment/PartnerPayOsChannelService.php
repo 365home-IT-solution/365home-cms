@@ -36,7 +36,9 @@ class PartnerPayOsChannelService
             // Super Admin đã bật cho chủ đối tác tự nhập kênh chưa (tắt = chỉ 365home nhập hộ).
             'partner_setup_allowed' => (bool) $partner->payos_self_setup_enabled,
             // Tiền đặt phòng online của đối tác đang về đâu.
-            'collected_by'         => $account?->isComplete() && $account->is_active ? 'partner' : 'platform',
+            'collected_by'         => $account?->isComplete() && $account->is_active && $partner->usesDirectPayment() ? 'partner' : 'platform',
+            // Hợp đồng mẫu mới/phụ lục ký quỹ & thanh toán đã có hiệu lực chưa — chưa thì 365home vẫn thu hộ dù đã lưu kênh.
+            'flow_effective_at'    => $partner->payment_flow_effective_at?->toIso8601String(),
             'account_holder'       => $account?->account_holder,
             'bank_account_holder'  => $partner->bank_account_holder,
             'note'                 => $account?->note,

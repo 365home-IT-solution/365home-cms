@@ -1371,6 +1371,40 @@ class OrderForm
                                     ->collapsible()
                                     ->collapsed(false),
 
+                                // Luồng tiền Homestay (chỉ đọc): tiền về đâu, hoa hồng, phần 365home bù và từng khoản giảm kèm người chịu — chụp lúc đặt, chốt khi trả phòng
+                                // (App\Services\OrderCommissionService). Đơn trước khi đối tác chuyển sang luồng mới không có khối này.
+                                Section::make('Luồng tiền & hoa hồng')
+                                    ->icon('heroicon-m-banknotes')
+                                    ->visible(fn ($record) => $record && filled($record->collected_by))
+                                    ->schema([
+                                        Placeholder::make('payment_flow_summary')
+                                            ->hiddenLabel()
+                                            ->content(function ($record) {
+                                                $money = fn ($v) => number_format((int) $v, 0, ',', '.') . 'đ';
+                                                $who = ['partner' => 'đối tác', 'platform' => '365home', 'shared' => 'đồng tài trợ'];
+                                                $source = ['coupon' => 'Mã', 'promotion' => 'Khuyến mãi phòng', 'system' => 'Chiết khấu hệ thống', 'membership' => 'Hạng thành viên'];
+                                                $rows = [
+                                                    ['Tiền về', e(\App\Services\OrderCommissionService::COLLECTED_BY[$record->collected_by] ?? $record->collected_by)],
+                                                    ['Tỉ lệ hoa hồng', $record->commission_rate !== null ? rtrim(rtrim((string) $record->commission_rate, '0'), '.') . '%' : '—'],
+                                                    ['Hoa hồng', $record->commission_amount !== null ? $money($record->commission_amount) : 'Chưa chốt (chốt khi trả phòng)'],
+                                                    ['365home bù', $money($record->platform_subsidy)],
+                                                    ['Kỳ đối soát', $record->settlement_id ? '#' . (int) $record->settlement_id : 'Chưa vào kỳ'],
+                                                ];
+                                                if ($record->subsidy_held_at) {
+                                                    $rows[] = ['Khoản bù đang bị giữ', e((string) $record->subsidy_held_reason)];
+                                                }
+                                                foreach ((array) $record->discounts as $line) {
+                                                    $rows[] = [e(($source[$line['source'] ?? ''] ?? 'Giảm') . (filled($line['code'] ?? null) ? ' ' . $line['code'] : '')),
+                                                        $money($line['amount'] ?? 0) . ' — ' . ($who[$line['funded_by'] ?? 'partner'] ?? '') . ' chịu'];
+                                                }
+
+                                                return new \Illuminate\Support\HtmlString('<table style="width:100%;font-size:14px;">' . collect($rows)
+                                                    ->map(fn ($r) => '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;white-space:nowrap;">' . $r[0] . '</td><td style="padding:2px 0;font-weight:600;">' . $r[1] . '</td></tr>')->implode('') . '</table>');
+                                            }),
+                                    ])
+                                    ->collapsible()
+                                    ->collapsed(true),
+
                                 // Đơn ĐÃ paid nhưng admin huỷ bớt khung giờ/dịch vụ làm giá GIẢM —
                                 // EditOrder::handlePriceDiff() ghi khoản cần hoàn vào extra_refund_amount
                                 // (xem ExtraChargeService::recordPendingRefund()). Không thể "hoàn qua

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Partner;
+use App\Services\PartnerChannelOtpService;
 use App\Services\Payment\PartnerPayOsChannelService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,7 @@ use Illuminate\Http\Request;
  */
 class PartnerPaymentChannelController extends Controller
 {
-    public function __construct(private PartnerPayOsChannelService $channels) {}
+    public function __construct(private PartnerPayOsChannelService $channels, private PartnerChannelOtpService $otp) {}
 
     // GET /api/admin/partners/{partner}/payment-channel
     public function show(Request $request, Partner $partner): JsonResponse
@@ -55,11 +56,54 @@ class PartnerPaymentChannelController extends Controller
             'checksum_key' => ['nullable', 'string', 'max:255'],
             'is_active'    => ['sometimes', 'boolean'],
             'note'         => ['nullable', 'string', 'max:255'],
+            'otp'          => ['nullable', 'string', 'size:6'],
         ]);
 
-        $this->channels->save($partner, $data, $request->user());
+        // Chủ đối tác tự đổi nơi nhận tiền (đổi khoá hoặc bật/tắt kênh) phải xác nhận bằng OTP gửi về email của chính họ; Super Admin nhập hộ thì không.
+        $user = $request->user();
+        if (! $user->isSuperAdmin() && $this->changesDestination($partner, $data)) {
+            if (blank($data['otp'] ?? null)) {
+                return response()->json(['message' => 'Đổi kênh PayOS cần mã OTP gửi về email của bạn — gọi POST …/payment-channel/otp trước.', 'code' => 'OTP_REQUIRED'], 422);
+            }
+            if (! $this->otp->verify($user, $partner, (string) $data['otp'])) {
+                return response()->json(['message' => 'Mã OTP không đúng hoặc đã hết hạn.', 'code' => 'OTP_INVALID'], 422);
+            }
+        }
+        unset($data['otp']);
+
+        $this->channels->save($partner, $data, $user);
 
         return response()->json(['message' => 'Đã lưu kênh PayOS của đối tác.', 'data' => $this->data($request, $partner->fresh())]);
+    }
+
+    // POST /api/admin/partners/{partner}/payment-channel/otp — chủ đối tác xin mã OTP (email) để xác nhận đổi kênh PayOS.
+    public function sendOtp(Request $request, Partner $partner): JsonResponse
+    {
+        $this->authorizeManage($request, $partner);
+        $user = $request->user();
+        abort_if($user->isSuperAdmin(), 422, 'Super Admin không cần OTP.');
+        abort_if($this->otp->hasCooldown($user, $partner), 429, 'Vui lòng chờ 1 phút trước khi xin mã mới.');
+        abort_unless(filled($user->email), 422, 'Tài khoản chưa có email để nhận mã OTP.');
+        abort_unless($this->otp->send($user, $partner), 500, 'Không gửi được email OTP — thử lại sau.');
+
+        return response()->json(['message' => 'Đã gửi mã OTP tới email ' . $this->maskEmail((string) $user->email) . ' (hiệu lực 5 phút).']);
+    }
+
+    /** Có đổi nơi nhận tiền không: gửi khoá mới, hoặc bật/tắt kênh khác trạng thái hiện tại. */
+    private function changesDestination(Partner $partner, array $data): bool
+    {
+        if (filled($data['client_id'] ?? null) || filled($data['api_key'] ?? null) || filled($data['checksum_key'] ?? null)) {
+            return true;
+        }
+
+        return array_key_exists('is_active', $data) && (bool) $data['is_active'] !== (bool) $partner->payOsAccount?->is_active;
+    }
+
+    private function maskEmail(string $email): string
+    {
+        [$name, $domain] = array_pad(explode('@', $email, 2), 2, '');
+
+        return mb_substr($name, 0, 2) . '***@' . $domain;
     }
 
     // POST /api/admin/partners/{partner}/payment-channel/confirm-webhook — đăng ký lại URL webhook của 365home cho kênh PayOS.

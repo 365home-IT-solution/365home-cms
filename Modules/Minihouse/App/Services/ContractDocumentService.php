@@ -4,7 +4,9 @@ namespace Modules\Minihouse\App\Services;
 
 use App\Models\User;
 use App\Services\AdminNotificationService;
+use App\Services\ContractSigning\ContractSigningManager;
 use App\Services\PdfSigning\ContractPdfRenderer;
+use App\Services\PdfSigning\PdfPkiSigner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -311,7 +313,17 @@ class ContractDocumentService
                 'final.pdf'
             );
 
+            // Mức C: chủ trọ ký SỐ (PAdES, chứng thư số CA) lên PDF cuối — bật ở Cấu hình web > Chữ ký số. Ký không được thì KHÔNG chốt hợp đồng
+            // (transaction rollback, hợp đồng vẫn chờ chủ ký) để không có bản "đã ký" mà thiếu chữ ký số như cấu hình yêu cầu.
+            $pki = $this->applyOwnerPkiSignature($doc, $rendered, $actor);
+            if ($pki) {
+                $rendered['hash'] = $pki['hash'];
+            }
+
             ContractSignature::create([
+                'pki_provider'         => $pki['provider'] ?? null,
+                'pki_certificate'      => $pki['certificate'] ?? null,
+                'pki_signed_at'        => $pki ? now() : null,
                 'document_id'          => $doc->id,
                 'party'                => ContractSignature::PARTY_OWNER,
                 'signer_type'          => ContractSignature::SIGNER_TYPE_ADMIN,
@@ -576,6 +588,39 @@ class ContractDocumentService
         return ['path' => $path, 'hash' => $hash];
     }
 
+    /**
+     * Ký số PAdES lên PDF cuối đã lưu (ghi đè file + trả hash của file đã ký). null = MiniHouse chưa bật ký số (chỉ Mức A).
+     *
+     * @param  array{path: string, hash: string}  $rendered
+     * @return array{provider: string, certificate: array<string, mixed>, hash: string}|null
+     */
+    private function applyOwnerPkiSignature(ContractDocument $doc, array $rendered, User $actor): ?array
+    {
+        $manager = app(ContractSigningManager::class);
+        if (! $manager->minihousePkiEnabled()) {
+            return null;
+        }
+
+        $signer = $manager->forSide(ContractSigningManager::SIDE_MINIHOUSE);
+
+        try {
+            $result = app(PdfPkiSigner::class)->sign((string) Storage::disk('public')->get($rendered['path']), $signer, [
+                'role'             => 'owner',
+                'name'             => $this->actorName($actor),
+                'user_id'          => (string) $actor->id,
+                'transaction_desc' => 'Ky hop dong thue ' . $doc->no,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            throw new ContractDocumentException('Không ký số được hợp đồng bằng ' . $signer->name() . ' — hợp đồng vẫn chờ chủ ký, thử lại hoặc kiểm tra cấu hình Chữ ký số. (' . $e->getMessage() . ')', 502);
+        }
+
+        Storage::disk('public')->put($rendered['path'], $result['pdf']);
+
+        return ['provider' => $signer->name(), 'certificate' => $result['certificate'], 'hash' => hash('sha256', $result['pdf'])];
+    }
+
     /** @return array{path: string, mime: string, bytes: string} */
     private function decodeAndStoreSignature(ContractDocument $doc, string $dataUri, string $partySlug): array
     {
@@ -651,6 +696,13 @@ class ContractDocumentService
             'signed_document_hash'  => $s->signed_document_hash,
             'signed_at'             => $s->signed_at?->toIso8601String(),
             'auth_method'           => $s->auth_method,
+            // Mức C: chữ ký số CA của chủ trọ (nhà cung cấp + chủ thể chứng thư) — null nếu chỉ ký tay + OTP.
+            'digital_signature'     => $s->pki_provider ? [
+                'provider'  => $s->pki_provider,
+                'signer'    => $s->pki_certificate['cert_subject'] ?? null,
+                'issuer'    => $s->pki_certificate['cert_issuer'] ?? null,
+                'signed_at' => $s->pki_signed_at?->toIso8601String(),
+            ] : null,
         ];
 
         if ($includeInternal) {

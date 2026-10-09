@@ -143,9 +143,11 @@ class PartnerEscrowController extends Controller
         $this->authorizeSuperAdmin($request, $partner);
         $data = $request->validate([
             'type'       => ['required', Rule::in(Deduction::TYPES)],
+            // Trường hợp được trừ theo phụ lục hợp đồng (Deduction::CASES).
+            'case_code'  => ['nullable', Rule::in(array_keys(Deduction::CASES))],
             'amount'     => ['required', 'integer', 'min:1', 'max:100000000000'],
             'reason'     => ['required', 'string', 'max:2000'],
-            'order_code' => ['nullable', 'string', 'max:50', Rule::requiredIf($request->input('type') === Entry::TYPE_DEDUCT_REFUND)],
+            'order_code' => ['nullable', 'string', 'max:50', Rule::requiredIf($request->input('type') === Entry::TYPE_DEDUCT_REFUND || in_array($request->input('case_code'), [Deduction::CASE_HOST_CANCELLED, Deduction::CASE_CHARGEBACK], true))],
             'reference'  => ['nullable', 'string', 'max:255'],
             'is_urgent'  => ['sometimes', 'boolean'],
             // Khoản khác bắt buộc có chứng từ.
@@ -154,6 +156,14 @@ class PartnerEscrowController extends Controller
         ], ['order_code.required' => 'Khoản hoàn tiền thay đối tác phải gắn mã đơn.', 'evidence.required' => 'Khoản trừ khác phải đính kèm chứng từ.']);
 
         return $this->guard(function () use ($request, $partner, $data) {
+            // Huỷ/không giao phòng đơn đã xác nhận: phạt tối thiểu 100% tiền đơn (hoặc chi phí chuyển khách nếu lớn hơn).
+            if (($data['case_code'] ?? null) === Deduction::CASE_HOST_CANCELLED) {
+                $orderAmount = (int) \Modules\Payment\Entities\Order::withoutGlobalScopes()->where('partner_id', $partner->id)->where('order_code', $data['order_code'])->value('amount');
+                if ($orderAmount > 0 && (int) $data['amount'] < $orderAmount) {
+                    throw new \DomainException('Phạt huỷ/không giao phòng tối thiểu bằng 100% tiền đơn (' . number_format($orderAmount, 0, ',', '.') . 'đ), hoặc chi phí chuyển khách sang chỗ khác nếu lớn hơn.');
+                }
+            }
+
             $deduction = $this->escrow->proposeDeduction($partner, $data, $request->user());
             $this->attach($request, $deduction, 'evidence');
 
@@ -200,6 +210,41 @@ class PartnerEscrowController extends Controller
             'deduction' => $this->escrow->resolveDeduction($this->findDeduction($partner, $deduction), $data['resolution'], isset($data['final_amount']) ? (int) $data['final_amount'] : null, $data['note'], $request->user())->toApi(),
             'escrow'    => $this->escrow->summary($partner->fresh()),
         ]]));
+    }
+
+    // POST …/escrow/chargebacks (multipart) — Super Admin ghi nhận khiếu nại/hoàn giao dịch (chargeback) của cổng thanh toán cho 1 đơn của đối tác: tự lập đề xuất trừ
+    // (loại deduct_refund, case_code = chargeback) với số tiền mặc định = số khách đã trả. body: order_code, amount?, reference? (mã khiếu nại của cổng), reason?, is_urgent?, evidence[]?
+    // PayOS không gửi tín hiệu chargeback tự động nên việc ghi nhận do Super Admin thực hiện khi nhận thông báo từ cổng/ngân hàng.
+    public function storeChargeback(Request $request, Partner $partner): JsonResponse
+    {
+        $this->authorizeSuperAdmin($request, $partner);
+        $data = $request->validate([
+            'order_code' => ['required', 'string', 'max:50'],
+            'amount'     => ['nullable', 'integer', 'min:1', 'max:100000000000'],
+            'reference'  => ['nullable', 'string', 'max:255'],
+            'reason'     => ['nullable', 'string', 'max:2000'],
+            'is_urgent'  => ['sometimes', 'boolean'],
+            'evidence'   => ['sometimes', 'array', 'max:5'],
+            'evidence.*' => self::EVIDENCE_RULES,
+        ]);
+
+        $order = \Modules\Payment\Entities\Order::withoutGlobalScopes()->where('partner_id', $partner->id)->where('order_code', $data['order_code'])->first();
+        abort_unless($order, 404, 'Không tìm thấy đơn của đối tác này.');
+
+        return $this->guard(function () use ($request, $partner, $data, $order) {
+            $deduction = $this->escrow->proposeDeduction($partner, [
+                'type'       => Entry::TYPE_DEDUCT_REFUND,
+                'case_code'  => Deduction::CASE_CHARGEBACK,
+                'amount'     => (int) ($data['amount'] ?? app(\App\Services\OrderCommissionService::class)->paidAmount($order)),
+                'reason'     => 'Chargeback đơn #' . $order->order_code . ($data['reason'] ?? null ? ': ' . $data['reason'] : '.'),
+                'order_code' => $order->order_code,
+                'reference'  => $data['reference'] ?? null,
+                'is_urgent'  => (bool) ($data['is_urgent'] ?? false),
+            ], $request->user());
+            $this->attach($request, $deduction, 'evidence');
+
+            return response()->json(['message' => 'Đã ghi nhận chargeback và lập đề xuất trừ ký quỹ.', 'data' => ['deduction' => $deduction->fresh('media')->toApi(), 'escrow' => $this->escrow->summary($partner->fresh())]], 201);
+        });
     }
 
     private function findDeduction(Partner $partner, int $id): Deduction

@@ -31,6 +31,7 @@ class EscrowService
     public const STATE_GRACE = 'grace';
     public const STATE_LOW = 'low';
     public const STATE_SUSPENDED = 'suspended';
+    public const STATE_TERMINATED = 'terminated';
 
     public const STATES = [
         self::STATE_NOT_REQUIRED => 'Chưa áp dụng ký quỹ',
@@ -38,6 +39,7 @@ class EscrowService
         self::STATE_GRACE        => 'Chưa đủ — còn trong hạn nạp ban đầu',
         self::STATE_LOW          => 'Số dư thấp — cần nạp bù',
         self::STATE_SUSPENDED    => 'Tạm ngưng bán online',
+        self::STATE_TERMINATED   => 'Đã chấm dứt hợp đồng — chờ hoàn ký quỹ',
     ];
 
     public function __construct(private AdminNotificationService $notifications) {}
@@ -65,6 +67,9 @@ class EscrowService
         $min = (int) $partner->escrow_min_amount;
         $balance = (int) $partner->escrow_balance;
 
+        if ($partner->escrow_terminated_at) {
+            return self::STATE_TERMINATED;
+        }
         if ($min <= 0) {
             return self::STATE_NOT_REQUIRED;
         }
@@ -105,7 +110,11 @@ class EscrowService
             'enforced_from'        => $partner->escrow_enforced_from?->toIso8601String(),
             'topup_due_at'         => $state === self::STATE_LOW ? $partner->escrow_topup_due_at?->toIso8601String() : null,
             'suspended_at'         => $partner->escrow_suspended_at?->toIso8601String(),
-            'sales_suspended'      => $state === self::STATE_SUSPENDED,
+            'sales_suspended'      => in_array($state, [self::STATE_SUSPENDED, self::STATE_TERMINATED], true),
+            // Chấm dứt hợp đồng: mốc chấm dứt, mốc sớm nhất được hoàn và các điều kiện còn chặn việc hoàn (rỗng = hoàn được).
+            'terminated_at'        => $partner->escrow_terminated_at?->toIso8601String(),
+            'release_available_at' => $partner->escrow_terminated_at?->copy()->addDays((int) config('escrow.release_hold_days', 30))->toIso8601String(),
+            'release_blockers'     => $partner->escrow_terminated_at ? $this->releaseBlockers($partner) : [],
         ];
     }
 
@@ -153,6 +162,114 @@ class EscrowService
         $this->refreshState($partner);
     }
 
+    /**
+     * Đối tác thêm/mở bán phòng làm mức gợi ý (số phòng × mức mỗi phòng) tăng lên: báo cần nạp thêm, KHÔNG khoá bán ngay.
+     * Mức đang là mức mặc định theo số phòng (đúng bằng mức gợi ý của số phòng trước đó) thì tự nâng lên mức mới và cho thời hạn nạp bù
+     * (như hạn nạp bù khi số dư thấp); mức do Super Admin đặt tay thì không tự đổi — chỉ báo Super Admin xem lại.
+     */
+    public function syncMinWithRooms(string $partnerId): void
+    {
+        $partner = Partner::withTrashed()->find($partnerId);
+        if (! $partner || $partner->isMinihouse() || ! $partner->usesDirectPayment() || ! $partner->escrow_min_amount) {
+            return;
+        }
+
+        $min = (int) $partner->escrow_min_amount;
+        // Đếm cả phòng CHƯA gắn chi nhánh: phòng vừa tạo được gắn chi nhánh SAU bước lưu, nếu loại trừ thì sẽ lỡ đúng lúc thêm phòng.
+        $rooms = $partner->products()->withoutGlobalScope('has_branch')->where('is_activated', true)->count();
+        $suggested = max((int) config('escrow.suggested_minimum'), $rooms * (int) config('escrow.suggested_per_room'));
+        if ($suggested <= $min) {
+            return;
+        }
+
+        $previousDefault = max((int) config('escrow.suggested_minimum'), max(0, $rooms - 1) * (int) config('escrow.suggested_per_room'));
+
+        if ($min !== $previousDefault) {
+            $this->notifySuperAdmins('escrow_min_review', 'Nên xem lại mức ký quỹ của đối tác', ($partner->legal_name ?: $partner->name)
+                . ': số phòng tăng, mức gợi ý là ' . $this->money($suggested) . ' nhưng mức đang áp dụng là ' . $this->money($min) . '.', $partner);
+
+            return;
+        }
+
+        $partner->forceFill([
+            'escrow_min_amount'    => $suggested,
+            'escrow_enforced_from' => now()->addDays((int) config('escrow.topup_days')),
+        ])->saveQuietly();
+
+        $this->notifyPartner($partner, 'escrow_min_raised', 'Mức ký quỹ tăng do thêm phòng',
+            'Số phòng đang bán tăng nên mức ký quỹ tối thiểu tăng từ ' . $this->money($min) . ' lên ' . $this->money($suggested)
+            . '. Vui lòng nạp thêm trước ' . $partner->escrow_enforced_from->format('d/m/Y') . ' — phòng của bạn vẫn bán bình thường trong thời gian này.');
+
+        $this->refreshState($partner);
+    }
+
+    // ───────────────────────── Chấm dứt hợp đồng ─────────────────────────
+
+    /**
+     * Hợp đồng chấm dứt (luồng tiền mới): ngưng bán ngay — đơn đã đặt vẫn phục vụ — và bắt đầu thời gian giữ ký quỹ để nhận khiếu nại
+     * (config escrow.release_hold_days). Đối tác chưa chuyển sang luồng mới thì không có ký quỹ nên không áp dụng.
+     */
+    public function onContractTerminated(Partner $partner, User $by): void
+    {
+        if (! $partner->usesDirectPayment() || $partner->escrow_terminated_at) {
+            return;
+        }
+
+        $partner->forceFill(['escrow_terminated_at' => now()])->saveQuietly();
+        $this->refreshState($partner);
+
+        $days = (int) config('escrow.release_hold_days', 30);
+        $this->notifyPartner($partner->fresh(), 'escrow_terminated', 'Hợp đồng đã chấm dứt — ngừng nhận đơn mới',
+            "Phòng của bạn ngừng nhận đơn mới; đơn đã đặt vẫn được phục vụ. Ký quỹ được giữ {$days} ngày để tiếp nhận khiếu nại và quyết toán công nợ cuối, sau đó hoàn phần còn lại về tài khoản ngân hàng đã đăng ký.");
+        $this->notifySuperAdmins('escrow_terminated', 'Đối tác chấm dứt hợp đồng', ($partner->legal_name ?: $partner->name) . ": đã ngưng bán; ký quỹ {$this->money((int) $partner->escrow_balance)} được giữ {$days} ngày.", $partner);
+    }
+
+    /** @return string[] điều kiện còn chặn việc hoàn ký quỹ (rỗng = hoàn được). */
+    public function releaseBlockers(Partner $partner): array
+    {
+        if (! $partner->escrow_terminated_at) {
+            return ['hợp đồng chưa chấm dứt'];
+        }
+
+        $blockers = [];
+        $until = $partner->escrow_terminated_at->copy()->addDays((int) config('escrow.release_hold_days', 30));
+        if ($until->isFuture()) {
+            $blockers[] = 'còn trong thời gian giữ nhận khiếu nại (đến ' . $until->format('d/m/Y') . ')';
+        }
+
+        $serving = \Modules\Payment\Entities\Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereIn('status', ['paid', 'deposit'])
+            ->where(fn ($q) => $q->whereNull('order_status')->orWhereNotIn('order_status', ['checked_out']))->count();
+        if ($serving > 0) {
+            $blockers[] = "còn {$serving} đơn đang phục vụ";
+        }
+
+        $openSettlements = \App\Models\PartnerSettlement::query()->where('partner_id', $partner->id)
+            ->whereNotIn('status', \App\Models\PartnerSettlement::FINAL_STATUSES)->count();
+        $unsettled = \Modules\Payment\Entities\Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNotNull('commission_finalized_at')
+            ->whereNull('settlement_id')->count();
+        if ($openSettlements > 0 || $unsettled > 0) {
+            $blockers[] = 'chưa quyết toán công nợ đối soát cuối (sinh bảng đối soát kỳ cuối và hoàn tất)';
+        }
+
+        // Đề xuất trừ chưa chốt không chặn hoàn: phần đó đã được tạm giữ và trừ khỏi số dư khả dụng ở withdraw().
+        return $blockers;
+    }
+
+    /** Định kỳ: báo Super Admin các đối tác đã đủ điều kiện hoàn ký quỹ (mỗi đối tác một lần). @return int số đối tác được báo */
+    public function notifyReleasable(): int
+    {
+        $count = 0;
+
+        Partner::withTrashed()->whereNotNull('escrow_terminated_at')->where('escrow_balance', '>', 0)->get()->each(function (Partner $partner) use (&$count) {
+            if ($this->releaseBlockers($partner) === [] && \Illuminate\Support\Facades\Cache::add("escrow_release_notified:{$partner->id}", 1, now()->addDays(60))) {
+                $this->notifySuperAdmins('escrow_release_ready', 'Đủ điều kiện hoàn ký quỹ', ($partner->legal_name ?: $partner->name) . ': có thể hoàn ' . $this->money((int) $partner->escrow_balance) . ' về tài khoản ngân hàng đã đăng ký.', $partner);
+                $count++;
+            }
+        });
+
+        return $count;
+    }
+
     // ───────────────────────── Bút toán ─────────────────────────
 
     /** Ghi nhận khoản nạp (webhook PayOS hoặc Super Admin ghi tay khoản chuyển khoản ngoài). */
@@ -167,6 +284,11 @@ class EscrowService
     public function withdraw(Partner $partner, int $amount, string $reason, ?string $reference, User $by): Entry
     {
         $this->assertPositive($amount);
+
+        // Chỉ hoàn khi chấm dứt hợp đồng và đã hết điều kiện chặn: ngưng bán, hết đơn đang phục vụ, hết thời gian giữ nhận khiếu nại, đã quyết toán công nợ cuối.
+        if ($blockers = $this->releaseBlockers($partner->fresh())) {
+            throw new \DomainException('Chưa hoàn được ký quỹ: ' . implode('; ', $blockers) . '.');
+        }
 
         return DB::transaction(function () use ($partner, $amount, $reason, $reference, $by) {
             $locked = $this->lock($partner);
@@ -213,6 +335,7 @@ class EscrowService
             $deduction = Deduction::create([
                 'partner_id' => $partner->id,
                 'type'       => $data['type'],
+                'case_code'  => $data['case_code'] ?? null,
                 'amount'     => (int) $data['amount'],
                 'reason'     => $data['reason'],
                 'order_code' => $data['order_code'] ?? null,
@@ -359,17 +482,17 @@ class EscrowService
                 . '. Vui lòng nạp bù trước ' . $partner->escrow_topup_due_at->format('d/m/Y') . ' để không bị tạm ngưng bán.');
         }
 
-        $suspended = $state === self::STATE_SUSPENDED;
+        $suspended = in_array($state, [self::STATE_SUSPENDED, self::STATE_TERMINATED], true);
         $partner->forceFill([
             'escrow_topup_due_at' => in_array($state, [self::STATE_OK, self::STATE_NOT_REQUIRED, self::STATE_GRACE], true) ? null : $partner->escrow_topup_due_at,
             'escrow_suspended_at' => $suspended ? ($partner->escrow_suspended_at ?? now()) : null,
         ])->saveQuietly();
 
-        if ($suspended && ! $before) {
+        if ($state === self::STATE_SUSPENDED && ! $before) {
             $this->notifyPartner($partner, 'escrow_suspended', 'Tạm ngưng bán online do ký quỹ', 'Số dư ký quỹ ' . $this->money((int) $partner->escrow_balance) . ' không đủ mức tối thiểu ' . $this->money((int) $partner->escrow_min_amount)
                 . '. Phòng của bạn tạm ẩn và không nhận đơn mới; đơn đã đặt vẫn phục vụ. Nạp đủ ký quỹ để mở bán lại.');
             $this->notifySuperAdmins('escrow_suspended', 'Đối tác bị tạm ngưng bán do ký quỹ', ($partner->legal_name ?: $partner->name) . ': số dư ' . $this->money((int) $partner->escrow_balance) . ' / mức tối thiểu ' . $this->money((int) $partner->escrow_min_amount) . '.', $partner);
-        } elseif (! $suspended && $before) {
+        } elseif (! $suspended && $before && $state !== self::STATE_TERMINATED) {
             $this->notifyPartner($partner, 'escrow_resumed', 'Đã mở bán lại', 'Ký quỹ đã đủ điều kiện — phòng của bạn nhận đơn mới trở lại.');
         }
 
@@ -433,19 +556,9 @@ class EscrowService
         return number_format($amount, 0, ',', '.') . 'đ';
     }
 
-    /** @return Collection<int, User> */
-    private function partnerUsers(Partner $partner): Collection
-    {
-        return User::query()->where('partner_id', $partner->id)->get();
-    }
-
     private function notifyPartner(Partner $partner, string $type, string $title, string $body, array $data = []): void
     {
-        try {
-            $this->notifications->notify($this->partnerUsers($partner), $title, $body, ['type' => $type, 'partner_id' => $partner->id, 'partner_type' => $partner->partner_type, ...$data], 'heroicon-o-banknotes', $type === 'escrow_resumed' ? 'success' : 'warning');
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        app(PartnerNotifier::class)->send($partner, $type, $title, $body, $data, $type === 'escrow_resumed' || $type === 'escrow_deposited' ? 'success' : 'warning');
     }
 
     public function notifySuperAdmins(string $type, string $title, string $body, Partner $partner, array $data = []): void

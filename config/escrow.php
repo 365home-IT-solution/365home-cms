@@ -18,6 +18,9 @@ return [
     // Số ngày đối tác được đồng ý/khiếu nại một đề xuất trừ; hết hạn không phản hồi = đồng ý.
     'deduction_response_days' => (int) env('ESCROW_DEDUCTION_RESPONSE_DAYS', 3),
 
+    // Chấm dứt hợp đồng: số ngày giữ ký quỹ để nhận khiếu nại trước khi được hoàn.
+    'release_hold_days' => (int) env('ESCROW_RELEASE_HOLD_DAYS', 30),
+
     // Nạp qua QR PayOS của 365home.
     'deposit_min_amount' => (int) env('ESCROW_DEPOSIT_MIN_AMOUNT', 100_000),
     'deposit_link_hours' => (int) env('ESCROW_DEPOSIT_LINK_HOURS', 24),

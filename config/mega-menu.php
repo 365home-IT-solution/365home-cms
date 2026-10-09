@@ -14,12 +14,12 @@ declare(strict_types=1);
 return [
     'Quản lý' => [
         'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Loại hình phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố'],
-        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Khuyến mãi & Giảm giá'],
+        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Khuyến mãi & Giảm giá', 'Chiến dịch đồng tài trợ'],
         'Nội dung & Marketing' => ['Bài viết', 'Danh mục bài viết'],
         'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng'],
         'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
         'Thông báo' => ['Gửi thông báo đến khách'],
-        'Đối tác & Báo cáo' => ['Đối tác', 'Thống kê lương'],
+        'Đối tác & Báo cáo' => ['Đối tác', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Yêu cầu hoàn tiền', 'Thống kê lương'],
     ],
 
     'Cấu hình web' => [

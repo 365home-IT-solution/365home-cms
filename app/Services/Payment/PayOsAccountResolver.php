@@ -105,7 +105,17 @@ class PayOsAccountResolver
 
         $account = PartnerPayOsAccount::where('partner_id', $partnerId)->first();
 
-        return $account && $account->isComplete() && (! $activeOnly || $account->is_active) ? $account : null;
+        if (! $account || ! $account->isComplete() || ($activeOnly && ! $account->is_active)) {
+            return null;
+        }
+
+        // Kênh riêng của đối tác chỉ dùng để nhận tiền đặt phòng SAU KHI hợp đồng mới/phụ lục có hiệu lực — trước đó 365home thu hộ.
+        // (Link tạo trước đó vẫn tra cứu được qua nhánh $activeOnly = false.)
+        if ($activeOnly && ! \App\Models\Partner::withTrashed()->whereKey($partnerId)->whereNotNull('payment_flow_effective_at')->exists()) {
+            return null;
+        }
+
+        return $account;
     }
 
     public static function forCategory(?int $categoryId, ?string $partnerId = null): ?PayOsGateway

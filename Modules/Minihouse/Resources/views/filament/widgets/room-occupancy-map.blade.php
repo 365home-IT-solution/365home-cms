@@ -214,12 +214,11 @@
 
                                             @if ($floorData['maxCol'] > 0)
                                                 {{-- Sơ đồ THẬT theo đúng hàng/cột đã khai báo — ô không có phòng để trống, không phải bị thiếu dữ liệu.
-                                                CỐ Ý dùng "inline-grid" (co vừa đúng nội dung, ô luôn cố định 4.5rem) chứ KHÔNG giãn hết chiều rộng
-                                                thẻ — đã cân nhắc phương án giãn ô để lấp khoảng trống ở toà/tầng ít cột, nhưng chọn giữ kích thước ô
-                                                ĐỒNG NHẤT giữa mọi toà/tầng (chấp nhận có khoảng trống bên phải ở toà/tầng ít phòng) thay vì để cùng 1
-                                                mã phòng to nhỏ khác nhau tuỳ toà/tầng. --}}
+                                                Ô LUÔN cố định 4.5rem × 4.5rem (cột rộng đúng 4.5rem, KHÔNG dùng 1fr) cho dù tầng có 1 hay nhiều phòng — trước
+                                                đây cột "minmax(4.5rem, 1fr)" khiến tầng chỉ có 1 cột/1 phòng bị kéo giãn bằng cả chiều rộng thẻ, 1 phòng to
+                                                che hết 1 card. Chấp nhận khoảng trống bên phải ở toà/tầng ít phòng để cùng 1 mã phòng luôn to bằng nhau. --}}
                                                 <div class="overflow-x-auto pb-1">
-                                                    <div class="inline-grid gap-1.5" style="grid-template-columns: repeat({{ $floorData['maxCol'] }}, minmax(4.5rem, 1fr));">
+                                                    <div class="inline-grid gap-1.5" style="grid-template-columns: repeat({{ $floorData['maxCol'] }}, 4.5rem);">
                                                         @foreach ($floorData['grid'] as $rowCells)
                                                             @foreach ($rowCells as $room)
                                                                 @if ($room)
@@ -240,7 +239,10 @@
                                                     @endif
                                                     <div class="flex flex-wrap gap-1.5">
                                                         @foreach ($floorData['unpositioned'] as $room)
-                                                            @include('minihouse::filament.widgets.partials.room-card', ['room' => $room, 'extraClass' => 'w-24'])
+                                                            {{-- Cùng cỡ 4.5rem với ô trong sơ đồ (style nội tuyến, không phụ thuộc phải build lại CSS). --}}
+                                                            <div style="width:4.5rem; flex:0 0 4.5rem;">
+                                                                @include('minihouse::filament.widgets.partials.room-card', ['room' => $room])
+                                                            </div>
                                                         @endforeach
                                                     </div>
                                                 </div>

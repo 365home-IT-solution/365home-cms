@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Shield;
 
 use App\Filament\Support\PartnerTableHelpers;
+use App\Filament\Support\PermissionModuleFilter;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -242,6 +243,7 @@ class RoleResource extends Resource implements HasShieldPermissions
 
         return collect(FilamentShield::getResources())
             ->sortKeys()
+            ->sortBy(fn ($entity) => sprintf('%03d', PermissionModuleFilter::rank($entity['fqcn'])))
             ->filter(function ($entity) use ($allowedPerms) {
                 if ($allowedPerms === null) {
                     return true;
@@ -267,9 +269,21 @@ class RoleResource extends Resource implements HasShieldPermissions
                         static::getCheckBoxListComponentForResource($entity, $allowedPerms),
                     ])
                     ->columnSpan(static::shield()->getSectionColumnSpan())
+                    ->extraAttributes(PermissionModuleFilter::hideUnless($entity['fqcn']))
                     ->collapsible();
             })
             ->toArray();
+    }
+
+    /** Resource mà actor hiện tại được cấp quyền (super_admin: tất cả) — cùng điều kiện với getResourceEntitiesSchema(). */
+    private static function getVisibleResourceEntities(): Collection
+    {
+        $allowedPerms = static::getAllowedPermissions();
+
+        return collect(FilamentShield::getResources())->filter(
+            fn ($entity) => $allowedPerms === null
+                || collect(array_keys(static::buildResourcePermissionOptions($entity)))->intersect($allowedPerms)->isNotEmpty()
+        );
     }
 
     public static function getResourceTabBadgeCount(): ?int
@@ -376,6 +390,8 @@ class RoleResource extends Resource implements HasShieldPermissions
                 ->visible(fn (): bool => (bool) Utils::isResourceEntityEnabled())
                 ->badge(static::getResourceTabBadgeCount())
                 ->schema([
+                    PermissionModuleFilter::select(static::getVisibleResourceEntities()),
+                    PermissionModuleFilter::style(),
                     Forms\Components\Grid::make()
                         ->schema(static::getResourceEntitiesSchema())
                         ->columns(static::shield()->getGridColumns()),

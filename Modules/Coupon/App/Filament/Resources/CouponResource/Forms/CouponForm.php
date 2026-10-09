@@ -184,6 +184,23 @@ class CouponForm
                                 ->label('Kích hoạt')
                                 ->default(true),
 
+                            // Ai chịu tiền giảm — chỉ Super Admin chọn; đối tác luôn tự chịu mã của mình (xem
+                            // Coupon::booted()). Khuyến mãi 365home chịu được 365home bù đủ cho đối tác ở kỳ đối soát.
+                            Select::make('funded_by')
+                                ->label('Ai chịu tiền giảm')
+                                ->options(\Modules\Promotion\App\Models\Coupon::FUNDED_BY)
+                                ->default(\Modules\Promotion\App\Models\Coupon::FUNDED_PARTNER)
+                                ->native(false)
+                                ->live()
+                                ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+                                ->helperText('Mã không gắn đối tác nào sẽ do 365home chịu. Đồng tài trợ: đối tác phải đồng ý tham gia theo từng chi nhánh.'),
+
+                            TextInput::make('partner_share_pct')
+                                ->label('% đối tác chịu (đồng tài trợ)')
+                                ->numeric()->minValue(1)->maxValue(99)->suffix('%')
+                                ->required(fn (Get $get) => $get('funded_by') === 'shared')
+                                ->visible(fn (Get $get) => (auth()->user()?->isSuperAdmin() ?? false) && $get('funded_by') === 'shared'),
+
                             Toggle::make('is_exclusive')
                                 ->label('Mã độc quyền')
                                 ->default(false)

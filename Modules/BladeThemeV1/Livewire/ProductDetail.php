@@ -93,6 +93,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     public $originalTotalAmount = 0;
     public $promoDiscountAmount = 0;
     public $bulkDiscountAmount = 0;
+    // Phần giảm theo hạng thành viên đã cộng vào bulkDiscountAmount — do 365home chịu (tách riêng để ghi người chịu vào đơn).
+    public $loyaltyDiscountAmount = 0;
     public $fullBookingDiscount = 0;
     public $hasFullDayBooking = false;
     public $increaseAmount = 0;
@@ -737,6 +739,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->originalTotalAmount = 0;
         $this->promoDiscountAmount = 0;
         $this->bulkDiscountAmount = 0;
+        $this->loyaltyDiscountAmount = 0;
         $this->couponDiscountAmount = 0;
         $this->fullBookingDiscount = 0;
         $this->hasFullDayBooking = false;
@@ -840,6 +843,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $loyaltyRate = $this->getLoyaltyDiscountRate();
             if ($loyaltyRate > 0) {
                 $loyaltyDiscount           = $totalAfterPromo * $loyaltyRate;
+                $this->loyaltyDiscountAmount = $loyaltyDiscount;
                 $this->bulkDiscountAmount += $loyaltyDiscount;
                 $totalAfterPromo          -= $loyaltyDiscount;
             }
@@ -991,6 +995,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->originalTotalAmount = 0;
         $this->promoDiscountAmount = 0;
         $this->bulkDiscountAmount = 0;
+        $this->loyaltyDiscountAmount = 0;
         $this->fullBookingDiscount = 0;
         $this->hasFullDayBooking = false;
         $this->couponDiscountAmount = 0;
@@ -1305,6 +1310,12 @@ public function confirmBooking()
     }
     RateLimiter::hit($bookingLimitKey, 600);
 
+    // Đối tác bị tạm ngưng bán do ký quỹ → khách có sẵn link phòng vẫn không đặt được (cùng quy tắc API: 423).
+    if (\App\Services\EscrowService::isSalesSuspended($this->product->partner_id ?? null)) {
+        $this->bookingConfirmError = 'Cơ sở này đang tạm ngưng nhận đặt phòng online. Vui lòng chọn phòng khác.';
+        return;
+    }
+
     // Ảnh CCCD mới lưu trong lượt này — xoá nếu không tạo được đơn (xem finally).
     $storedPaths  = [];
     $orderCreated = false;
@@ -1514,6 +1525,12 @@ public function confirmBooking()
                 // giá thay đổi sau này. Số tiền PayOS thu ngay tính riêng qua depositDueAmount().
                 'amount'          => $fullAmount,
                 'full_amount'     => $fullAmount,
+                // Từng khoản giảm kèm người chịu (khuyến mãi bảng giá + chiết khấu hệ thống do đối tác/365home theo cấu hình, hạng thành viên do 365home) — để đối soát.
+                'discounts'       => \App\Services\OrderCommissionService::roomDiscountLines(
+                    (int) round((float) $this->promoDiscountAmount),
+                    (int) round((float) $this->fullBookingDiscount + max(0.0, (float) $this->bulkDiscountAmount - (float) $this->loyaltyDiscountAmount)),
+                    (int) round((float) $this->loyaltyDiscountAmount),
+                ) ?: null,
                 'deposit_percent' => $depositPercent < 100 ? $depositPercent : null,
                 // Đơn cọc (style=2 + deposit_percent < 100) → khởi đầu với status 'deposit'
                 'status'         => ($depositPercent < 100) ? 'deposit' : 'pending',

@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Filament\Resources;
 
+use App\Filament\Support\PermissionModuleFilter;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -173,6 +174,7 @@ class RoleResource extends Resource implements HasShieldPermissions
     {
         return collect(FilamentShield::getResources())
             ->sortKeys()
+            ->sortBy(fn ($entity) => sprintf('%03d', PermissionModuleFilter::rank($entity['fqcn'])))
             ->map(function ($entity) {
                 $sectionLabel = strval(
                     static::shield()->hasLocalizedPermissionLabels()
@@ -187,6 +189,7 @@ class RoleResource extends Resource implements HasShieldPermissions
                         static::getCheckBoxListComponentForResource($entity),
                     ])
                     ->columnSpan(static::shield()->getSectionColumnSpan())
+                    ->extraAttributes(PermissionModuleFilter::hideUnless($entity['fqcn']))
                     ->collapsible();
             })
             ->toArray();
@@ -283,6 +286,8 @@ class RoleResource extends Resource implements HasShieldPermissions
                 ->visible(fn (): bool => (bool) Utils::isResourceEntityEnabled())
                 ->badge(static::getResourceTabBadgeCount())
                 ->schema([
+                    PermissionModuleFilter::select(FilamentShield::getResources()),
+                    PermissionModuleFilter::style(),
                     Forms\Components\Grid::make()
                         ->schema(static::getResourceEntitiesSchema())
                         ->columns(static::shield()->getGridColumns()),

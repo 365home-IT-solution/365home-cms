@@ -98,9 +98,11 @@ class Partner extends Model implements HasMedia
         // Ký quỹ (Homestay) — chỉ App\Services\EscrowService ghi các cột này (không nằm trong $fillable).
         'escrow_min_amount' => 'integer',
         'escrow_balance' => 'integer',
+        'payment_flow_effective_at' => 'datetime',
         'escrow_enforced_from' => 'datetime',
         'escrow_topup_due_at' => 'datetime',
         'escrow_suspended_at' => 'datetime',
+        'escrow_terminated_at' => 'datetime',
         // Super Admin bật thì chủ đối tác được tự nhập kênh PayOS (không nằm trong $fillable — xem PartnerPayOsChannelService).
         'payos_self_setup_enabled' => 'boolean',
     ];
@@ -248,6 +250,12 @@ class Partner extends Model implements HasMedia
     public function isMinihouse(): bool
     {
         return $this->partner_type === self::TYPE_MINIHOUSE;
+    }
+
+    /** Luồng tiền mới (về thẳng đối tác + ký quỹ + đối soát) đã có hiệu lực chưa? Chưa thì 365home vẫn thu hộ. */
+    public function usesDirectPayment(): bool
+    {
+        return $this->payment_flow_effective_at !== null;
     }
 
     public function isSystemPartner(): bool

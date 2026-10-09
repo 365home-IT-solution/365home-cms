@@ -360,11 +360,14 @@ class GuestBookingController extends Controller
         // ── 7. Tạo đơn trong transaction ─────────────────────────────────────
         $deviceToken = $request->input('device_token') ?: null;
 
+        // Dòng giảm của phòng (khuyến mãi bảng giá + chiết khấu hệ thống, do đối tác chịu) — ghi vào orders.discounts để đối soát.
+        $roomDiscountLines = \App\Services\OrderCommissionService::roomDiscountLines((int) round($promotionDiscount), (int) round($systemDiscount));
+
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $deviceToken, $guestCccdRows, $cccdQr
+            $deviceToken, $guestCccdRows, $cccdQr, $roomDiscountLines
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -404,6 +407,7 @@ class GuestBookingController extends Controller
                 // 2 cột này.
                 'amount'          => $finalAmount,
                 'full_amount'     => $finalAmount,
+                'discounts'       => $roomDiscountLines ?: null,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,
                 'coupon_codes'    => $appliedCouponCodes ?: null,

@@ -29,8 +29,13 @@ class PartnerContractRenderer
 
     public const LH18 = '31pt';
 
-    public static function render(Partner $partner): string
+    /** $kind = 'addendum': phụ lục "Ký quỹ và thanh toán" cho đối tác Homestay đã ký hợp đồng mẫu cũ (xem renderAddendum()). */
+    public static function render(Partner $partner, string $kind = 'contract'): string
     {
+        if ($kind === 'addendum' && ! $partner->isMinihouse()) {
+            return self::renderAddendum($partner);
+        }
+
         return $partner->isMinihouse() ? self::renderMinihouse($partner) : self::renderHomestay($partner);
     }
 
@@ -71,7 +76,12 @@ class PartnerContractRenderer
         $pctA = $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateA) . '% (' . VietnameseNumber::percentWords($rateA) . ')';
         $pctB = $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateB) . '% &nbsp;(' . VietnameseNumber::percentWords($rateB) . ')';
 
-        $guarantee = VietnameseNumber::format((int) $cfg['guarantee_vnd']) . ' đồng (' . VietnameseNumber::money((int) $cfg['guarantee_vnd']) . ')';
+        $cycleText = match ((string) $partner->payment_cycle) {
+            'weekly' => 'hằng tuần',
+            'monthly' => 'hằng tháng',
+            default => 'hai tuần một lần (nửa tháng)',
+        };
+        $overdueDays = sprintf('%02d', (int) config('settlement.overdue_days', 5));
         $violationFee = VietnameseNumber::format((int) $cfg['violation_fee_vnd']) . ' đồng';
         $penalty = (int) $cfg['penalty_percent'];
 
@@ -136,17 +146,22 @@ class PartnerContractRenderer
         // Điều 4
         $html[] = $h('ĐIỀU 4. DOANH THU, QUẢN LÝ DOANH THU VÀ THANH TOÁN');
         $html[] = $p('4.1. Doanh thu hợp tác là khoản thu từ hoạt động kinh doanh lưu trú tại cơ sở của Bên B thông qua hệ thống của Bên A.');
-        $html[] = $p("4.2. Khoản tiền đảm bảo thực hiện hợp đồng: Bên B thanh toán cho Bên A số tiền {$guarantee} trước khi bắt đầu hợp tác. Khoản tiền này được hoàn trả cho Bên B khi Hợp đồng chấm dứt và hai bên hoàn tất các nghĩa vụ liên quan. Trường hợp Bên B phát sinh nghĩa vụ thanh toán hoặc bồi thường do vi phạm Hợp đồng, Bên A được quyền khấu trừ vào khoản tiền này.");
-        $html[] = $p('4.3. Tỷ lệ phân chia doanh thu: Tiền khách hàng thanh toán được chuyển trực tiếp vào tài khoản của Bên B. Hai bên thực hiện đối soát doanh thu theo tỷ lệ:');
+        $html[] = $p('4.2. Bảo đảm thực hiện hợp đồng: Bên B ký quỹ cho Bên A theo quy định tại Điều 5 của Hợp đồng này để bảo đảm các nghĩa vụ thanh toán hoa hồng, hoàn tiền cho khách và bồi thường (nếu có).');
+        $html[] = $p("4.3. Tỷ lệ phân chia doanh thu: Tiền khách hàng thanh toán trực tuyến được chuyển trực tiếp vào tài khoản PayOS của Bên B (khách thanh toán tại quầy do Bên B thu). Hoa hồng của Bên A được tính trên doanh thu của từng đơn đã hoàn thành (sau khi trừ khuyến mãi do Bên B chịu, trước khi trừ khuyến mãi do Bên A chịu). Hai bên thực hiện đối soát doanh thu theo tỷ lệ:");
         $html[] = $bullet("Bên A: {$pctA}");
         $html[] = $bullet("Bên B: {$pctB}");
-        $html[] = $p("Bên B có trách nhiệm thanh toán phần doanh thu {$pctA} thuộc Bên A trong vòng 03 ngày kể từ ngày hoàn tất đối soát.");
-        $html[] = $p('4.4. Mỗi bên tự chịu trách nhiệm xuất hóa đơn và thực hiện nghĩa vụ thuế đối với phần doanh thu thuộc trách nhiệm của mình. Hai bên có trách nhiệm phối hợp cung cấp thông tin, chứng từ cần thiết để thực hiện việc đối soát và xuất hóa đơn.');
+        $html[] = $p("Hai bên đối soát theo kỳ {$cycleText}. Bên B có trách nhiệm thanh toán phần hoa hồng {$pctA} thuộc Bên A trong vòng {$overdueDays} ngày kể từ ngày Bên A gửi bảng đối soát; quá hạn, Bên A được quyền tự trừ vào khoản ký quỹ của Bên B. Khuyến mãi do Bên A tài trợ được Bên A bù lại cho Bên B bằng cách trừ vào hoa hồng phải nộp trong cùng kỳ đối soát (phần bù vượt hoa hồng được Bên A chi trả cho Bên B), không trừ vào ký quỹ. Trường hợp Bên B chưa cấu hình kênh thanh toán riêng, Bên A thu hộ và chi lại phần của Bên B ở kỳ đối soát.");
+        $html[] = $p('4.4. Mỗi bên tự chịu trách nhiệm xuất hóa đơn và thực hiện nghĩa vụ thuế đối với phần doanh thu thuộc trách nhiệm của mình; Bên A xuất hóa đơn giá trị gia tăng đối với phần hoa hồng theo từng kỳ đối soát. Khoản ký quỹ không phải doanh thu của Bên A nên không xuất hóa đơn. Hai bên có trách nhiệm phối hợp cung cấp thông tin, chứng từ cần thiết để thực hiện việc đối soát và xuất hóa đơn.');
 
-        // Điều 5
-        $html[] = $h('ĐIỀU 5. VI PHẠM HỢP ĐỒNG');
-        $html[] = $p('5.1. Mỗi bên được quyền khai thác nguồn khách riêng nhưng không được can thiệp, ảnh hưởng hoặc xâm phạm đến nguồn khách, hệ thống vận hành và quyền lợi hợp pháp của bên còn lại.');
-        $html[] = $p('5.2. Các hành vi, vi phạm của Bên B gồm:');
+        // Điều 5 — KÝ QUỸ (xem App\Services\EscrowService): mức, nạp, số dư thấp, trường hợp được trừ, quy trình khiếu nại, hoàn.
+        foreach (self::escrowArticle($partner, 5, $p, $h, $bullet) as $line) {
+            $html[] = $line;
+        }
+
+        // Điều 6
+        $html[] = $h('ĐIỀU 6. VI PHẠM HỢP ĐỒNG');
+        $html[] = $p('6.1. Mỗi bên được quyền khai thác nguồn khách riêng nhưng không được can thiệp, ảnh hưởng hoặc xâm phạm đến nguồn khách, hệ thống vận hành và quyền lợi hợp pháp của bên còn lại.');
+        $html[] = $p('6.2. Các hành vi, vi phạm của Bên B gồm:');
         foreach ([
             '- Chậm thanh toán, cung cấp sai số liệu hoặc không thực hiện đúng nghĩa vụ thanh toán;',
             '- Tự ý khai thác, chuyển hướng hoặc tiếp nhận khách thuộc hệ thống của Bên A;',
@@ -158,7 +173,7 @@ class PartnerContractRenderer
             $html[] = $p($line);
         }
         $html[] = $p("- Bên B có trách nhiệm phối hợp với Bên A trong việc bán phòng, tiếp nhận và phục vụ khách theo booking đã xác nhận. Trường hợp Bên B không tuân thủ, làm ảnh hưởng đến việc nhận phòng hoặc trải nghiệm của khách do lỗi của Bên B, Bên B bị trừ {$violationFee}/lần vi phạm vào doanh thu.");
-        $html[] = $p('5.3. Các hành vi, vi phạm của Bên A gồm:');
+        $html[] = $p('6.3. Các hành vi, vi phạm của Bên A gồm:');
         foreach ([
             '- Không minh bạch trong quản lý, đối soát hoặc báo cáo doanh thu;',
             '- Vận hành không đảm bảo chất lượng dịch vụ, gây ảnh hưởng đến uy tín cơ sở lưu trú;',
@@ -166,24 +181,24 @@ class PartnerContractRenderer
         ] as $line) {
             $html[] = $p($line);
         }
-        $html[] = $p('5.4. Bên vi phạm có trách nhiệm khắc phục hậu quả, điều chỉnh số liệu (nếu có) và bồi thường thiệt hại thực tế phát sinh. Hai bên cam kết không tự ý khai thác hoặc sử dụng dữ liệu khách hàng của nhau nếu chưa được đồng ý bằng văn bản.');
+        $html[] = $p('6.4. Bên vi phạm có trách nhiệm khắc phục hậu quả, điều chỉnh số liệu (nếu có) và bồi thường thiệt hại thực tế phát sinh. Hai bên cam kết không tự ý khai thác hoặc sử dụng dữ liệu khách hàng của nhau nếu chưa được đồng ý bằng văn bản.');
 
         // Điều 6
-        $html[] = $h('ĐIỀU 6. HOÀN TIỀN, KHIẾU NẠI VÀ XỬ LÝ SỰ CỐ');
-        $html[] = $p('6.1. Trách nhiệm xử lý phát sinh:');
-        $html[] = $p('- Trường hợp phát sinh do lỗi từ cơ sở của Bên B như phòng không đúng mô tả, không đảm bảo vệ sinh, thiết bị hư hỏng, không giao đúng phòng hoặc đúng tình trạng đã xác nhận, Bên A có quyền chủ động hỗ trợ hoặc hoàn tiền cho khách. Các khoản tiền đã hoàn cho khách hàng do lỗi của Bên B sẽ do Bên B chịu trách nhiệm thanh toán và được trừ vào phần doanh thu của Bên B trong kỳ đối soát gần nhất.');
+        $html[] = $h('ĐIỀU 7. HOÀN TIỀN, KHIẾU NẠI VÀ XỬ LÝ SỰ CỐ');
+        $html[] = $p('7.1. Trách nhiệm xử lý phát sinh:');
+        $html[] = $p('- Trường hợp phát sinh do lỗi từ cơ sở của Bên B như phòng không đúng mô tả, không đảm bảo vệ sinh, thiết bị hư hỏng, không giao đúng phòng hoặc đúng tình trạng đã xác nhận, Bên A có quyền chủ động hỗ trợ hoặc hoàn tiền cho khách. Các khoản tiền hoàn cho khách hàng do lỗi của Bên B do Bên B chịu trách nhiệm hoàn trong vòng 24 giờ; quá thời hạn đó mà Bên B chưa hoàn, Bên A hoàn thay cho khách và được trừ khoản đã ứng vào ký quỹ của Bên B theo Điều 5.');
         $html[] = $p('- Trường hợp phát sinh do lỗi vận hành của Bên A như sai booking, đặt nhầm phòng, lỗi hệ thống hoặc chăm sóc khách hàng, Bên A tự chịu trách nhiệm hoàn tiền và không khấu trừ vào doanh thu của Bên B.');
         $html[] = $p('- Trường hợp bất khả kháng hoặc khách hủy phòng vì lý do cá nhân sẽ áp dụng theo chính sách hủy phòng của Bên A.');
-        $html[] = $p('6.2. Hình thức xử lý có thể bao gồm: hoàn tiền một phần, hoàn toàn bộ hoặc đổi phòng tương đương. Bên A được quyền chủ động lựa chọn phương án phù hợp nhằm đảm bảo trải nghiệm khách hàng và uy tín kinh doanh.');
-        $html[] = $p('6.3. Tất cả các khoản hoàn tiền phải được ghi nhận rõ trong báo cáo doanh thu, kèm lý do và căn cứ xử lý. Bên B có quyền kiểm tra, đối chiếu thông tin khi cần thiết.');
-        $html[] = $p('6.4. Trường hợp các lỗi từ phía Bên B dẫn đến hoàn tiền từ 05 lần trở lên trong 01 tháng hoặc từ 09 lần trở lên trong 03 tháng liên tiếp thì được xem là vi phạm nghiêm trọng hợp đồng. Khi đó, Bên A có quyền yêu cầu khắc phục trong vòng 05 ngày hoặc đơn phương chấm dứt hợp đồng mà không phải bồi thường.');
-        $html[] = $p('6.5. Các trường hợp hoàn tiền phải có căn cứ xác định nguyên nhân như phản hồi khách hàng, hình ảnh thực tế hoặc dữ liệu hệ thống. Dữ liệu từ hệ thống quản lý booking của Bên A được sử dụng làm căn cứ đối chiếu khi có tranh chấp.');
+        $html[] = $p('7.2. Hình thức xử lý có thể bao gồm: hoàn tiền một phần, hoàn toàn bộ hoặc đổi phòng tương đương. Bên A được quyền chủ động lựa chọn phương án phù hợp nhằm đảm bảo trải nghiệm khách hàng và uy tín kinh doanh.');
+        $html[] = $p('7.3. Tất cả các khoản hoàn tiền phải được ghi nhận rõ trong báo cáo doanh thu, kèm lý do và căn cứ xử lý. Bên B có quyền kiểm tra, đối chiếu thông tin khi cần thiết.');
+        $html[] = $p('7.4. Trường hợp các lỗi từ phía Bên B dẫn đến hoàn tiền từ 05 lần trở lên trong 01 tháng hoặc từ 09 lần trở lên trong 03 tháng liên tiếp thì được xem là vi phạm nghiêm trọng hợp đồng. Khi đó, Bên A có quyền yêu cầu khắc phục trong vòng 05 ngày hoặc đơn phương chấm dứt hợp đồng mà không phải bồi thường.');
+        $html[] = $p('7.5. Các trường hợp hoàn tiền phải có căn cứ xác định nguyên nhân như phản hồi khách hàng, hình ảnh thực tế hoặc dữ liệu hệ thống. Dữ liệu từ hệ thống quản lý booking của Bên A được sử dụng làm căn cứ đối chiếu khi có tranh chấp.');
 
         // Điều 7–8
-        $html[] = $h('ĐIỀU 7. THỜI HẠN HỢP ĐỒNG');
+        $html[] = $h('ĐIỀU 8. THỜI HẠN HỢP ĐỒNG');
         $html[] = $p("- Hợp đồng có thời hạn {$termText}. Khi hết thời hạn, nếu không bên nào thông báo chấm dứt bằng văn bản trước ít nhất 01 ngày thì hợp đồng được tự động gia hạn thêm {$cfg['default_term_months']} tháng với các điều khoản không thay đổi, trừ trường hợp các bên có thỏa thuận khác.");
-        $html[] = $h('ĐIỀU 8. CHẤM DỨT HỢP ĐỒNG');
-        $html[] = $p('8.1. Hợp đồng chấm dứt khi:');
+        $html[] = $h('ĐIỀU 9. CHẤM DỨT HỢP ĐỒNG');
+        $html[] = $p('9.1. Hợp đồng chấm dứt khi:');
         foreach ([
             '- Hai bên thỏa thuận bằng văn bản;',
             '- Một bên vi phạm nghiêm trọng nghĩa vụ và không khắc phục trong vòng 05 ngày kể từ khi nhận thông báo;',
@@ -192,7 +207,7 @@ class PartnerContractRenderer
         ] as $line) {
             $html[] = $p($line);
         }
-        $html[] = $p('8.2. Khi chấm dứt hợp đồng:');
+        $html[] = $p('9.2. Khi chấm dứt hợp đồng:');
         foreach ([
             '- Hai bên hoàn tất đối soát và thanh toán trong vòng 07 ngày;',
             '- Bên A ngừng khai thác các kênh liên quan đến Bên B;',
@@ -202,36 +217,124 @@ class PartnerContractRenderer
         }
 
         // Điều 9–10
-        $html[] = $h('ĐIỀU 9. BẢO MẬT THÔNG TIN VÀ DỮ LIỆU KHÁCH HÀNG');
-        $html[] = $p('9.1. Hai bên cam kết bảo mật toàn bộ thông tin liên quan đến hoạt động hợp tác như: dữ liệu khách hàng, doanh thu, giá bán, chiến lược kinh doanh, hệ thống vận hành và các thông tin nội bộ khác.');
-        $html[] = $p('9.2. Không bên nào được tự ý sao chép, cung cấp, chuyển giao hoặc sử dụng dữ liệu khách hàng của bên còn lại ngoài phạm vi hợp tác nếu chưa có sự đồng ý bằng văn bản.');
-        $html[] = $p('9.3. Trong và sau thời gian hợp tác, các bên không được sử dụng dữ liệu khách hàng phát sinh từ hợp tác để khai thác riêng hoặc cung cấp cho bên thứ ba.');
-        $html[] = $p('9.4. Bên vi phạm nghĩa vụ bảo mật phải bồi thường toàn bộ thiệt hại thực tế phát sinh.');
-        $html[] = $p('9.5. Nghĩa vụ bảo mật có hiệu lực trong vòng 02 năm kể từ ngày hợp đồng chấm dứt.');
-        $html[] = $h('ĐIỀU 10. KHÔNG CẠNH TRANH');
-        $html[] = $p('10.1. Trong thời gian hợp tác, các bên cam kết không thực hiện các hành vi cạnh tranh trực tiếp gây ảnh hưởng đến hoạt động kinh doanh của bên còn lại.');
-        $html[] = $p('10.2. Bên B không được tự ý tiếp cận, khai thác lại hoặc chuyển đổi nguồn khách hàng do Bên A vận hành, quảng bá hoặc quản lý thông qua các kênh bán hàng thuộc hệ thống của Bên A.');
-        $html[] = $p('10.3. Bên A không được sử dụng thương hiệu, hình ảnh hoặc thông tin nội bộ của Bên B cho mục đích ngoài phạm vi hợp tác nếu chưa được chấp thuận bằng văn bản.');
-        $html[] = $p('10.4. Trường hợp vi phạm điều khoản này, bên vi phạm phải chấm dứt ngay hành vi vi phạm và bồi thường toàn bộ thiệt hại phát sinh cho bên còn lại.');
+        $html[] = $h('ĐIỀU 10. BẢO MẬT THÔNG TIN VÀ DỮ LIỆU KHÁCH HÀNG');
+        $html[] = $p('10.1. Hai bên cam kết bảo mật toàn bộ thông tin liên quan đến hoạt động hợp tác như: dữ liệu khách hàng, doanh thu, giá bán, chiến lược kinh doanh, hệ thống vận hành và các thông tin nội bộ khác.');
+        $html[] = $p('10.2. Không bên nào được tự ý sao chép, cung cấp, chuyển giao hoặc sử dụng dữ liệu khách hàng của bên còn lại ngoài phạm vi hợp tác nếu chưa có sự đồng ý bằng văn bản.');
+        $html[] = $p('10.3. Trong và sau thời gian hợp tác, các bên không được sử dụng dữ liệu khách hàng phát sinh từ hợp tác để khai thác riêng hoặc cung cấp cho bên thứ ba.');
+        $html[] = $p('10.4. Bên vi phạm nghĩa vụ bảo mật phải bồi thường toàn bộ thiệt hại thực tế phát sinh.');
+        $html[] = $p('10.5. Nghĩa vụ bảo mật có hiệu lực trong vòng 02 năm kể từ ngày hợp đồng chấm dứt.');
+        $html[] = $h('ĐIỀU 11. KHÔNG CẠNH TRANH');
+        $html[] = $p('11.1. Trong thời gian hợp tác, các bên cam kết không thực hiện các hành vi cạnh tranh trực tiếp gây ảnh hưởng đến hoạt động kinh doanh của bên còn lại.');
+        $html[] = $p('11.2. Bên B không được tự ý tiếp cận, khai thác lại hoặc chuyển đổi nguồn khách hàng do Bên A vận hành, quảng bá hoặc quản lý thông qua các kênh bán hàng thuộc hệ thống của Bên A.');
+        $html[] = $p('11.3. Bên A không được sử dụng thương hiệu, hình ảnh hoặc thông tin nội bộ của Bên B cho mục đích ngoài phạm vi hợp tác nếu chưa được chấp thuận bằng văn bản.');
+        $html[] = $p('11.4. Trường hợp vi phạm điều khoản này, bên vi phạm phải chấm dứt ngay hành vi vi phạm và bồi thường toàn bộ thiệt hại phát sinh cho bên còn lại.');
 
         // Điều 11–15
-        $html[] = $h('ĐIỀU 11. SỰ KIỆN BẤT KHẢ KHÁNG');
-        $html[] = $p('11.1. Sự kiện bất khả kháng gồm các trường hợp ngoài khả năng kiểm soát của các bên như: thiên tai, hỏa hoạn, dịch bệnh, chiến tranh, sự cố hệ thống, mất điện diện rộng, quyết định của cơ quan nhà nước hoặc các sự kiện khách quan khác làm một bên không thể thực hiện hợp đồng.');
-        $html[] = $p('11.2. Bên gặp sự kiện bất khả kháng phải thông báo cho bên còn lại trong vòng 05 ngày và cung cấp tài liệu chứng minh phù hợp.');
-        $html[] = $p('11.3. Trong thời gian xảy ra bất khả kháng, các bên phối hợp hạn chế thiệt hại và tìm biện pháp khắc phục phù hợp.');
-        $html[] = $p('11.4. Nếu sự kiện bất khả kháng kéo dài quá 30 ngày liên tục làm mục đích hợp tác không thể tiếp tục, một trong hai bên có quyền chấm dứt hợp đồng mà không bị phạt vi phạm.');
-        $html[] = $h('ĐIỀU 12. PHẠT VI PHẠM HỢP ĐỒNG');
+        $html[] = $h('ĐIỀU 12. SỰ KIỆN BẤT KHẢ KHÁNG');
+        $html[] = $p('12.1. Sự kiện bất khả kháng gồm các trường hợp ngoài khả năng kiểm soát của các bên như: thiên tai, hỏa hoạn, dịch bệnh, chiến tranh, sự cố hệ thống, mất điện diện rộng, quyết định của cơ quan nhà nước hoặc các sự kiện khách quan khác làm một bên không thể thực hiện hợp đồng.');
+        $html[] = $p('12.2. Bên gặp sự kiện bất khả kháng phải thông báo cho bên còn lại trong vòng 05 ngày và cung cấp tài liệu chứng minh phù hợp.');
+        $html[] = $p('12.3. Trong thời gian xảy ra bất khả kháng, các bên phối hợp hạn chế thiệt hại và tìm biện pháp khắc phục phù hợp.');
+        $html[] = $p('12.4. Nếu sự kiện bất khả kháng kéo dài quá 30 ngày liên tục làm mục đích hợp tác không thể tiếp tục, một trong hai bên có quyền chấm dứt hợp đồng mà không bị phạt vi phạm.');
+        $html[] = $h('ĐIỀU 13. PHẠT VI PHẠM HỢP ĐỒNG');
         $html[] = $p("- Bên vi phạm nghĩa vụ hợp đồng gây thiệt hại phải bồi thường toàn bộ thiệt hại thực tế phát sinh. Ngoài bồi thường, bên vi phạm còn chịu phạt {$penalty}% giá trị phần nghĩa vụ bị vi phạm.");
-        $html[] = $h('ĐIỀU 13. XỬ LÝ TÀI KHOẢN KHI CHẤM DỨT HỢP ĐỒNG');
+        $html[] = $h('ĐIỀU 14. XỬ LÝ TÀI KHOẢN KHI CHẤM DỨT HỢP ĐỒNG');
         $html[] = $p('- Khi chấm dứt hợp đồng, các bên phối hợp bàn giao hoặc ngừng sử dụng các Fanpage, Website, Zalo và nền tảng vận hành theo phạm vi quản lý của từng bên.');
         $html[] = $p('- Các tài khoản do Bên A tạo lập và quản lý thuộc quyền quản trị của Bên A, trừ khi có thỏa thuận khác bằng văn bản.');
         $html[] = $p('- Bên B không được tự ý đổi mật khẩu, chuyển quyền quản trị hoặc can thiệp vào hệ thống do Bên A thiết lập.');
         $html[] = $p('- Sau khi chấm dứt hợp đồng, các bên không được sử dụng thương hiệu, hình ảnh, nội dung truyền thông hoặc dữ liệu vận hành của bên còn lại nếu chưa có sự đồng ý bằng văn bản.');
-        $html[] = $h('ĐIỀU 14. GIẢI QUYẾT TRANH CHẤP');
+        $html[] = $h('ĐIỀU 15. GIẢI QUYẾT TRANH CHẤP');
         $html[] = $p('- Mọi tranh chấp phát sinh từ hợp đồng sẽ được ưu tiên giải quyết bằng thương lượng và hòa giải giữa các bên. Nếu không đạt thỏa thuận, tranh chấp sẽ được giải quyết tại Tòa án có thẩm quyền và quyết định của Tòa án là cuối cùng, có giá trị ràng buộc các bên.');
-        $html[] = $h('ĐIỀU 15. HIỆU LỰC HỢP ĐỒNG');
+        $html[] = $h('ĐIỀU 16. HIỆU LỰC HỢP ĐỒNG');
         $html[] = $p('- Hợp đồng có hiệu lực kể từ ngày Bên A ký xác nhận. Hợp đồng được giao kết bằng phương thức điện tử: Bên B xác nhận bằng mã OTP gửi về email đã đăng ký, Bên A ký số. Bản điện tử có giá trị như bản gốc.');
         $html[] = $p('- Các phụ lục kèm theo (nếu có) là phần không tách rời và có giá trị pháp lý tương đương hợp đồng.');
+        $html[] = '</div>';
+
+        return implode("\n", $html);
+    }
+
+    /**
+     * Điều "KÝ QUỸ" (hợp đồng mẫu mới — Điều 5) hoặc nội dung tương ứng của phụ lục cho đối tác đã ký hợp đồng cũ: mức tối thiểu,
+     * nạp, số dư thấp, các trường hợp được trừ, quy trình khiếu nại, hoàn ký quỹ. Con số lấy từ config/escrow.php (đề xuất, đổi qua
+     * .env) và từ mức Super Admin đặt cho đối tác (partners.escrow_min_amount).
+     *
+     * @return string[] các đoạn HTML
+     */
+    private static function escrowArticle(Partner $partner, int $no, \Closure $p, \Closure $h, \Closure $bullet): array
+    {
+        $min = (int) ($partner->escrow_min_amount ?: app(\App\Services\EscrowService::class)->suggestedMinAmount($partner));
+        $minText = VietnameseNumber::format($min) . ' đồng (' . VietnameseNumber::money($min) . ')';
+        $grace = (int) config('escrow.initial_grace_days');
+        $topup = (int) config('escrow.topup_days');
+        $suspend = (int) config('escrow.suspend_below_percent');
+        $respond = (int) config('escrow.deduction_response_days');
+        $overdue = (int) config('settlement.overdue_days', 5);
+
+        return [
+            $h("ĐIỀU {$no}. KÝ QUỸ ĐẢM BẢO NGHĨA VỤ CỦA BÊN B"),
+            $p("{$no}.1. Mức ký quỹ: Bên B ký quỹ cho Bên A khoản tiền tối thiểu {$minText}. Khi Bên B bổ sung phòng kinh doanh làm mức ký quỹ tăng, Bên A thông báo để Bên B nạp bù, không khoá bán ngay."),
+            $p("{$no}.2. Nạp ký quỹ: Bên B nạp qua mã QR PayOS do Bên A cung cấp (tiền ký quỹ về tài khoản của Bên A, không về tài khoản của Bên B) hoặc chuyển khoản ngoài hệ thống để Bên A ghi nhận kèm chứng từ. Bên B mới hợp tác phải nạp đủ mức tối thiểu trước khi mở bán trực tuyến; Bên B đang hoạt động có {$grace} ngày kể từ ngày Hợp đồng/phụ lục có hiệu lực để nạp đủ."),
+            $p("{$no}.3. Sổ ký quỹ: số dư ký quỹ chỉ thay đổi qua bút toán, mỗi bút toán ghi rõ số tiền, lý do, đơn/biên bản liên quan và chứng từ; Bên B xem được sổ ký quỹ trong ứng dụng. Ký quỹ không tính lãi và Bên B không được tự dùng ký quỹ để trả hoa hồng hằng kỳ — Bên A chỉ trừ ký quỹ khi quá hạn hoặc thuộc các trường hợp tại khoản {$no}.5."),
+            $p("{$no}.4. Số dư thấp: khi số dư thấp hơn mức tối thiểu, Bên A cảnh báo và yêu cầu nạp bù trong {$topup} ngày; khi số dư dưới {$suspend}% mức tối thiểu hoặc quá hạn nạp bù, Bên A tạm ngưng bán trực tuyến cho Bên B (phòng ẩn khỏi tìm kiếm, không nhận đơn mới; đơn đã đặt vẫn được phục vụ). Số tiền trừ vượt quá số dư là công nợ của Bên B và được bù khi Bên B nạp thêm."),
+            $p("{$no}.5. Các trường hợp Bên A được trừ ký quỹ:"),
+            $bullet("Hoa hồng kỳ đối soát quá hạn {$overdue} ngày chưa nộp;"),
+            $bullet('Khách được hoàn tiền (huỷ hợp lệ, phòng không như mô tả, Bên B huỷ đơn đã thanh toán) mà Bên B không hoàn trong 24 giờ — Bên A hoàn thay rồi trừ khoản đã ứng;'),
+            $bullet('Bên B huỷ/không giao phòng đơn đã xác nhận (quá số phòng, đóng cửa): phạt bằng 100% tiền đơn hoặc chi phí Bên A chuyển khách sang chỗ khác, lấy số lớn hơn;'),
+            $bullet('Bồi thường thiệt hại cho khách do lỗi cơ sở (an ninh, tài sản của khách, vệ sinh nghiêm trọng) khi đã có kết luận;'),
+            $bullet('Khiếu nại/hoàn giao dịch (chargeback) từ cổng thanh toán liên quan đến đơn của Bên B;'),
+            $bullet('Vi phạm Hợp đồng đã quy định mức phạt (bán phòng ngoài giá cam kết, lách hoa hồng — nhận khách của Bên A rồi bảo khách thanh toán ngoài, tạo đơn giả…);'),
+            $bullet('Khoản khác hai bên thoả thuận bằng văn bản.'),
+            $p("{$no}.6. Quy trình trừ: trừ hoa hồng quá hạn được thực hiện tự động theo số liệu đã đối soát. Mọi khoản trừ khác: (a) Bên A lập đề xuất trừ nêu số tiền, lý do, chứng từ; số dư chưa đổi nhưng khoản đó được tạm giữ; (b) Bên B nhận thông báo (ứng dụng, email) và có {$respond} ngày để đồng ý hoặc khiếu nại kèm lý do, chứng từ — hết hạn không phản hồi được xem là đồng ý; (c) có khiếu nại thì Bên A xem xét và giữ, giảm hoặc huỷ đề xuất, ghi rõ kết luận; (d) chốt thì Bên A ghi bút toán trừ và thông báo số dư mới. Trường hợp khẩn (khách đang bị bỏ rơi, cần hoàn tiền ngay), Bên A được trừ ngay; Bên B vẫn có quyền khiếu nại sau và khoản chênh lệch (nếu có) được hoàn lại bằng bút toán đảo."),
+            $p("{$no}.7. Hoàn ký quỹ: khi Hợp đồng chấm dứt, Bên A ngừng bán, chờ hoàn tất các đơn đang phục vụ và 30 ngày tiếp nhận khiếu nại, quyết toán công nợ cuối cùng rồi hoàn phần còn lại về tài khoản ngân hàng Bên B đã đăng ký."),
+        ];
+    }
+
+    /**
+     * PHỤ LỤC "Ký quỹ và thanh toán" cho đối tác đã ký hợp đồng mẫu cũ (365home thu hộ): sửa điều thanh toán và thêm điều Ký quỹ. Ký bằng đúng
+     * luồng OTP hiện có; chỉ khi phụ lục có hiệu lực (Bên A ký) đối tác mới chuyển sang luồng tiền đặt phòng về thẳng tài khoản của mình.
+     */
+    public static function renderAddendum(Partner $partner): string
+    {
+        $cfg = config('contract');
+        $a = $cfg['platform'];
+        $now = now();
+        $lh = self::LH13;
+        $p = fn (string $text, string $extra = '') => '<p style="margin:0 0 6pt;page-break-inside:avoid;line-height:' . $lh . ';' . $extra . '">' . $text . '</p>';
+        $h = fn (string $text) => '<p style="margin:6pt 0;page-break-inside:avoid;line-height:' . $lh . ';font-weight:700;">' . $text . '</p>';
+        $bullet = fn (string $text) => '<p style="margin:0 0 6pt 36pt;page-break-inside:avoid;text-indent:-18pt;line-height:' . $lh . ';">&bull;&nbsp;&nbsp;' . $text . '</p>';
+
+        $legalName = e(mb_strtoupper((string) ($partner->legal_name ?: $partner->name)));
+        $rate = app(\App\Services\PartnerContractWorkflowService::class)->commissionValue($partner->commission_rate);
+        $pctA = $rate === null ? '……%' : VietnameseNumber::percent($rate) . '%';
+        $cycleText = match ((string) $partner->payment_cycle) {
+            'weekly' => 'hằng tuần',
+            'monthly' => 'hằng tháng',
+            default => 'hai tuần một lần (nửa tháng)',
+        };
+        $overdueDays = sprintf('%02d', (int) config('settlement.overdue_days', 5));
+        $contractNo = e((string) ($partner->contract_code ?: '………'));
+
+        $html = [];
+        $html[] = '<div class="hd" style="font-family:' . self::FONT . ';font-size:13pt;line-height:' . $lh . ';text-align:justify;color:#000;">';
+        $html[] = $p($cfg['place'] . ', ngày ' . $now->format('d') . ' tháng ' . $now->format('m') . ' năm ' . $now->format('Y'), 'text-align:right;font-style:italic;');
+        $html[] = '<p style="margin:0 0 6pt;text-align:center;font-size:18pt;font-weight:700;line-height:' . self::LH18 . ';">PHỤ LỤC HỢP ĐỒNG</p>';
+        $html[] = '<p style="margin:0 0 6pt;text-align:center;font-weight:700;line-height:' . $lh . ';">Ký quỹ và thanh toán doanh thu — kèm Hợp đồng hợp tác kinh doanh số: ' . $contractNo . '</p>';
+        $html[] = $p('Căn cứ Hợp đồng hợp tác kinh doanh đã ký giữa hai bên; hai bên thống nhất ký Phụ lục này như sau:', 'text-indent:36pt;');
+        $html[] = $p('<strong>BÊN A: ' . e($a['name']) . '</strong> — đại diện: ' . e($a['representative']) . ', chức vụ: ' . e($a['position']) . '.');
+        $html[] = $p("<strong>BÊN B: {$legalName}</strong> — đại diện: " . e(mb_strtoupper((string) $partner->representative_name)) . '.');
+
+        $html[] = $h('ĐIỀU 1. SỬA ĐỔI CÁCH THANH TOÁN DOANH THU');
+        $html[] = $p('1.1. Kể từ ngày Phụ lục có hiệu lực, tiền khách hàng thanh toán trực tuyến được chuyển trực tiếp vào tài khoản PayOS của Bên B (thanh toán tại quầy do Bên B thu); trước ngày đó Bên A tiếp tục thu hộ theo Hợp đồng.');
+        $html[] = $p("1.2. Hoa hồng của Bên A là {$pctA} doanh thu của từng đơn đã hoàn thành (sau khi trừ khuyến mãi do Bên B chịu, trước khi trừ khuyến mãi do Bên A chịu). Hai bên đối soát {$cycleText}; Bên B nộp hoa hồng trong vòng {$overdueDays} ngày kể từ ngày Bên A gửi bảng đối soát, quá hạn Bên A tự trừ vào ký quỹ.");
+        $html[] = $p('1.3. Khuyến mãi do Bên A tài trợ được Bên A bù lại cho Bên B bằng cách trừ vào hoa hồng phải nộp trong cùng kỳ đối soát (phần bù vượt hoa hồng được Bên A chi trả cho Bên B), không trừ vào ký quỹ. Bên A xuất hóa đơn giá trị gia tăng đối với phần hoa hồng theo từng kỳ; khoản ký quỹ không phải doanh thu nên không xuất hóa đơn.');
+        $html[] = $p('1.4. Khoản tiền đảm bảo thực hiện hợp đồng nêu tại Hợp đồng (nếu có) được chuyển thành một phần ký quỹ theo Điều 2 Phụ lục này.');
+        $html[] = $p('1.5. Các khoản tiền hoàn cho khách do lỗi của Bên B do Bên B hoàn trong vòng 24 giờ; quá thời hạn đó, Bên A hoàn thay cho khách và được trừ khoản đã ứng vào ký quỹ của Bên B.');
+
+        foreach (self::escrowArticle($partner, 2, $p, $h, $bullet) as $line) {
+            $html[] = $line;
+        }
+
+        $html[] = $h('ĐIỀU 3. HIỆU LỰC');
+        $html[] = $p('Phụ lục có hiệu lực kể từ ngày Bên A ký xác nhận, sau khi Bên B xác nhận bằng mã OTP gửi về email đã đăng ký, và là phần không tách rời của Hợp đồng. Các nội dung khác của Hợp đồng không thay đổi.');
         $html[] = '</div>';
 
         return implode("\n", $html);

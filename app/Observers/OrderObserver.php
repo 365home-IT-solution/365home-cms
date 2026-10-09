@@ -111,6 +111,13 @@ class OrderObserver
      */
     public function created(Order $order): void
     {
+        // Chụp tiền về đâu + tỉ lệ hoa hồng + người chịu từng khoản giảm (đối tác Homestay) — không chặn việc tạo đơn nếu lỗi.
+        try {
+            app(\App\Services\OrderCommissionService::class)->snapshotOnCreate($order);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         // Chỉ log khi admin tạo đơn trực tiếp từ admin panel.
         // Admin panel và frontend dùng chung web guard nên phải kiểm tra qua Referer header:
         //   - Admin panel: Referer chứa '/homestay/admin/' → log
@@ -182,6 +189,27 @@ class OrderObserver
      */
     public function updated(Order $order): void
     {
+        // Đơn đã chốt hoa hồng TỪ TRƯỚC lần cập nhật này? (dùng cho việc tính lại bên dưới, tránh chốt rồi tính lại ngay trong cùng một lần lưu)
+        $wasFinalized = $order->commission_finalized_at !== null;
+
+        // Đơn hoàn thành (trả phòng) hoặc bị hoàn mà đối tác vẫn giữ một phần tiền → chốt hoa hồng + khoản 365home bù.
+        if ($order->wasChanged(['status', 'order_status', 'refund_amount'])) {
+            try {
+                app(\App\Services\OrderCommissionService::class)->finalize($order);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        // Đơn đã chốt hoa hồng mà sau đó đổi giá/hoàn tiền/đổi mã giảm giá → tính lại (bảng đã gửi thì báo Super Admin, không tự đổi số).
+        if ($wasFinalized && $order->wasChanged(['amount', 'full_amount', 'deposit_paid_amount', 'coupon_codes', 'coupon_discount_amounts', 'discounts', 'status', 'refund_amount'])) {
+            try {
+                app(\App\Services\OrderCommissionService::class)->recalculateAfterChange($order->fresh());
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         // Luồng khách tự đặt qua app (BuildsRoomBooking) KHÔNG set category_id ngay lúc tạo đơn —
         // chỉ được PaymentController::handleSuccessfulPayment() backfill sau khi thanh toán thành
         // công, nên phải bắt cả ở đây (created() chỉ đủ cho đơn admin tạo trực tiếp, đã có
@@ -262,6 +290,7 @@ class OrderObserver
         // CouponUsageLedger::confirm() cũng tự idempotent theo (order_id, code) để an toàn.
         if ($oldStatus === 'pending' && in_array($newStatus, ['paid', 'deposit'], true)) {
             app(CouponUsageLedger::class)->confirm($order);
+            app(\App\Services\OrderCommissionService::class)->notifyPaidToPartner($order);
         }
 
         // Đơn ĐÃ thanh toán (paid/deposit — nghĩa là mã đã được confirm ở trên hoặc lúc tạo) sau đó

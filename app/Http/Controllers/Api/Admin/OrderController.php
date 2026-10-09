@@ -1080,6 +1080,21 @@ class OrderController extends Controller
             'checked_in_at'     => $order->checked_in_at,
             'checked_out_at'    => $order->checked_out_at,
             'unlock_anytime'    => (bool) $order->unlock_anytime,
+            // Luồng tiền Homestay (null = đơn trước khi đối tác chuyển sang luồng mới, 365home thu hộ và chi theo cách cũ): tiền về đâu, hoa hồng chốt khi
+            // trả phòng, phần 365home bù và từng khoản giảm kèm người chịu — xem App\Services\OrderCommissionService.
+            'payment_flow'      => $order->collected_by ? [
+                'collected_by'       => $order->collected_by,
+                'collected_by_label' => \App\Services\OrderCommissionService::COLLECTED_BY[$order->collected_by] ?? null,
+                'commission_rate'    => $order->commission_rate !== null ? (float) $order->commission_rate : null,
+                'commission_amount'  => $order->commission_amount,
+                'platform_subsidy'   => (int) $order->platform_subsidy,
+                'finalized_at'       => $order->commission_finalized_at?->toIso8601String(),
+                'settlement_id'      => $order->settlement_id,
+                'subsidy_held'       => $order->subsidy_held_at !== null,
+                'subsidy_held_reason' => $order->subsidy_held_reason,
+                'refund_paid_by'     => $order->refund_paid_by,
+                'discounts'          => $order->discounts ?? [],
+            ] : null,
             'creator'           => $order->creator ? [
                 'id'       => $order->creator->id,
                 'fullname' => $order->creator->fullname,

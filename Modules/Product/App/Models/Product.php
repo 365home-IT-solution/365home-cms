@@ -183,6 +183,19 @@ class Product extends Model implements HasMedia, Resourceable
         static::addGlobalScope('has_branch', function (Builder $query) {
             $query->whereHas('categories');
         });
+
+        // Đối tác Homestay thêm/mở bán phòng → mức ký quỹ gợi ý có thể tăng: báo đối tác nạp thêm (không khoá bán ngay) — xem EscrowService::syncMinWithRooms().
+        static::saved(function (Product $product) {
+            if (! $product->partner_id || ! ($product->wasRecentlyCreated || $product->wasChanged('is_activated'))) {
+                return;
+            }
+
+            try {
+                app(\App\Services\EscrowService::class)->syncMinWithRooms((string) $product->partner_id);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     public function roomType()
