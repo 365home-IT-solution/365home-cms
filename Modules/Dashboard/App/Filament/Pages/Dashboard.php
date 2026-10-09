@@ -466,6 +466,9 @@ class Dashboard extends FilamentDashboard
             ->selectRaw("{$prefix}oi.product_id, {$prefix}p.name as product_name, {$prefix}o.id as order_id, COALESCE({$prefix}o.amount, {$prefix}o.full_amount) as order_amount")
             ->distinct();
 
+        // Super admin: bỏ đối tác đã tắt "Tính vào thống kê hệ thống" (query thô, không dùng được scope countedInStats()).
+        \App\Support\PlatformStats::apply($inner, 'o.partner_id', $user);
+
         if ($user && ! $user->isSuperAdmin()) {
             // Đây là raw query builder (DB::table), KHÔNG đi qua Eloquent nên global scope
             // BelongsToPartner của Order không tự áp dụng — phải lọc partner_id thủ công ở đây.
@@ -523,7 +526,7 @@ class Dashboard extends FilamentDashboard
         }
         $year      = $year ?? Carbon::now()->year;
         $baseQuery = Order::query()
-            ->where('exclude_from_stats', false)
+            ->countedInStats()
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod']);
 
@@ -585,7 +588,7 @@ class Dashboard extends FilamentDashboard
             $user = auth()->user();
         }
         $query = Order::query()
-            ->where('exclude_from_stats', false)
+            ->countedInStats()
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod'])
             ->selectRaw('YEAR(created_at) as year')
@@ -617,7 +620,7 @@ class Dashboard extends FilamentDashboard
 
     private function baseQuery(): Builder
     {
-        $query = Order::query()->where('exclude_from_stats', false);
+        $query = Order::query()->countedInStats();
         $user  = auth()->user();
         if (! $user || $user->isSuperAdmin()) {
             return $query;

@@ -235,7 +235,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
 
             $q = \Modules\Payment\Entities\Order::whereBetween('created_at', [$start, $end])
                 ->whereIn('category_id', $allCatIds)
-                ->where('exclude_from_stats', false);
+                ->countedInStats();
 
             $count   = (clone $q)->count();
             $revenue = (clone $q)->where('status', 'paid')->sum('amount')
@@ -275,7 +275,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
                  AS total_revenue,
                  TIMESTAMPDIFF(MONTH, MIN(created_at), MAX(created_at)) + 1 AS active_months'
             )
-            ->where('exclude_from_stats', false)
+            ->countedInStats()
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '')
             ->whereYear('created_at', $year)

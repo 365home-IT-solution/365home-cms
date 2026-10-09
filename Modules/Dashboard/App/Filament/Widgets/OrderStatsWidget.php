@@ -95,7 +95,7 @@ class OrderStatsWidget extends ChartWidget
 
     private function branchFilteredOrderQuery(): Builder
     {
-        $query = Order::query()->where('exclude_from_stats', false);
+        $query = Order::query()->countedInStats();
         $user  = auth()->user();
 
         if (! $user || $user->isSuperAdmin()) {

@@ -98,7 +98,7 @@ class RankingService
             })->pluck('id')->toArray();
 
             $rows = Order::query()
-                ->where('exclude_from_stats', false)
+                ->countedInStats()
                 ->selectRaw('MONTH(created_at) as m, SUM(amount) as rev_paid, SUM(money_deposit) as rev_dep')
                 ->whereYear('created_at', $year)
                 ->whereHas('items', function ($q) use ($branchProductIds) {
@@ -132,7 +132,7 @@ class RankingService
     private static function topCustomers($user, int $year, ?array $branchCategoryIds, int $limit): array
     {
         $query = Order::query()
-            ->where('exclude_from_stats', false)
+            ->countedInStats()
             ->whereYear('created_at', $year)
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '');

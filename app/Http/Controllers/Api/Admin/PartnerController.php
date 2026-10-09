@@ -586,6 +586,8 @@ class PartnerController extends Controller
                 }
             }],
             'cancellation_policy' => ['nullable', 'string', 'max:5000'],
+            // Tắt = đơn/phòng của đối tác không vào số liệu tổng hợp của Super Admin (đối tác dùng thử, dữ liệu test).
+            'count_in_platform_stats' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -593,7 +595,7 @@ class PartnerController extends Controller
     {
         $sub = $partner->subscription()->with('plan:id,code,name')->first();
 
-        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate', 'count_in_platform_stats']), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string
