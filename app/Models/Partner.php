@@ -264,6 +264,16 @@ class Partner extends Model implements HasMedia
         return $this->payment_flow_effective_at !== null;
     }
 
+    /**
+     * Hồ sơ này được tự tạo tài khoản chủ đối tác + gửi email đăng nhập khi hợp đồng có hiệu lực không? Có với hồ sơ ĐĂNG KÝ CÔNG KHAI (có mã hồ sơ) và với
+     * hồ sơ Homestay do admin TẠO (qua API hoặc trang quản trị: created_by) — trước đây hồ sơ admin tạo không bao giờ có tài khoản/email, nên đối tác không đăng nhập
+     * được để nộp ký quỹ. MiniHouse giữ nguyên (chỉ hồ sơ đăng ký công khai).
+     */
+    public function canProvisionOwnerAccount(): bool
+    {
+        return filled($this->onboarding_token) || ($this->usesContract() && ! $this->isMinihouse() && filled($this->created_by));
+    }
+
     /** Đang trong thời gian MIỄN PHÍ THÁNG ĐẦU (không hoa hồng, không bắt nạp ký quỹ)? */
     public function isInFeeFreePeriod(?\DateTimeInterface $at = null): bool
     {
@@ -284,9 +294,9 @@ class Partner extends Model implements HasMedia
             }
         });
 
-        // Hồ sơ đăng ký hợp tác công khai: hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập.
+        // Hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập: hồ sơ đăng ký công khai và hồ sơ Homestay do admin tạo (xem canProvisionOwnerAccount()).
         static::updated(function (Partner $partner): void {
-            if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && filled($partner->onboarding_token)) {
+            if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && $partner->canProvisionOwnerAccount()) {
                 // Lỗi tạo tài khoản không được làm hỏng thao tác ký hợp đồng của admin: ghi log để tạo tay.
                 try {
                     app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);

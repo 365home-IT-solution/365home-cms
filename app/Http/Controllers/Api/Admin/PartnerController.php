@@ -257,7 +257,7 @@ class PartnerController extends Controller
         $this->superAdmin($request);
         abort_if($partner->isSystemPartner(), 404);
         $eligible = $partner->usesContract()
-            ? ($partner->contract_status === 'active' && filled($partner->onboarding_token))
+            ? ($partner->contract_status === 'active' && $partner->canProvisionOwnerAccount())
             : (filled($partner->onboarding_token) && $partner->subscription?->expires_at !== null);
         abort_unless($eligible, 422, $partner->usesContract() ? 'Chỉ gửi lại tài khoản khi hợp đồng đã có hiệu lực.' : 'Chỉ gửi lại tài khoản khi đối tác đã được kích hoạt gói.');
 
