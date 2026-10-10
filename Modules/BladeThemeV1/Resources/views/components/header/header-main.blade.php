@@ -199,8 +199,13 @@
                              có ngay từ lần vẽ đầu tiên — nếu chỉ dùng :style, trước khi Alpine kịp
                              chạy thì ảnh hiển thị ở kích thước gốc (rất to) rồi mới co lại, gây
                              giật/lỗi giao diện mỗi lần tải trang. --}}
-                        <img style="height: {{ $logoHeight }}; filter: {{ trim($logoFilterExpr, "'") }};"
-                             src="{{ asset('/storage/'.$logo) }}" alt="Logo"
+                        {{-- Bản thu nhỏ WebP 256px thay vì file gốc admin upload (từng là PNG 2490px cho
+                             logo cao ~42px) + width/height để giữ chỗ đúng tỉ lệ — xem
+                             App\Support\SmallIconThumbnail. --}}
+                        @php $logoDim = $logo ? \App\Support\SmallIconThumbnail::dimensions($logo, 256) : null; @endphp
+                        <img style="height: {{ $logoHeight }}; width: auto; filter: {{ trim($logoFilterExpr, "'") }};"
+                             src="{{ $logo ? \App\Support\SmallIconThumbnail::url($logo, 256) : asset('/storage/'.$logo) }}" alt="{{ config('app.name', '365 Home') }}"
+                             @if($logoDim) width="{{ $logoDim[0] }}" height="{{ $logoDim[1] }}" @endif
                              class="transition-all duration-300"/>
                     </a>
 

@@ -95,6 +95,24 @@ class BranchDetailForm
                         ->label('Người quản lý vận hành')
                         ->maxLength(255),
                 ]),
+
+                // Toạ độ chính xác của cơ sở (copy từ Google Maps) — dùng cho "geo" của schema
+                // LodgingBusiness; bỏ trống thì cơ sở không có schema riêng.
+                Forms\Components\Grid::make(2)->schema([
+                    Forms\Components\TextInput::make('latitude')
+                        ->label('Vĩ độ (latitude)')
+                        ->numeric()
+                        ->minValue(-90)
+                        ->maxValue(90)
+                        ->placeholder('10.0217964'),
+
+                    Forms\Components\TextInput::make('longitude')
+                        ->label('Kinh độ (longitude)')
+                        ->numeric()
+                        ->minValue(-180)
+                        ->maxValue(180)
+                        ->placeholder('105.7445886'),
+                ]),
             ]);
     }
 

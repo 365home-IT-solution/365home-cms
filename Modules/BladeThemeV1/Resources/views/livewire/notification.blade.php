@@ -67,7 +67,7 @@
 
                 <!-- Title với gradient text -->
                 <div class="flex-1">
-                    <h3 class="text-2xl font-bold bg-gradient-to-r bg-clip-text text-transparent mb-1"
+                    <p class="text-2xl font-bold bg-gradient-to-r bg-clip-text text-transparent mb-1"
                         :class="{
                             'from-green-600 to-emerald-600': type === 'success',
                             'from-red-600 to-pink-600': type === 'error',
@@ -78,7 +78,7 @@
                         <span x-show="type === 'error'">Lỗi!</span>
                         <span x-show="type === 'warning'">Cảnh báo!</span>
                         <span x-show="type === 'info'">Thông tin</span>
-                    </h3>
+                    </p>
                     <p class="text-sm text-gray-500 font-medium">
                         <span x-show="type === 'success'">Hành động đã được thực hiện thành công</span>
                         <span x-show="type === 'error'">Đã xảy ra lỗi, vui lòng thử lại</span>

@@ -111,6 +111,13 @@ if (typeof window.__homeToggleWishlist === 'undefined') {
     };
 }
 
+// Escape chuỗi trước khi đặt vào thuộc tính alt="..." của card (tên phòng/chi nhánh do admin nhập).
+if (typeof window.__homeAltAttr === 'undefined') {
+    window.__homeAltAttr = function (text) {
+        return String(text || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+}
+
 if (typeof window.roomCardHtml === 'undefined') {
     window.roomCardHtml = function (room) {
         // Prefer the pre-generated "card" conversion (480px, avif, ~72 quality — see
@@ -149,6 +156,9 @@ if (typeof window.roomCardHtml === 'undefined') {
                 + '<span style="background:#111827; color:#fff; font-size:11px; font-weight:700; padding:4px 12px; border-radius:99px;">Tạm hết phòng</span></div>'
             : '';
 
+        // alt mô tả cho Google Images/screen reader: tên phòng + chi nhánh (vd "PIXEL - 254 Xuân Thủy").
+        const imgAlt = window.__homeAltAttr([room.name, room.branch && room.branch.name].filter(Boolean).join(' - '));
+
         const wishlistActive = room.wishlist_status === true;
         const wishlistHtml = '<button type="button" class="room-wishlist-btn" data-active="' + (wishlistActive ? '1' : '0') + '"'
                 + ' aria-label="Yêu thích"'
@@ -160,7 +170,7 @@ if (typeof window.roomCardHtml === 'undefined') {
         return '<a href="' + href + '" class="home-card" style="position:relative; scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
             + '<div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">'
             + badgeHtml + wishlistHtml + unavailableHtml
-            + (img ? '<img src="' + img + '" alt="" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
+            + (img ? '<img src="' + img + '" alt="' + imgAlt + '" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
             + '</div>'
             + '<div style="padding:0 2px; display:flex; flex-direction:column; gap:3px;">'
             + '<p style="font-size:13px; font-weight:600; color:#111827; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + (room.name || '') + '</p>'
@@ -189,7 +199,7 @@ if (typeof window.branchCardHtml === 'undefined') {
 
         return '<a href="' + href + '" class="home-card" style="scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
             + '<div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">'
-            + (img ? '<img src="' + img + '" alt="" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
+            + (img ? '<img src="' + img + '" alt="' + window.__homeAltAttr(branch.name) + '" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
             + '</div>'
             + '<p style="font-size:13px; font-weight:600; color:#111827; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + (branch.name || '') + '</p>'
             + '</a>';

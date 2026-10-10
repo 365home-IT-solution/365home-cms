@@ -21,7 +21,7 @@
                     class="{{ !$contact['data']['icon'] ? 'md:w-14 md:h-14 w-10 h-10' : '' }} bg-red-500 hover:bg-red-600 rounded-full shadow-lg flex items-center justify-center text-white">
                     @if ($contact['data']['icon'])
                     <img src="{{ Storage::url($contact['data']['icon']) }}" alt="hotline"
-                                            class="md:w-14 md:h-14 w-10 h-10">
+                                            class="md:w-14 md:h-14 w-10 h-10" width="56" height="56" loading="lazy">
                                     @else
                     <svg xmlns="http://www.w3.org/2000/svg" class="md:h-6 md:w-6 h-5 w-5" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">
@@ -42,7 +42,7 @@
                     class="{{ !$contact['data']['icon'] ? 'md:w-14 md:h-14 w-10 h-10' : '' }} bg-blue-500 hover:bg-blue-600 rounded-full shadow-lg flex items-center justify-center text-white">
                     @if ($contact['data']['icon'])
                     <img src="{{ Storage::url($contact['data']['icon']) }}" alt="email"
-                                            class="md:w-14 md:h-14 w-10 h-10">
+                                            class="md:w-14 md:h-14 w-10 h-10" width="56" height="56" loading="lazy">
                                     @else
                     <svg xmlns="http://www.w3.org/2000/svg" class="md:h-6 md:w-6 h-5 w-5" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">
@@ -63,7 +63,7 @@
                     class="{{ !$contact['data']['icon'] ? 'md:w-14 md:h-14 w-10 h-10' : '' }} bg-[#0068FF] hover:bg-[#0054CC] rounded-full shadow-lg flex items-center justify-center text-white">
                     @if ($contact['data']['icon'])
                     <img src="{{ Storage::url($contact['data']['icon']) }}" alt="zalo"
-                                            class="md:w-14 md:h-14 w-10 h-10">
+                                            class="md:w-14 md:h-14 w-10 h-10" width="56" height="56" loading="lazy">
                                     @else
                     <span class="font-bold text-lg">Z</span>
                     @endif
@@ -80,7 +80,7 @@
                     class="{{ !$contact['data']['icon'] ? 'md:w-14 md:h-14 w-10 h-10' : '' }} bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg flex items-center justify-center text-white">
                     @if ($contact['data']['icon'])
                     <img src="{{ Storage::url($contact['data']['icon']) }}" alt="messenger"
-                                            class="md:w-14 md:h-14 w-10 h-10">
+                                            class="md:w-14 md:h-14 w-10 h-10" width="56" height="56" loading="lazy">
                                     @else
                     <svg xmlns="http://www.w3.org/2000/svg" class="md:h-6 md:w-6 h-5 w-5" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">

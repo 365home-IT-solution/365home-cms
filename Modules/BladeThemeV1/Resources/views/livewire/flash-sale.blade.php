@@ -32,10 +32,10 @@
             .hs-section-title { font-size: 1.1rem; }
         }
 
-        /* "Danh sách phòng - [chi nhánh]" (room_list, display_mode 'fixed') — tiêu đề lấy tên chi
-           nhánh động, có thể dài, in hoa + letter-spacing nên ở mobile 1.5rem (như các tiêu đề
-           section khác) dễ bị to/tràn dòng. Chỉ thu nhỏ riêng khối này ở mobile, desktop vẫn dùng
-           chung 1.1rem như hs-section-title. */
+        /* "Phòng tại chi nhánh [chi nhánh]" (room_list, display_mode 'fixed') — tiêu đề lấy tên chi
+           nhánh động, có thể dài nên ở mobile 1.5rem (như các tiêu đề section khác) dễ bị to/tràn
+           dòng. Chỉ thu nhỏ riêng khối này ở mobile, desktop vẫn dùng chung 1.1rem như
+           hs-section-title. */
         @media (max-width: 1023px) {
             .hs-roomlist-title { font-size: 1.15rem; }
         }
@@ -579,14 +579,14 @@
                                     ])->filter()->implode(', '))
                                     @if ($criticalBanner)
                                         <div class="swiper-slide">
-                                            <a href="{{ $criticalBanner['url'] ?: '#' }}" class="banner-card"
+                                            <a @if($criticalBanner['url']) href="{{ $criticalBanner['url'] }}" @endif class="banner-card"
                                                aria-label="{{ filled($criticalBanner['title'] ?? null) ? $criticalBanner['title'] : 'Banner ưu đãi 365Home' }}"
                                                @unless($criticalBanner['url']) style="pointer-events:none" @endunless>
                                                 <img
                                                     src="{{ data_get($criticalBanner, 'thumbnail.wide') ?? $criticalBanner['image_url'] }}"
                                                     @if($criticalBannerSrcset) srcset="{{ $criticalBannerSrcset }}" @endif
                                                     sizes="(max-width: 1023px) 100vw, 768px"
-                                                    alt="{{ $criticalBanner['title'] ?? '' }}"
+                                                    alt="{{ filled($criticalBanner['title'] ?? null) ? $criticalBanner['title'] : 'Banner ưu đãi 365Home' }}"
                                                     width="1000"
                                                     height="300"
                                                     loading="eager"
@@ -596,13 +596,13 @@
                                     @endif
                                     <template x-for="banner in (bannerSection?.items || []).slice({{ $criticalBanner ? 1 : 0 }})" :key="'banner-' + (banner.url || banner.image_url)">
                                         <div class="swiper-slide">
-                                            <a :href="banner.url || '#'" class="banner-card"
+                                            <a :href="banner.url || null" class="banner-card"
                                                :aria-label="banner.title || 'Banner ưu đãi 365Home'"
                                                :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
                                                 <img :src="banner.thumbnail?.wide || banner.image_url"
                                                      :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.medium && (banner.thumbnail.medium + ' 768w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
                                                      sizes="(max-width: 1023px) 100vw, 768px"
-                                                     :alt="banner.title || ''" width="1000" height="300" loading="lazy">
+                                                     :alt="banner.title || 'Banner ưu đãi 365Home'" width="1000" height="300" loading="lazy">
                                             </a>
                                         </div>
                                     </template>
@@ -716,7 +716,7 @@
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
             <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="explore-card">
-                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="" class="explore-card-bg" width="1140" height="360"
+                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="Ưu đãi dành cho thành viên mới của 365 Home" class="explore-card-bg" width="1140" height="360"
                          loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
@@ -730,7 +730,7 @@
                     <img src="{{ asset('images/banner-guest-mobile-750.webp') }}"
                          srcset="{{ asset('images/banner-guest-mobile-750.webp') }} 750w, {{ asset('images/banner-guest-mobile.webp') }} 1029w"
                          sizes="(max-width: 1023px) 100vw, 50vw"
-                         alt="" class="explore-card-bg explore-card-bg-right"
+                         alt="Tải ứng dụng đặt phòng 365 Home" class="explore-card-bg explore-card-bg-right"
                          width="750" height="262" loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
@@ -779,13 +779,13 @@
                     <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
                         <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
                             <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
-                                <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
+                                <a :href="banner.url || null" class="banner-card legacy-banner-card"
                                     :aria-label="banner.title || 'Banner ưu đãi 365Home'"
                                     :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
                                     <img :src="banner.thumbnail?.wide || banner.image_url"
                                          :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.medium && (banner.thumbnail.medium + ' 768w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
                                          sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
-                                         :alt="banner.title || ''" width="1000" height="300" loading="lazy">
+                                         :alt="banner.title || 'Banner ưu đãi 365Home'" width="1000" height="300" loading="lazy">
                                 </a>
                             </template>
                         </div>
@@ -808,16 +808,16 @@
                     <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
                             <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                                <img x-show="section.icon_url" :src="section.icon_url" alt="" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
+                                <img x-show="section.icon_url" :src="section.icon_url" alt="" width="20" height="20" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
                                 <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title || 'Flash Sale'"></h2>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
                                 </a>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
@@ -856,14 +856,14 @@
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
                                 </a>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
@@ -897,17 +897,17 @@
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <div style="min-width:0;">
-                                    <h2 class="hs-section-title hs-roomlist-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
+                                    <h2 class="hs-section-title hs-roomlist-title" style="font-weight:800; color:#111827; margin:0;" x-text="section.title"></h2>
                                     <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
                                 </div>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
                                 </a>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
                                       <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
                                     </svg>
