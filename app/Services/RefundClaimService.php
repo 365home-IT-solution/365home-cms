@@ -59,12 +59,53 @@ class RefundClaimService
         return $claim;
     }
 
-    /** Gọi từ OrderRefundService::refund(): đơn đã được hoàn thì đóng yêu cầu đang mở. */
-    public function closeForRefund(Order $order, bool $byPlatform): void
+    /**
+     * Gọi từ OrderRefundService::refund(): đơn đã được hoàn thì đóng yêu cầu đang mở, ghi lại ai hoàn / hình thức / số tiền.
+     * Đối tác tự báo đã hoàn thì Super Admin được thông báo để theo dõi.
+     */
+    public function closeForRefund(Order $order, bool $byPlatform, ?User $actor = null, ?string $method = null, ?int $amount = null, ?string $note = null): void
     {
-        Claim::query()->where('order_id', $order->id)->whereIn('status', Claim::ACTIVE)->update([
-            'status' => $byPlatform ? Claim::STATUS_REFUNDED_BY_PLATFORM : Claim::STATUS_REFUNDED_BY_PARTNER, 'resolved_at' => now(),
-        ]);
+        $claims = Claim::query()->where('order_id', $order->id)->whereIn('status', Claim::ACTIVE)->get();
+
+        foreach ($claims as $claim) {
+            $claim->update([
+                'status' => $byPlatform ? Claim::STATUS_REFUNDED_BY_PLATFORM : Claim::STATUS_REFUNDED_BY_PARTNER,
+                'resolved_at' => now(), 'resolved_by' => $actor?->id ?? $claim->resolved_by,
+                'refund_method' => $method, 'refunded_amount' => $amount, 'refund_note' => $note !== null ? mb_substr($note, 0, 500) : null,
+            ]);
+
+            if (! $byPlatform && ($partner = $claim->partner)) {
+                $this->escrow->notifySuperAdmins('refund_claim_refunded', 'Đối tác đã hoàn tiền cho khách', ($partner->legal_name ?: $partner->name)
+                    . ": đơn #{$claim->order_code}, {$this->money((int) ($amount ?? $claim->amount))} (" . (Claim::REFUND_METHODS[$method] ?? 'không rõ hình thức') . ')'
+                    . ($actor ? " — do {$actor->fullname} ghi nhận." : '.'), $partner, ['claim_id' => $claim->id, 'order_code' => $claim->order_code]);
+            }
+        }
+    }
+
+    /**
+     * Đối tác báo ĐÃ hoàn tiền cho khách (tiền mặt hoặc chuyển khoản ngoài hệ thống): đơn chuyển "đã hoàn" với đúng số tiền của yêu cầu,
+     * yêu cầu chuyển "đối tác đã hoàn", không trừ ký quỹ. Dùng chung cho API và nút "Đã hoàn tiền cho khách" trên web.
+     *
+     * @throws \DomainException|\RuntimeException
+     */
+    public function partnerRefund(Claim $claim, string $method, ?string $note, User $by): Claim
+    {
+        if ($by->isSuperAdmin() || $by->belongsToPlatformPartner()) {
+            throw new \DomainException('365home không báo hoàn thay đối tác ở đây — dùng "Hoàn thay & trừ ký quỹ" khi yêu cầu đã quá hạn.');
+        }
+        if ($by->partner_id !== $claim->partner_id) {
+            throw new \DomainException('Yêu cầu này không thuộc đối tác của bạn.');
+        }
+        if (! in_array($claim->status, Claim::ACTIVE, true)) {
+            throw new \DomainException('Yêu cầu này đã được xử lý.');
+        }
+
+        DB::transaction(function () use ($claim, $method, $note, $by) {
+            $order = Order::withoutGlobalScopes()->findOrFail($claim->order_id);
+            $this->refunds->refund($order, (int) $claim->amount, $method, 'Hoàn theo yêu cầu #' . $claim->id . ': ' . $claim->reason . ($note ? " — Ghi chú: {$note}" : ''), (string) $by->id, $note);
+        });
+
+        return $claim->fresh();
     }
 
     public function cancel(Claim $claim, User $by): Claim
@@ -111,7 +152,7 @@ class RefundClaimService
             $claim->update(['resolved_by' => $by->id]);
         });
 
-        return $claim->fresh();
+        return $claim->fresh('resolver');
     }
 
     private function money(int $amount): string

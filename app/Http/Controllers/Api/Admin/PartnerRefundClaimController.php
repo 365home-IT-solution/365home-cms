@@ -38,12 +38,26 @@ class PartnerRefundClaimController extends Controller
     {
         $this->authorizeView($request, $partner);
 
-        $query = Claim::query()->where('partner_id', $partner->id)->latest('id');
+        $query = Claim::query()->with('resolver:id,fullname')->where('partner_id', $partner->id)->latest('id');
         if ($request->filled('status')) {
             $query->where('status', $request->query('status'));
         }
 
         return response()->json(['data' => $query->limit(200)->get()->map->toApi()->values()]);
+    }
+
+    // POST …/refund-claims/{claim}/partner-refund — đối tác báo ĐÃ hoàn tiền cho khách. body: method = cash | transfer, note?
+    // Số tiền lấy theo yêu cầu (không nhập). Mọi tài khoản của chính đối tác; 365home dùng refund-on-behalf.
+    public function partnerRefund(Request $request, Partner $partner, int $claim): JsonResponse
+    {
+        abort_if($partner->isSystemPartner() || $partner->isMinihouse(), 404);
+        abort_unless($request->user()->partner_id === $partner->id, 403, 'Chỉ tài khoản của đối tác này được báo đã hoàn tiền.');
+        $data = $request->validate(['method' => ['required', 'in:cash,transfer'], 'note' => ['nullable', 'string', 'max:500']]);
+
+        return $this->guard(fn () => response()->json([
+            'message' => 'Đã ghi nhận đối tác hoàn tiền cho khách.',
+            'data' => $this->claims->partnerRefund($this->find($partner, $claim), $data['method'], $data['note'] ?? null, $request->user())->load('resolver:id,fullname')->toApi(),
+        ]));
     }
 
     // POST …/refund-claims/{claim}/refund-on-behalf — Super Admin hoàn thay sau khi quá hạn. body: method = cash | transfer

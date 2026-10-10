@@ -34,6 +34,7 @@ class Partner extends Model implements HasMedia
         'phone',
         'email',
         'address',
+        'province_code',
         'status',
         'created_by',
 
@@ -101,6 +102,9 @@ class Partner extends Model implements HasMedia
         'escrow_min_amount' => 'integer',
         'escrow_balance' => 'integer',
         'payment_flow_effective_at' => 'datetime',
+        // Miễn phí tháng đầu (xem App\Services\PartnerTrialService): chỉ service ghi fee_free_until (không nằm trong $fillable).
+        'province_code' => 'integer',
+        'fee_free_until' => 'datetime',
         'escrow_enforced_from' => 'datetime',
         'escrow_topup_due_at' => 'datetime',
         'escrow_suspended_at' => 'datetime',
@@ -258,6 +262,12 @@ class Partner extends Model implements HasMedia
     public function usesDirectPayment(): bool
     {
         return $this->payment_flow_effective_at !== null;
+    }
+
+    /** Đang trong thời gian MIỄN PHÍ THÁNG ĐẦU (không hoa hồng, không bắt nạp ký quỹ)? */
+    public function isInFeeFreePeriod(?\DateTimeInterface $at = null): bool
+    {
+        return $this->fee_free_until !== null && ($at ? $this->fee_free_until->gt($at) : $this->fee_free_until->isFuture());
     }
 
     public function isSystemPartner(): bool

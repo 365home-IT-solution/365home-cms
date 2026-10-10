@@ -29,11 +29,12 @@ class PartnerRefundClaim extends Model
 
     protected $fillable = [
         'partner_id', 'order_id', 'order_code', 'amount', 'reason', 'status', 'requested_at', 'due_at',
-        'overdue_notified_at', 'resolved_at', 'requested_by', 'resolved_by',
+        'overdue_notified_at', 'resolved_at', 'requested_by', 'resolved_by', 'refund_method', 'refunded_amount', 'refund_note',
     ];
 
     protected $casts = [
         'amount'              => 'integer',
+        'refunded_amount'     => 'integer',
         'requested_at'        => 'datetime',
         'due_at'              => 'datetime',
         'overdue_notified_at' => 'datetime',
@@ -43,6 +44,19 @@ class PartnerRefundClaim extends Model
     public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class)->withTrashed();
+    }
+
+    // Người xử lý yêu cầu: người hoàn tiền (đã hoàn) hoặc người huỷ (đã huỷ).
+    public function resolver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'resolved_by');
+    }
+
+    public const REFUND_METHODS = ['cash' => 'Tiền mặt', 'transfer' => 'Chuyển khoản'];
+
+    public function isRefunded(): bool
+    {
+        return in_array($this->status, [self::STATUS_REFUNDED_BY_PARTNER, self::STATUS_REFUNDED_BY_PLATFORM], true);
     }
 
     public function toApi(): array
@@ -58,6 +72,12 @@ class PartnerRefundClaim extends Model
             'due_at'       => $this->due_at?->toIso8601String(),
             'is_overdue'   => in_array($this->status, self::ACTIVE, true) && $this->due_at?->isPast(),
             'resolved_at'  => $this->resolved_at?->toIso8601String(),
+            // Chi tiết việc hoàn (chỉ có khi đã hoàn): ai hoàn, hình thức, số tiền thực hoàn.
+            'refund_method'       => $this->isRefunded() ? $this->refund_method : null,
+            'refund_method_label' => $this->isRefunded() ? (self::REFUND_METHODS[$this->refund_method] ?? null) : null,
+            'refunded_amount'     => $this->isRefunded() ? $this->refunded_amount : null,
+            'refund_note'         => $this->isRefunded() ? $this->refund_note : null,
+            'refunded_by'         => $this->isRefunded() && $this->resolver ? ['id' => $this->resolver->id, 'fullname' => $this->resolver->fullname] : null,
         ];
     }
 }

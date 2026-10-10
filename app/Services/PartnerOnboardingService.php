@@ -285,6 +285,7 @@ class PartnerOnboardingService
                 'phone'               => $phone,
                 'email'               => $data['email'],
                 'address'             => $data['address'],
+                'province_code'       => filled($data['address_province_code'] ?? null) ? (int) $data['address_province_code'] : null,
                 'status'              => false,
                 'verification_status' => 'pending',
                 'contract_status'     => 'draft',

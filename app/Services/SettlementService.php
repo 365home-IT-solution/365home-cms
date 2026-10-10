@@ -122,6 +122,8 @@ class SettlementService
             ->whereNull('settlement_id')
             ->whereNotNull('commission_finalized_at')
             ->whereNull('subsidy_held_at')
+            // Đơn trong thời gian miễn phí: đối tác tự thu thì không hoa hồng, không bù — không có gì đối soát; đơn 365home thu hộ vẫn vào kỳ để chi lại 100%.
+            ->where(fn ($q) => $q->where('commission_waived', false)->orWhere('collected_by', OrderCommissionService::COLLECTED_PLATFORM))
             ->where('commission_finalized_at', '<=', $end->copy()->endOfDay());
     }
 
@@ -494,14 +496,22 @@ class SettlementService
         if ($withOrders) {
             $disputes = $settlement->disputes()->get()->groupBy('order_id');
 
-            $data['orders'] = $settlement->orders()->orderBy('commission_finalized_at')->get()->map(fn (Order $order) => [
+            $data['orders'] = $settlement->orders()->with('items')->orderBy('commission_finalized_at')->get()->map(fn (Order $order) => [
                 'order_code'        => $order->order_code,
                 'buyer_name'        => $order->buyer_name,
+                // Phòng đã thuê và ngày ở (đối chiếu từng dòng đối soát với lưu trú thực tế).
+                'rooms'             => $order->items->map(fn ($item) => [
+                    'name' => $item->name,
+                    'checkin_date' => $item->checkin_date?->toIso8601String(),
+                    'checkout_date' => $item->checkout_date?->toIso8601String(),
+                ])->values(),
+                'checked_out_at'    => $order->checked_out_at?->toIso8601String(),
                 'collected_by'      => $order->collected_by,
                 'collected_by_label' => OrderCommissionService::COLLECTED_BY[$order->collected_by] ?? null,
                 'revenue'           => $this->commission->retainedAmount($order),
                 'platform_collected' => $this->commission->platformCollectedAmount($order),
                 'commission_rate'   => $order->commission_rate !== null ? (float) $order->commission_rate : null,
+                'commission_waived' => (bool) $order->commission_waived,
                 'commission_amount' => $order->commission_amount,
                 'platform_subsidy'  => $order->platform_subsidy,
                 'discounts'         => $order->discounts ?? [],

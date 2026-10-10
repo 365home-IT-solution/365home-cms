@@ -153,8 +153,15 @@ class PartnerContractRenderer
         $html[] = $p("Hai bên đối soát theo kỳ {$cycleText}. Bên B có trách nhiệm thanh toán phần hoa hồng {$pctA} thuộc Bên A trong vòng {$overdueDays} ngày kể từ ngày Bên A gửi bảng đối soát; quá hạn, Bên A được quyền tự trừ vào khoản ký quỹ của Bên B. Khuyến mãi do Bên A tài trợ được Bên A bù lại cho Bên B bằng cách trừ vào hoa hồng phải nộp trong cùng kỳ đối soát (phần bù vượt hoa hồng được Bên A chi trả cho Bên B), không trừ vào ký quỹ. Trường hợp Bên B chưa cấu hình kênh thanh toán riêng, Bên A thu hộ và chi lại phần của Bên B ở kỳ đối soát.");
         $html[] = $p('4.4. Mỗi bên tự chịu trách nhiệm xuất hóa đơn và thực hiện nghĩa vụ thuế đối với phần doanh thu thuộc trách nhiệm của mình; Bên A xuất hóa đơn giá trị gia tăng đối với phần hoa hồng theo từng kỳ đối soát. Khoản ký quỹ không phải doanh thu của Bên A nên không xuất hóa đơn. Hai bên có trách nhiệm phối hợp cung cấp thông tin, chứng từ cần thiết để thực hiện việc đối soát và xuất hóa đơn.');
 
+        // 4.5 — Ưu đãi tháng đầu: chỉ ghi khi công tắc miễn phí đang bật và đối tác đủ điều kiện (xem App\Services\PartnerTrialService). Đây là căn cứ để hệ thống cấp miễn phí khi ký số.
+        $trial = app(\App\Services\PartnerTrialService::class)->offersOnFirstContract($partner);
+        if ($trial) {
+            $months = VietnameseNumber::format(app(\App\Services\PartnerTrialService::class)->months());
+            $html[] = $p('4.5. ' . \App\Services\PartnerTrialService::CLAUSE_MARKER . ': đối với cơ sở kinh doanh của Bên B nằm ngoài Thành phố Cần Thơ, trong ' . $months . ' tháng đầu kể từ ngày Hợp đồng có hiệu lực, Bên B được sử dụng nền tảng của Bên A để bán phòng mà không phải trả hoa hồng, không phải nạp ký quỹ và không đối soát hoa hồng; các khoản tiền do Bên A thu hộ trong thời gian này vẫn được Bên A chi lại đầy đủ cho Bên B. Khuyến mãi do Bên A phát hành áp dụng cho đơn đặt trong thời gian này được trừ vào doanh thu của Bên B, Bên A không bù lại. Hết thời gian ưu đãi, Điều 4 và Điều 5 được áp dụng đầy đủ: Bên B phải nạp đủ mức ký quỹ tối thiểu trước khi hết thời gian ưu đãi (Bên A nhắc trước 07 ngày), nếu chưa nạp đủ thì Bên A tạm ngưng bán trực tuyến cho đến khi Bên B nạp đủ. Ưu đãi chấm dứt ngay khi Bên B có cơ sở kinh doanh tại Thành phố Cần Thơ.');
+        }
+
         // Điều 5 — KÝ QUỸ (xem App\Services\EscrowService): mức, nạp, số dư thấp, trường hợp được trừ, quy trình khiếu nại, hoàn.
-        foreach (self::escrowArticle($partner, 5, $p, $h, $bullet) as $line) {
+        foreach (self::escrowArticle($partner, 5, $p, $h, $bullet, $trial) as $line) {
             $html[] = $line;
         }
 
@@ -259,7 +266,7 @@ class PartnerContractRenderer
      *
      * @return string[] các đoạn HTML
      */
-    private static function escrowArticle(Partner $partner, int $no, \Closure $p, \Closure $h, \Closure $bullet): array
+    private static function escrowArticle(Partner $partner, int $no, \Closure $p, \Closure $h, \Closure $bullet, bool $trial = false): array
     {
         $min = (int) ($partner->escrow_min_amount ?: app(\App\Services\EscrowService::class)->suggestedMinAmount($partner));
         $minText = VietnameseNumber::format($min) . ' đồng (' . VietnameseNumber::money($min) . ')';
@@ -272,7 +279,7 @@ class PartnerContractRenderer
         return [
             $h("ĐIỀU {$no}. KÝ QUỸ ĐẢM BẢO NGHĨA VỤ CỦA BÊN B"),
             $p("{$no}.1. Mức ký quỹ: Bên B ký quỹ cho Bên A khoản tiền tối thiểu {$minText}. Khi Bên B bổ sung phòng kinh doanh làm mức ký quỹ tăng, Bên A thông báo để Bên B nạp bù, không khoá bán ngay."),
-            $p("{$no}.2. Nạp ký quỹ: Bên B nạp qua mã QR PayOS do Bên A cung cấp (tiền ký quỹ về tài khoản của Bên A, không về tài khoản của Bên B) hoặc chuyển khoản ngoài hệ thống để Bên A ghi nhận kèm chứng từ. Bên B mới hợp tác phải nạp đủ mức tối thiểu trước khi mở bán trực tuyến; Bên B đang hoạt động có {$grace} ngày kể từ ngày Hợp đồng/phụ lục có hiệu lực để nạp đủ."),
+            $p("{$no}.2. Nạp ký quỹ: Bên B nạp qua mã QR PayOS do Bên A cung cấp (tiền ký quỹ về tài khoản của Bên A, không về tài khoản của Bên B) hoặc chuyển khoản ngoài hệ thống để Bên A ghi nhận kèm chứng từ. " . ($trial ? 'Bên B được miễn nạp ký quỹ trong thời gian ưu đãi quy định tại Điều 4.5 và phải nạp đủ mức tối thiểu trước khi hết thời gian ưu đãi; ' : 'Bên B mới hợp tác phải nạp đủ mức tối thiểu trước khi mở bán trực tuyến; ') . "Bên B đang hoạt động có {$grace} ngày kể từ ngày Hợp đồng/phụ lục có hiệu lực để nạp đủ."),
             $p("{$no}.3. Sổ ký quỹ: số dư ký quỹ chỉ thay đổi qua bút toán, mỗi bút toán ghi rõ số tiền, lý do, đơn/biên bản liên quan và chứng từ; Bên B xem được sổ ký quỹ trong ứng dụng. Ký quỹ không tính lãi và Bên B không được tự dùng ký quỹ để trả hoa hồng hằng kỳ — Bên A chỉ trừ ký quỹ khi quá hạn hoặc thuộc các trường hợp tại khoản {$no}.5."),
             $p("{$no}.4. Số dư thấp: khi số dư thấp hơn mức tối thiểu, Bên A cảnh báo và yêu cầu nạp bù trong {$topup} ngày; khi số dư dưới {$suspend}% mức tối thiểu hoặc quá hạn nạp bù, Bên A tạm ngưng bán trực tuyến cho Bên B (phòng ẩn khỏi tìm kiếm, không nhận đơn mới; đơn đã đặt vẫn được phục vụ). Số tiền trừ vượt quá số dư là công nợ của Bên B và được bù khi Bên B nạp thêm."),
             $p("{$no}.5. Các trường hợp Bên A được trừ ký quỹ:"),

@@ -111,6 +111,9 @@ class EscrowService
             'topup_due_at'         => $state === self::STATE_LOW ? $partner->escrow_topup_due_at?->toIso8601String() : null,
             'suspended_at'         => $partner->escrow_suspended_at?->toIso8601String(),
             'sales_suspended'      => in_array($state, [self::STATE_SUSPENDED, self::STATE_TERMINATED], true),
+            // Miễn phí tháng đầu (đối tác mới ngoài tỉnh phải ký quỹ ngay): đến khi nào không hoa hồng, không bắt nạp ký quỹ.
+            'fee_free_until'       => $partner->fee_free_until?->toIso8601String(),
+            'fee_free_active'      => $partner->isInFeeFreePeriod(),
             // Chấm dứt hợp đồng: mốc chấm dứt, mốc sớm nhất được hoàn và các điều kiện còn chặn việc hoàn (rỗng = hoàn được).
             'terminated_at'        => $partner->escrow_terminated_at?->toIso8601String(),
             'release_available_at' => $partner->escrow_terminated_at?->copy()->addDays((int) config('escrow.release_hold_days', 30))->toIso8601String(),

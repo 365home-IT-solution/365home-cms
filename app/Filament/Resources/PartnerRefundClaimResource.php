@@ -68,6 +68,11 @@ class PartnerRefundClaimResource extends Resource
                     }),
                 Tables\Columns\TextColumn::make('due_at')->label('Hạn hoàn')->dateTime('d/m/Y H:i')
                     ->color(fn (Claim $record) => in_array($record->status, Claim::ACTIVE, true) && $record->due_at->isPast() ? 'danger' : null),
+                Tables\Columns\TextColumn::make('refund_info')->label('Chi tiết hoàn')->wrap()
+                    ->state(fn (Claim $record) => $record->isRefunded()
+                        ? trim((Claim::REFUND_METHODS[$record->refund_method] ?? 'Không rõ hình thức') . ' · ' . number_format((int) ($record->refunded_amount ?? $record->amount), 0, ',', '.') . 'đ · ' . ($record->resolver?->fullname ?? '—') . ' · ' . $record->resolved_at?->format('d/m/Y H:i'))
+                        : '—')
+                    ->tooltip(fn (Claim $record) => $record->refund_note),
                 Tables\Columns\TextColumn::make('requested_at')->label('Yêu cầu lúc')->dateTime('d/m/Y H:i')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
@@ -80,13 +85,15 @@ class PartnerRefundClaimResource extends Resource
                     ->label('Đã hoàn tiền cho khách')->icon('heroicon-o-check-circle')->color('success')
                     ->visible(fn (Claim $record) => ! self::isPlatformSide() && in_array($record->status, Claim::ACTIVE, true))
                     ->modalDescription('Chỉ bấm sau khi bạn đã hoàn tiền cho khách (tiền mặt hoặc chuyển khoản ngoài hệ thống). Đơn sẽ chuyển sang "đã hoàn tiền".')
-                    ->form([Forms\Components\Select::make('method')->label('Hình thức hoàn')->required()->native(false)->options(['cash' => 'Tiền mặt', 'transfer' => 'Chuyển khoản'])])
+                    ->form([
+                        Forms\Components\Select::make('method')->label('Hình thức hoàn')->required()->native(false)->options(Claim::REFUND_METHODS),
+                        Forms\Components\Textarea::make('note')->label('Ghi chú (không bắt buộc)')->maxLength(500)->rows(2),
+                    ])
                     ->action(function (Claim $record, array $data) {
                         try {
-                            $order = Order::withoutGlobalScopes()->findOrFail($record->order_id);
-                            app(OrderRefundService::class)->refund($order, (int) $record->amount, $data['method'], 'Hoàn theo yêu cầu #' . $record->id . ': ' . $record->reason, (string) auth()->id());
+                            app(RefundClaimService::class)->partnerRefund($record, $data['method'], $data['note'] ?? null, auth()->user());
                             Notification::make()->success()->title('Đã ghi nhận hoàn tiền cho khách.')->send();
-                        } catch (\RuntimeException $e) {
+                        } catch (\DomainException|\RuntimeException $e) {
                             Notification::make()->danger()->title($e->getMessage())->send();
                         }
                     }),

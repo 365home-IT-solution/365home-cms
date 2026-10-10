@@ -221,6 +221,13 @@ class PartnerForm
                                 ->maxLength(255),
                         ]),
 
+                        Forms\Components\Select::make('province_code')
+                            ->label('Tỉnh/thành phố của cơ sở kinh doanh')
+                            ->options(fn () => \App\Models\Province::query()->whereNotNull('code')->orderBy('name')->pluck('name', 'code')->all())
+                            ->searchable()->preload()->native(false)
+                            ->helperText('Lấy từ form đăng ký. Quyết định đối tác có được miễn phí tháng đầu không (xem Cấu hình web › Ký quỹ); sửa ở đây nếu đăng ký thiếu hoặc sai.')
+                            ->columnSpanFull(),
+
                         Forms\Components\Textarea::make('address')
                             ->label('Địa chỉ trụ sở chính')
                             ->rows(2)
