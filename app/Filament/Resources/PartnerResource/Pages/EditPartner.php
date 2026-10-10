@@ -143,7 +143,7 @@ class EditPartner extends EditRecord
                 ->icon('heroicon-o-envelope')
                 ->requiresConfirmation()
                 ->modalDescription('Tạo tài khoản (nếu chưa có) hoặc đặt mật khẩu mới cho tài khoản chủ đối tác, rồi gửi email xác nhận hợp tác kèm thông tin đăng nhập.')
-                ->visible(fn () => $this->record->usesContract() ? ($this->record->contract_status === 'active' && filled($this->record->onboarding_token)) : (filled($this->record->onboarding_token) && $this->record->subscription?->expires_at !== null))
+                ->visible(fn () => $this->record->usesContract() ? ($this->record->contract_status === 'active' && $this->record->canProvisionOwnerAccount()) : (filled($this->record->onboarding_token) && $this->record->subscription?->expires_at !== null))
                 ->action(function () {
                     $result = app(\App\Services\PartnerOnboardingService::class)->resendCredentials($this->record);
                     if (! $result['created'] && ! $result['mail_sent'] && filled($result['reason'] ?? null)) {
