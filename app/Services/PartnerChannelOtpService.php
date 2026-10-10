@@ -35,7 +35,9 @@ class PartnerChannelOtpService
         Cache::put($this->key('attempts', $user, $partner), 0, self::OTP_TTL);
         Cache::put($this->key('cooldown', $user, $partner), true, self::COOLDOWN);
 
-        if (config('app.env') === 'local' || config('app.otp_bypass_enabled', false)) {
+        // Cờ otp_bypass_enabled vốn dành cho OTP Zalo — chỉ bỏ qua gửi email khi CHƯA cấu hình SMTP
+        // (xem ContractOtpService::send()).
+        if (config('app.env') === 'local' || (config('app.otp_bypass_enabled', false) && ! \App\Settings\MailSettings::canSend())) {
             Log::info('Mã OTP đổi kênh PayOS [DEV/BYPASS - KHÔNG GỬI]: ' . $otp, ['user_id' => $user->id, 'partner_id' => $partner->id]);
 
             return true;

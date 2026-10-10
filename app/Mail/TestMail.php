@@ -28,7 +28,7 @@ class TestMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Mail thử nghiệm',
+            subject: 'Mail thử nghiệm' . (isset($this->mailData['sent_at']) ? ' — ' . $this->mailData['sent_at'] : ''),
         );
     }
 

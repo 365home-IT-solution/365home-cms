@@ -246,7 +246,8 @@ class ManageMail extends SettingsPage
             $mailTo = $data['mail_to'];
             $mailData = [
                 'title' => 'Đây là email thử nghiệm để xác minh cài đặt SMTP',
-                'body' => 'Đây là cách kiểm tra email bằng smtp.'
+                'body' => 'Đây là cách kiểm tra email bằng smtp.',
+                'sent_at' => now()->format('H:i:s d/m/Y'),
             ];
 
             Mail::to($mailTo)->send(new TestMail($mailData));

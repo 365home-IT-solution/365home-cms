@@ -42,7 +42,9 @@ class ContractOtpService
 
         // Domain test/staging không có APP_ENV=local (vd Herd domain .test chạy production) nhưng
         // cũng chưa có mailer thật — dùng cùng cờ config đã có sẵn cho ZaloOtpService để bypass.
-        if (config('app.otp_bypass_enabled', false)) {
+        // Cờ đó vốn dành cho OTP Zalo: nếu SMTP ĐÃ cấu hình thì vẫn gửi email thật, để lỡ bật cờ
+        // trên production cũng không làm đối tác mất mã ký hợp đồng.
+        if (config('app.otp_bypass_enabled', false) && ! \App\Settings\MailSettings::canSend()) {
             Log::info('[OTP_BYPASS] Mã OTP ký hợp đồng để test: ' . $otp, ['version_id' => $version->id]);
 
             return true;

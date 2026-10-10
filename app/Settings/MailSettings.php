@@ -47,6 +47,17 @@ class MailSettings extends Settings
     /**
      * Check if MailSettings is configured with necessary values.
      */
+    // true khi hệ thống đã có cấu hình SMTP dùng được (Cài đặt Email trong admin). Không ném lỗi:
+    // settings chưa khởi tạo hoặc username/password không giải mã được (APP_KEY khác) coi như chưa cấu hình.
+    public static function canSend(): bool
+    {
+        try {
+            return (bool) app(self::class)->isMailSettingsConfigured();
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     public function isMailSettingsConfigured(): bool
     {
         // Check if the essential fields are not null
