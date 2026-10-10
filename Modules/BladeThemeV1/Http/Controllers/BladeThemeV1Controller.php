@@ -699,6 +699,14 @@ class BladeThemeV1Controller extends Controller
             $seoDescription = $loc && $loc['branch_name']
                 ? $product->name . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365 Home. Đặt phòng theo giờ/ngày.'
                 : $product->name . ' - Phòng tại 365 Home, đặt phòng theo giờ/ngày.';
+        } elseif (! \Illuminate\Support\Str::contains(mb_strtolower($seoDescription), mb_strtolower(trim($product->name)))) {
+            // Mô tả đã nhập nhưng không nhắc tới tên phòng — thường là 1 đoạn mô tả chung của chi
+            // nhánh được dán y hệt cho cả loạt phòng (vd "Khu vực bếp dùng chung: ..." ở 4 phòng
+            // chi nhánh 515 Đ. 30 Tháng 4), Semrush báo "duplicate meta descriptions". Đặt tên phòng
+            // (+ chi nhánh) lên đầu để mỗi phòng luôn có description riêng mà không cần sửa tay.
+            $seoDescription = ($loc && $loc['branch_name']
+                ? trim($product->name) . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365 Home. '
+                : trim($product->name) . ' - 365 Home. ') . trim($seoDescription);
         }
         $seoDescription = \Illuminate\Support\Str::limit(trim($seoDescription), 300, '...');
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
