@@ -586,7 +586,7 @@ class PartnerController extends Controller
             'legal_name' => [$sometimes, 'string', 'max:255'],
             'tax_code' => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
             'phone' => ['nullable', 'string', 'max:30', $vnPhone], 'email' => ['nullable', 'email', 'max:255'],
-            'address' => ['nullable', 'string', 'max:500'], 'representative_name' => [$sometimes, 'string', 'max:255'],
+            'address' => ['nullable', 'string', 'max:500'], 'province_code' => ['nullable', 'integer', 'exists:provinces,code'], 'representative_name' => [$sometimes, 'string', 'max:255'],
             'representative_dob' => ['nullable', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
             'representative_id_number' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{6,20}$/'],
             'representative_position' => ['nullable', 'string', 'max:100'],

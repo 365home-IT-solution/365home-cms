@@ -77,6 +77,11 @@ class CheckFinanceSetup extends Command
             ->filter(fn ($branch) => ! \App\Services\Payment\PayOsAccountResolver::partnerFlowAllowsOwnChannel(\App\Services\Payment\PayOsAccountResolver::partnerIdForCategory((int) $branch->category_id)));
         $this->check($idle->isEmpty(), 'Kênh chi nhánh đang bật đều thuộc đối tác đã vào luồng tiền mới', $idle->count() . ' chi nhánh có kênh PayOS riêng nhưng đối tác chưa ký hợp đồng/phụ lục — 365home đang thu hộ cho các chi nhánh này: ' . $idle->map(fn ($b) => $b->category?->name ?? ('#' . $b->category_id))->implode(', '), false);
 
+        $trial = app(\App\Services\PartnerTrialService::class);
+        $this->line('   Miễn phí tháng đầu (đối tác mới ngoài tỉnh phải ký quỹ ngay): ' . ($trial->enabled()
+            ? 'BẬT — ' . $trial->months() . ' tháng, tỉnh ký quỹ ngay (mã): ' . implode(', ', $trial->immediateProvinceCodes())
+            : 'tắt (đối tác mới ký quỹ và tính hoa hồng ngay)'));
+
         if ($this->option('partners')) {
             $this->partners();
         }
@@ -131,7 +136,7 @@ class CheckFinanceSetup extends Command
 
                 $rows[] = [
                     $partner->legal_name ?: $partner->name,
-                    $partner->usesDirectPayment() ? 'Luồng mới từ ' . $partner->payment_flow_effective_at->format('d/m/Y') : 'Đang thu hộ (cũ)',
+                    $partner->usesDirectPayment() ? 'Luồng mới từ ' . $partner->payment_flow_effective_at->format('d/m/Y') . ($partner->fee_free_until ? ($partner->isInFeeFreePeriod() ? ' (miễn phí đến ' : ' (đã hết miễn phí ') . $partner->fee_free_until->format('d/m/Y') . ')' : '') : 'Đang thu hộ (cũ)',
                     EscrowService::STATES[$escrow->state($partner)] ?? '—',
                     $todo === [] ? '✓ đủ' : implode('; ', $todo),
                 ];

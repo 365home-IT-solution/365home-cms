@@ -1086,6 +1086,7 @@ class OrderController extends Controller
                 'collected_by'       => $order->collected_by,
                 'collected_by_label' => \App\Services\OrderCommissionService::COLLECTED_BY[$order->collected_by] ?? null,
                 'commission_rate'    => $order->commission_rate !== null ? (float) $order->commission_rate : null,
+                'commission_waived'  => (bool) $order->commission_waived,
                 'commission_amount'  => $order->commission_amount,
                 'platform_subsidy'   => (int) $order->platform_subsidy,
                 'finalized_at'       => $order->commission_finalized_at?->toIso8601String(),

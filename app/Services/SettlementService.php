@@ -122,6 +122,8 @@ class SettlementService
             ->whereNull('settlement_id')
             ->whereNotNull('commission_finalized_at')
             ->whereNull('subsidy_held_at')
+            // Đơn trong thời gian miễn phí: đối tác tự thu thì không hoa hồng, không bù — không có gì đối soát; đơn 365home thu hộ vẫn vào kỳ để chi lại 100%.
+            ->where(fn ($q) => $q->where('commission_waived', false)->orWhere('collected_by', OrderCommissionService::COLLECTED_PLATFORM))
             ->where('commission_finalized_at', '<=', $end->copy()->endOfDay());
     }
 

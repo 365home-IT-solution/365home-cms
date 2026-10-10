@@ -63,6 +63,9 @@ class ViewPartnerEscrow extends ViewRecord
                     ->visible(fn () => $summary()['terminated_at'] !== null)
                     ->state(fn () => 'Chấm dứt ' . Carbon::parse($summary()['terminated_at'])->format('d/m/Y') . ' — được hoàn từ ' . Carbon::parse($summary()['release_available_at'])->format('d/m/Y')
                         . ($summary()['release_blockers'] === [] ? '. Đủ điều kiện hoàn ký quỹ.' : '. Còn chặn: ' . implode('; ', $summary()['release_blockers']) . '.')),
+                TextEntry::make('fee_free')->label('Miễn phí tháng đầu')->visible(fn () => $summary()['fee_free_until'] !== null)
+                    ->state(fn () => ($summary()['fee_free_active'] ? 'Đến ' : 'Đã hết ') . Carbon::parse($summary()['fee_free_until'])->format('d/m/Y H:i') . ' — không hoa hồng, chưa bắt nạp ký quỹ trong thời gian này')
+                    ->color(fn () => $summary()['fee_free_active'] ? 'success' : 'gray'),
                 TextEntry::make('flow')->label('Luồng tiền mới')->state(fn () => $this->getRecord()->payment_flow_effective_at?->format('d/m/Y') ?? 'Chưa hiệu lực — 365home thu hộ'),
             ]),
         ]);
