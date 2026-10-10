@@ -49,7 +49,7 @@ class PayOsAccountResolver
         while ($categoryId && $depth++ < self::MAX_PARENT_DEPTH) {
             $account = BranchPayOsAccount::where('category_id', $categoryId)->first();
 
-            if ($account && $account->isComplete() && (! $activeOnly || $account->is_active)) {
+            if ($account && $account->isComplete() && (! $activeOnly || ($account->is_active && self::partnerFlowAllowsOwnChannel(self::partnerIdForCategory($categoryId))))) {
                 return $account;
             }
 
@@ -57,6 +57,22 @@ class PayOsAccountResolver
         }
 
         return null;
+    }
+
+    /**
+     * Đối tác có được dùng kênh PayOS riêng (của đối tác hoặc của chi nhánh) để nhận tiền đặt phòng chưa? Đối tác Homestay thường chỉ được
+     * sau khi hợp đồng mẫu mới/phụ lục có hiệu lực (payment_flow_effective_at) — trước đó 365home thu hộ, nếu không tiền về thẳng đối tác
+     * mà 365home không tính được hoa hồng. Chi nhánh không thuộc đối tác nào, MiniHouse và đối tác hệ thống/nền tảng không bị cổng này chặn.
+     */
+    public static function partnerFlowAllowsOwnChannel(?string $partnerId): bool
+    {
+        if (! $partnerId) {
+            return true;
+        }
+
+        $partner = \App\Models\Partner::withTrashed()->find($partnerId);
+
+        return ! $partner || $partner->isMinihouse() || $partner->isPlatformPartner() || $partner->isSystemPartner() || $partner->usesDirectPayment();
     }
 
     /** Đối tác sở hữu chi nhánh/khu vực này (partner_id của chính nó, không có thì của chi nhánh cha gần nhất). */

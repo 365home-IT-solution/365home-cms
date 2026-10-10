@@ -71,6 +71,12 @@ class CheckFinanceSetup extends Command
         $mini = $manager->providerNameForSide(ContractSigningManager::SIDE_MINIHOUSE);
         $this->line('   ' . ($manager->minihousePkiEnabled() ? "MiniHouse: bắt buộc ký số ({$mini})" : 'MiniHouse: ký tay + OTP (chưa bật ký số)'));
 
+        $this->line('');
+        $this->line('<options=bold>7. Kênh PayOS riêng theo chi nhánh</>');
+        $idle = \Modules\Payment\Entities\BranchPayOsAccount::query()->where('is_active', true)->with('category:id,name,partner_id')->get()
+            ->filter(fn ($branch) => ! \App\Services\Payment\PayOsAccountResolver::partnerFlowAllowsOwnChannel(\App\Services\Payment\PayOsAccountResolver::partnerIdForCategory((int) $branch->category_id)));
+        $this->check($idle->isEmpty(), 'Kênh chi nhánh đang bật đều thuộc đối tác đã vào luồng tiền mới', $idle->count() . ' chi nhánh có kênh PayOS riêng nhưng đối tác chưa ký hợp đồng/phụ lục — 365home đang thu hộ cho các chi nhánh này: ' . $idle->map(fn ($b) => $b->category?->name ?? ('#' . $b->category_id))->implode(', '), false);
+
         if ($this->option('partners')) {
             $this->partners();
         }

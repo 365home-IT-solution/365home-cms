@@ -24,9 +24,18 @@ class SettlementOrdersRelationManager extends RelationManager
 
         return $table
             ->recordTitleAttribute('order_code')
+            ->modifyQueryUsing(fn ($query) => $query->with('items'))
             ->columns([
                 Tables\Columns\TextColumn::make('order_code')->label('Mã đơn')->searchable(),
                 Tables\Columns\TextColumn::make('buyer_name')->label('Khách'),
+                Tables\Columns\TextColumn::make('rooms')->label('Phòng')->wrap()
+                    ->state(fn (Order $record) => $record->items->pluck('name')->filter()->unique()->implode(', ') ?: '—'),
+                Tables\Columns\TextColumn::make('stay')->label('Lưu trú')->wrap()
+                    ->state(function (Order $record) {
+                        $item = $record->items->first(fn ($i) => $i->checkin_date && $i->checkout_date);
+
+                        return $item ? $item->checkin_date->format('d/m/Y H:i') . ' → ' . $item->checkout_date->format('d/m/Y H:i') : '—';
+                    }),
                 Tables\Columns\TextColumn::make('collected_by')->label('Tiền về')->badge()->formatStateUsing(fn (?string $state) => OrderCommissionService::COLLECTED_BY[$state] ?? '—'),
                 Tables\Columns\TextColumn::make('revenue')->label('Khách trả')->state(fn (Order $record) => $commission->retainedAmount($record))->formatStateUsing($money)->alignEnd(),
                 Tables\Columns\TextColumn::make('commission_rate')->label('Tỉ lệ')->suffix('%')->alignEnd(),
