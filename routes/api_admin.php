@@ -87,6 +87,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
 
     Route::middleware('partner.type:homestay')->group(function () {
+    // Miễn phí tháng đầu của ký quỹ (công tắc + cấu hình, trạng thái từng đối tác) — Super Admin, xem EscrowSettingsController.
+    Route::get('escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'show'])->name('escrow-settings.show');
+    Route::match(['put', 'patch'], 'escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'update'])->name('escrow-settings.update');
+    Route::get('partners/{partner}/free-trial', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'partnerStatus'])->name('partners.free-trial');
     Route::get('partners', [AdminPartnerController::class, 'index'])->name('partners.index');
     Route::post('partners', [AdminPartnerController::class, 'store'])->name('partners.store');
     Route::get('partners/{partner}', [AdminPartnerController::class, 'show'])->name('partners.show');

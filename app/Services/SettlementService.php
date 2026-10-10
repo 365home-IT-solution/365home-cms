@@ -511,6 +511,7 @@ class SettlementService
                 'revenue'           => $this->commission->retainedAmount($order),
                 'platform_collected' => $this->commission->platformCollectedAmount($order),
                 'commission_rate'   => $order->commission_rate !== null ? (float) $order->commission_rate : null,
+                'commission_waived' => (bool) $order->commission_waived,
                 'commission_amount' => $order->commission_amount,
                 'platform_subsidy'  => $order->platform_subsidy,
                 'discounts'         => $order->discounts ?? [],

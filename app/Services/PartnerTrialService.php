@@ -142,6 +142,45 @@ class PartnerTrialService
             })->exists();
     }
 
+    /**
+     * Trạng thái miễn phí tháng đầu của một đối tác (cho API/app): đang miễn, đã hết, đủ điều kiện (hợp đồng tạo bây giờ sẽ có điều ưu đãi) hay không đủ điều kiện và vì sao.
+     *
+     * @return array<string, mixed>
+     */
+    public function status(Partner $partner): array
+    {
+        $province = $partner->province_code !== null ? \App\Models\Province::query()->where('code', $partner->province_code)->first() : null;
+        $reason = null;
+
+        if ($partner->fee_free_until !== null) {
+            $status = $partner->isInFeeFreePeriod() ? 'active' : 'ended';
+        } else {
+            if (! $this->enabled()) {
+                $reason = 'Công tắc miễn phí tháng đầu đang tắt.';
+            } elseif ($partner->usesDirectPayment() || filled($partner->contract_signed_at)) {
+                $reason = 'Đối tác đã có hợp đồng hiệu lực — chỉ đối tác mới (hợp đồng đầu tiên) được miễn phí.';
+            } else {
+                $reason = $this->ineligibleReason($partner);
+            }
+            $status = $reason === null ? 'eligible' : 'not_eligible';
+        }
+
+        $latest = $partner->contractVersions()->first();
+
+        return [
+            'partner_id'                 => $partner->id,
+            'enabled'                    => $this->enabled(),
+            'status'                     => $status,
+            'reason'                     => $reason,
+            'province_code'              => $partner->province_code,
+            'province_name'              => $province?->name,
+            'in_immediate_province'      => $partner->province_code !== null && in_array((int) $partner->province_code, $this->immediateProvinceCodes(), true),
+            'contract_has_free_clause'   => $latest ? $this->contractPromisesTrial($latest) : false,
+            'fee_free_until'             => $partner->fee_free_until?->toIso8601String(),
+            'fee_free_active'            => $partner->isInFeeFreePeriod(),
+        ];
+    }
+
     // ───────────────────────── Cấp / thu hồi ─────────────────────────
 
     /** Bắt đầu thời gian miễn phí từ $from (lúc hợp đồng có hiệu lực). @return Carbon mốc hết miễn phí */
