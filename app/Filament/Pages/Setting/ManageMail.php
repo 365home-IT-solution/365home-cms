@@ -2,7 +2,7 @@
 
 namespace App\Filament\Pages\Setting;
 
-use App\Mail\TestMail;
+use App\Mail\LockNotificationMail;
 use App\Settings\MailSettings;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Forms;
@@ -244,13 +244,18 @@ class ManageMail extends SettingsPage
         $settings->loadMailSettingsToConfig($data);
         try {
             $mailTo = $data['mail_to'];
-            $mailData = [
-                'title' => 'Đây là email thử nghiệm để xác minh cài đặt SMTP',
-                'body' => 'Đây là cách kiểm tra email bằng smtp.',
-                'sent_at' => now()->format('H:i:s d/m/Y'),
-            ];
+            // Dùng CHUNG khung thư với email thật gửi cho đối tác (LockNotificationMail) thay vì mẫu
+            // TestMail cũ: thư thử phải phản ánh đúng thư thật, và mẫu cũ (cùng 1 đoạn văn lặp lại ở
+            // mọi lần thử) đã bị Gmail học là thư rác ("tương tự các thư đã bị xác định là thư rác").
+            $sentAt = now()->format('H:i d/m/Y');
+            $sender = e($data['from_name'] ?? '365 Home');
 
-            Mail::to($mailTo)->send(new TestMail($mailData));
+            Mail::to($mailTo)->send(new LockNotificationMail(
+                'Kiểm tra cấu hình email ' . ($data['from_name'] ?? '365 Home') . ' lúc ' . $sentAt,
+                '<p>Xin chào,</p>'
+                . '<p>Quản trị viên của <strong>' . $sender . '</strong> vừa bấm gửi thư kiểm tra lúc ' . $sentAt . ' tới địa chỉ ' . e($mailTo) . '.</p>'
+                . '<p>Nếu bạn đọc được thư này trong Hộp thư đến thì máy chủ gửi thư đang hoạt động, các email mã xác nhận và hợp đồng sẽ được gửi từ cùng địa chỉ này.</p>'
+            ));
 
             $this->sendSuccessNotification('Mail được gửi tới: ' . $mailTo);
         } catch (\Exception $e) {
