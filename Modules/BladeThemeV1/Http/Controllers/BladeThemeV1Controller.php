@@ -1047,6 +1047,8 @@ class BladeThemeV1Controller extends Controller
             'seo_keywords' => 'đặt phòng, khung giờ, ' . $branch->name,
             'og_type' => 'website',
             'canonical_url' => $canonicalUrl,
+            // LodgingBusiness riêng của chi nhánh (null nếu chưa nhập toạ độ) — in ra ở seo.blade.php.
+            'lodging_schema' => \App\Support\BranchLodgingSchema::forBranch($branch, $canonicalUrl),
         ];
 
         return view('bladethemev1::pages.booking-board', [

@@ -51,6 +51,21 @@ class SmallIconThumbnail
         return $storage->url($path);
     }
 
+    // [width, height] của bản thu nhỏ (cùng quy tắc co như url()) để gắn thuộc tính width/height cho
+    // <img> — trình duyệt giữ chỗ đúng tỉ lệ trước khi ảnh tải xong (tránh CLS). Đọc kích thước file
+    // gốc 1 lần rồi nhớ vĩnh viễn theo path (file upload mới luôn có tên mới). null nếu không đọc được.
+    public static function dimensions(string $path, int $size, string $disk = 'public'): ?array
+    {
+        $original = Cache::rememberForever('small-icon-dim:'.$disk.':'.$path, function () use ($path, $disk) {
+            $storage = Storage::disk($disk);
+            $info = $storage->exists($path) ? @getimagesize($storage->path($path)) : false;
+
+            return $info ? [$info[0], $info[1]] : [];
+        });
+
+        return $original ? self::fitSize($original[0], $original[1], $size) : null;
+    }
+
     private static function resizeStatic(string $source, string $target, int $size): void
     {
         $im = @imagecreatefromstring((string) file_get_contents($source));

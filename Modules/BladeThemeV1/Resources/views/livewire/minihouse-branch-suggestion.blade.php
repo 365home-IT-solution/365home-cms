@@ -41,7 +41,7 @@
                         <a href="{{ url('/minihouse') }}?building_id={{ $building['id'] }}" class="home-card" style="scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">
                             <div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">
                                 @if ($building['image'])
-                                    <img src="{{ $building['image'] }}" alt="" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">
+                                    <img src="{{ $building['image'] }}" alt="{{ $building['name'] }}" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">
                                 @endif
                             </div>
                             <p style="font-size:13px; font-weight:600; color:#111827; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">{{ $building['name'] }}</p>

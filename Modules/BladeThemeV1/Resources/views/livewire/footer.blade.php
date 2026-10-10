@@ -58,7 +58,9 @@
                                                     <!-- Business Content -->
                                                     <div class="">
                                                         <a href="/">
-                                                            <img style="height: 70px; width: auto; filter: brightness(0) invert(1);" class="mb-6" src="{{ asset('/storage/'.$logo) }}" alt="Logo">
+                                                            @php $footerLogoDim = $logo ? \App\Support\SmallIconThumbnail::dimensions($logo, 256) : null; @endphp
+                                                            <img style="height: 70px; width: auto; filter: brightness(0) invert(1);" class="mb-6" src="{{ $logo ? \App\Support\SmallIconThumbnail::url($logo, 256) : asset('/storage/'.$logo) }}" alt="{{ config('app.name', '365 Home') }}" loading="lazy"
+                                                                 @if($footerLogoDim) width="{{ $footerLogoDim[0] }}" height="{{ $footerLogoDim[1] }}" @endif>
                                                         </a>
 
                                                         <div class="flex flex-col">

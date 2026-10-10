@@ -1390,6 +1390,9 @@ class OrderForm
                                                     ['365home bù', $money($record->platform_subsidy)],
                                                     ['Kỳ đối soát', $record->settlement_id ? '#' . (int) $record->settlement_id : 'Chưa vào kỳ'],
                                                 ];
+                                                if ($record->commission_waived) {
+                                                    $rows[] = ['Miễn phí tháng đầu', 'Không hoa hồng; khoản giảm do 365home phát hành do đối tác chịu'];
+                                                }
                                                 if ($record->subsidy_held_at) {
                                                     $rows[] = ['Khoản bù đang bị giữ', e((string) $record->subsidy_held_reason)];
                                                 }

@@ -86,10 +86,15 @@ class OrderCommissionService
             return;
         }
 
+        // Đơn TẠO trong thời gian miễn phí tháng đầu: hoa hồng 0 và khoản giảm do 365home phát hành do đối tác chịu (xem discountLines) — bất kể đơn trả phòng sau đó.
+        $waived = $partner->isInFeeFreePeriod();
+        $order->commission_waived = $waived;
+
         $order->forceFill([
-            'collected_by'    => $this->resolveCollectedBy($order),
-            'commission_rate' => $this->commissionRateOf($partner),
-            'discounts'       => $this->discountLines($order),
+            'collected_by'      => $this->resolveCollectedBy($order),
+            'commission_rate'   => $waived ? 0 : $this->commissionRateOf($partner),
+            'commission_waived' => $waived,
+            'discounts'         => $this->discountLines($order),
         ])->saveQuietly();
     }
 
@@ -133,7 +138,14 @@ class OrderCommissionService
             ];
         })->all();
 
-        return [...$kept, ...$lines];
+        $all = [...$kept, ...$lines];
+
+        // Miễn phí tháng đầu: 365home không bù — mọi khoản giảm trừ vào doanh thu của đối tác.
+        if ($order->commission_waived) {
+            $all = array_map(fn (array $line) => [...$line, 'funded_by' => Coupon::FUNDED_PARTNER, 'partner_share_pct' => null, 'partner_amount' => (int) ($line['amount'] ?? 0), 'platform_amount' => 0], $all);
+        }
+
+        return $all;
     }
 
     /**

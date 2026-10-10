@@ -226,9 +226,10 @@
     {{-- LodgingBusiness (con của LocalBusiness) — CHỈ gắn ở trang chủ, không lặp lại ở mọi trang
          (tránh trùng lặp schema không cần thiết). NAP (tên/địa chỉ/SĐT) PHẢI khớp chính xác với
          Google Business Profile — sai lệch dù nhỏ giữa 2 nguồn làm giảm tín hiệu local SEO thay vì
-         tăng, nên copy nguyên văn từ hồ sơ GBP thật, không tự ý rút gọn/viết khác đi. Không có toạ
-         độ chính xác cấp chi nhánh (chỉ có toạ độ cấp tỉnh, dùng cho bản đồ tìm kiếm) nên KHÔNG gắn
-         "geo" thay vì áng chừng sai. --}}
+         tăng, nên copy nguyên văn từ hồ sơ GBP thật, không tự ý rút gọn/viết khác đi. "geo" là toạ
+         độ thật của 254 Xuân Thủy (khớp categories.latitude/longitude của chi nhánh đó). Sau node
+         thương hiệu này là 1 node LodgingBusiness cho TỪNG chi nhánh đã có toạ độ — xem
+         App\Support\BranchLodgingSchema. --}}
     @if(request()->is('/'))
         @php
             $businessSchema = [
@@ -240,12 +241,23 @@
                 'telephone'  => '+84939174365',
                 'email'      => '365home.cantho@gmail.com',
                 'priceRange' => '$$',
+                // Giờ nhận/trả phòng cố định của hình thức đặt theo ngày (xem HeroSection::$selectedBuoi).
+                'checkinTime'  => '14:00',
+                'checkoutTime' => '12:00',
                 'address'    => [
                     '@type'           => 'PostalAddress',
-                    'streetAddress'   => '254 Đường Xuân Thủy',
-                    'addressLocality' => 'An Bình, Ninh Kiều, Cần Thơ',
+                    // Tách đúng cấp hành chính (phường nằm trong streetAddress, quận = locality,
+                    // tỉnh/thành = region) thay vì gộp cả 3 vào addressLocality — nội dung NAP không đổi.
+                    'streetAddress'   => '254 Đường Xuân Thủy, An Bình',
+                    'addressLocality' => 'Ninh Kiều',
+                    'addressRegion'   => 'Cần Thơ',
                     'postalCode'      => '90000',
                     'addressCountry'  => 'VN',
+                ],
+                'geo' => [
+                    '@type'     => 'GeoCoordinates',
+                    'latitude'  => 10.0217964,
+                    'longitude' => 105.7445886,
                 ],
                 'sameAs' => [
                     'https://www.facebook.com/365home.254xuanthuy.cantho',
@@ -255,6 +267,14 @@
             $businessSchema = array_filter($businessSchema, fn ($v) => $v !== null);
         @endphp
         <script type="application/ld+json">{!! json_encode($businessSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+        @foreach(\App\Support\BranchLodgingSchema::forHomepage() as $branchSchema)
+            <script type="application/ld+json">{!! json_encode($branchSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+        @endforeach
+    @endif
+
+    {{-- LodgingBusiness của riêng chi nhánh đang xem (trang chi nhánh — renderBookingBoard()). --}}
+    @if(!empty($seoData['lodging_schema']))
+        <script type="application/ld+json">{!! json_encode($seoData['lodging_schema'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
     @endif
 
     {{-- VideoObject schema cho từng YouTube video embed trên trang --}}

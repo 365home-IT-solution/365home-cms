@@ -10,6 +10,8 @@ use App\Services\PartnerChannelOtpService;
 use App\Services\Payment\PartnerPayOsChannelService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Category\Entities\Category;
+use Modules\Payment\Entities\BranchPayOsAccount;
 
 /**
  * Kênh PayOS RIÊNG của đối tác Homestay — tiền đặt phòng online của mọi chi nhánh thuộc đối tác về thẳng tài khoản đối tác
@@ -74,6 +76,77 @@ class PartnerPaymentChannelController extends Controller
         $this->channels->save($partner, $data, $user);
 
         return response()->json(['message' => 'Đã lưu kênh PayOS của đối tác.', 'data' => $this->data($request, $partner->fresh())]);
+    }
+
+    // PUT /api/admin/partners/{partner}/payment-channel/branches/{category} — lưu kênh PayOS RIÊNG của một chi nhánh (ghi đè kênh đối tác).
+    // body như POST payment-channel: client_id?, api_key?, checksum_key?, is_active?, note?, otp? (tạo mới phải đủ 3 khoá).
+    public function storeBranch(Request $request, Partner $partner, int $category): JsonResponse
+    {
+        $this->authorizeManage($request, $partner);
+        $branch = $this->branchOf($partner, $category);
+        $data = $request->validate([
+            'client_id'    => ['nullable', 'string', 'max:255'],
+            'api_key'      => ['nullable', 'string', 'max:255'],
+            'checksum_key' => ['nullable', 'string', 'max:255'],
+            'is_active'    => ['sometimes', 'boolean'],
+            'note'         => ['nullable', 'string', 'max:255'],
+            'otp'          => ['nullable', 'string', 'size:6'],
+        ]);
+
+        $existing = BranchPayOsAccount::query()->where('category_id', $branch->id)->first();
+        $changes = filled($data['client_id'] ?? null) || filled($data['api_key'] ?? null) || filled($data['checksum_key'] ?? null)
+            || (array_key_exists('is_active', $data) && (bool) $data['is_active'] !== (bool) $existing?->is_active);
+
+        if ($response = $this->requireOtp($request, $partner, $changes, $data['otp'] ?? null)) {
+            return $response;
+        }
+
+        $account = $this->channels->saveBranch($partner, $branch, $data, $request->user());
+
+        return response()->json(['message' => 'Đã lưu kênh PayOS riêng của chi nhánh.', 'data' => $this->channels->branchData($partner, $account)]);
+    }
+
+    // DELETE /api/admin/partners/{partner}/payment-channel/branches/{category} — xoá kênh riêng của chi nhánh (quay về kênh đối tác). Chủ đối tác kèm otp.
+    public function destroyBranch(Request $request, Partner $partner, int $category): JsonResponse
+    {
+        $this->authorizeManage($request, $partner);
+        $branch = $this->branchOf($partner, $category);
+        $data = $request->validate(['otp' => ['nullable', 'string', 'size:6']]);
+
+        abort_unless(BranchPayOsAccount::query()->where('category_id', $branch->id)->exists(), 404, 'Chi nhánh này chưa có kênh PayOS riêng.');
+
+        if ($response = $this->requireOtp($request, $partner, true, $data['otp'] ?? null)) {
+            return $response;
+        }
+
+        $this->channels->removeBranch($partner, $branch, $request->user());
+
+        return response()->json(['message' => 'Đã xoá kênh PayOS riêng của chi nhánh — chi nhánh dùng kênh của đối tác.', 'data' => $this->data($request, $partner->fresh())]);
+    }
+
+    private function branchOf(Partner $partner, int $categoryId): Category
+    {
+        abort_unless($this->channels->ownsBranch($partner, $categoryId), 404, 'Chi nhánh không thuộc đối tác này.');
+
+        return Category::query()->findOrFail($categoryId);
+    }
+
+    /** Chủ đối tác tự đổi nơi nhận tiền phải xác nhận OTP; Super Admin thì không. Trả response lỗi nếu thiếu/sai OTP, null nếu hợp lệ. */
+    private function requireOtp(Request $request, Partner $partner, bool $changesDestination, ?string $otp): ?JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user->isSuperAdmin() || ! $changesDestination) {
+            return null;
+        }
+        if (blank($otp)) {
+            return response()->json(['message' => 'Đổi kênh PayOS cần mã OTP gửi về email của bạn — gọi POST …/payment-channel/otp trước.', 'code' => 'OTP_REQUIRED'], 422);
+        }
+        if (! $this->otp->verify($user, $partner, $otp)) {
+            return response()->json(['message' => 'Mã OTP không đúng hoặc đã hết hạn.', 'code' => 'OTP_INVALID'], 422);
+        }
+
+        return null;
     }
 
     // POST /api/admin/partners/{partner}/payment-channel/otp — chủ đối tác xin mã OTP (email) để xác nhận đổi kênh PayOS.

@@ -29,7 +29,7 @@ class OrderRefundService
     /**
      * @throws \RuntimeException nếu đơn không ở trạng thái 'paid'/'deposit' (chưa thu tiền thật)
      */
-    public function refund(Order $order, int $amount, string $method, ?string $reason, ?string $refundedBy): void
+    public function refund(Order $order, int $amount, string $method, ?string $reason, ?string $refundedBy, ?string $note = null): void
     {
         if (! in_array($order->status, ['paid', 'deposit'], true)) {
             throw new \RuntimeException('Chỉ áp dụng cho đơn đã thanh toán (đủ hoặc đặt cọc).');
@@ -37,6 +37,7 @@ class OrderRefundService
 
         $actor = $refundedBy ? User::find($refundedBy) : null;
         $paidByPlatform = $this->refundedByPlatformForPartner($order, $actor);
+        $this->guardAgainstOpenClaim($order, $actor, $amount, $paidByPlatform);
 
         $order->update([
             'status'         => 'refunded',
@@ -49,7 +50,7 @@ class OrderRefundService
         ]);
 
         // Đóng yêu cầu hoàn tiền đang mở của đơn (nếu có) — đối tác tự hoàn hay 365home hoàn thay.
-        app(RefundClaimService::class)->closeForRefund($order, $paidByPlatform);
+        app(RefundClaimService::class)->closeForRefund($order, $paidByPlatform, $actor, $method, $amount, $note ?? $reason);
         try {
             app(OrderCommissionService::class)->flagRebookAfterRefund($order->fresh());
         } catch (\Throwable $e) {
@@ -85,6 +86,32 @@ class OrderRefundService
         $partner = $commission->partnerOf($order);
 
         return $partner !== null && $commission->applies($order, $partner) && ($actor->isSuperAdmin() || $actor->belongsToPlatformPartner());
+    }
+
+    /**
+     * Đơn đang có yêu cầu hoàn tiền còn hiệu lực:
+     *  - đối tác hoàn phải đúng số tiền của yêu cầu (không đóng yêu cầu bằng số nhỏ hơn);
+     *  - 365home chỉ được hoàn thay (và trừ ký quỹ) sau khi yêu cầu đã quá hạn — đối tác có đủ thời gian hoàn trước.
+     */
+    private function guardAgainstOpenClaim(Order $order, ?User $actor, int $amount, bool $paidByPlatform): void
+    {
+        $claim = \App\Models\PartnerRefundClaim::query()->where('order_id', $order->id)->whereIn('status', \App\Models\PartnerRefundClaim::ACTIVE)->latest('id')->first();
+
+        if (! $claim) {
+            return;
+        }
+
+        if ($paidByPlatform) {
+            if ($claim->status === \App\Models\PartnerRefundClaim::STATUS_OPEN && $claim->due_at->isFuture()) {
+                throw new \RuntimeException('Đơn đang có yêu cầu hoàn tiền #' . $claim->id . ' — đối tác còn đến ' . $claim->due_at->format('d/m/Y H:i') . ' để tự hoàn. Chỉ hoàn thay sau khi quá hạn.');
+            }
+
+            return;
+        }
+
+        if ($actor && (int) $claim->amount !== $amount) {
+            throw new \RuntimeException('Đơn đang có yêu cầu hoàn tiền #' . $claim->id . ' số tiền ' . number_format((int) $claim->amount, 0, ',', '.') . 'đ — hoàn đúng số tiền này để đóng yêu cầu.');
+        }
     }
 
     private function proposeEscrowDeduction(Order $order, int $amount, ?string $reason, ?User $actor): void

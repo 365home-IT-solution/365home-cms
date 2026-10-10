@@ -217,7 +217,7 @@
                         {{-- pr-8: chừa chỗ cho nút đóng (×) absolute top-4 right-4 — không có
                              padding này thì tiêu đề/phụ đề dài tràn ra hết bề ngang, ở mobile chữ
                              xuống dòng ngay dưới/đè lên nút đóng (đúng lỗi đã gặp). --}}
-                        <h2 class="text-2xl font-bold text-gray-900 mb-1 pr-8">365 Home xin chào!</h2>
+                        <p class="text-2xl font-bold text-gray-900 mb-1 pr-8">365 Home xin chào!</p>
                         <p class="text-sm text-gray-500 mb-5 pr-8">Đăng nhập để đặt phòng với những ưu đãi độc quyền dành cho thành viên.</p>
 
                         <div class="mb-4">
@@ -259,7 +259,7 @@
                         {{-- Gợi ý kênh gửi OTP (thay cho icon Zalo từng nằm trên tab) — chỉ hiện ở
                              chế độ OTP. --}}
                         <p x-show="loginMode === 'otp'" x-cloak class="flex items-center gap-1.5 text-xs text-gray-400 mb-4 -mt-1.5">
-                            <img src="{{ asset('images/zalo.png') }}" alt="" style="width:14px;height:14px;flex-shrink:0;object-fit:contain;">
+                            <img src="{{ asset('images/zalo.png') }}" alt="" width="14" height="14" style="width:14px;height:14px;flex-shrink:0;object-fit:contain;">
                             Mã xác thực sẽ được gửi qua Zalo
                         </p>
 
@@ -306,7 +306,7 @@
                             Quay lại
                         </button>
 
-                        <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Nhập mã OTP</h2>
+                        <p class="text-lg font-semibold text-gray-900 mb-1 pr-8">Nhập mã OTP</p>
                         <p class="text-sm text-gray-500 mb-5 pr-8">
                             Mã đã gửi đến Zalo số
                             <span class="font-semibold" style="color: {{ $primaryHex }};" x-text="phone"></span>.
@@ -347,7 +347,7 @@
 
                     {{-- BƯỚC 3: Đăng ký --}}
                     <div x-show="step === 'register'">
-                        <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Hoàn tất đăng ký</h2>
+                        <p class="text-lg font-semibold text-gray-900 mb-1 pr-8">Hoàn tất đăng ký</p>
                         <p class="text-sm text-gray-500 mb-5 pr-8">Số điện thoại chưa có tài khoản. Điền thông tin để tạo tài khoản.</p>
 
                         <div class="mb-3">

@@ -204,7 +204,7 @@
                 </button>
 
                 <div class="p-6 pb-4 shrink-0">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Bạn đang ở khu vực nào?</h2>
+                    <p class="text-lg font-semibold text-gray-900 mb-1 pr-8">Bạn đang ở khu vực nào?</p>
                     <p class="text-sm text-gray-500 mb-4">Chọn khu vực để xem đầy đủ phòng và ưu đãi gần bạn.</p>
 
                     <button

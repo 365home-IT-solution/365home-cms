@@ -39,6 +39,9 @@ class Category extends Model
         'checkin_time',
         'checkout_time',
         'default_policy',
+        // Toạ độ chi nhánh — "geo" của schema LodgingBusiness (xem App\Support\BranchLodgingSchema)
+        'latitude',
+        'longitude',
     ];
 
     // Toà nhà MiniHouse (Building) mượn bảng categories nhưng KHÔNG được lọt vào Homestay: ẩn tập trung ở đây (giống

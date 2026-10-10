@@ -87,6 +87,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
 
     Route::middleware('partner.type:homestay')->group(function () {
+    // Miễn phí tháng đầu của ký quỹ (công tắc + cấu hình, trạng thái từng đối tác) — Super Admin, xem EscrowSettingsController.
+    Route::get('escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'show'])->name('escrow-settings.show');
+    Route::match(['put', 'patch'], 'escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'update'])->name('escrow-settings.update');
+    Route::get('partners/{partner}/free-trial', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'partnerStatus'])->name('partners.free-trial');
     Route::get('partners', [AdminPartnerController::class, 'index'])->name('partners.index');
     Route::post('partners', [AdminPartnerController::class, 'store'])->name('partners.store');
     Route::get('partners/{partner}', [AdminPartnerController::class, 'show'])->name('partners.show');
@@ -118,6 +122,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'show'])->name('partners.payment-channel.show');
     Route::post('partners/{partner}/payment-channel', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'store'])->name('partners.payment-channel.store');
     Route::put('partners/{partner}/payment-channel/permission', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'updatePermission'])->name('partners.payment-channel.permission');
+    Route::put('partners/{partner}/payment-channel/branches/{category}', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'storeBranch'])->whereNumber('category')->name('partners.payment-channel.branches.store');
+    Route::delete('partners/{partner}/payment-channel/branches/{category}', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'destroyBranch'])->whereNumber('category')->name('partners.payment-channel.branches.destroy');
     Route::post('partners/{partner}/payment-channel/otp', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'sendOtp'])->middleware('throttle:5,1')->name('partners.payment-channel.otp');
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
     // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
@@ -156,6 +162,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::put('partners/{partner}/coupon-campaigns/{coupon}/participation', [\App\Http\Controllers\Api\Admin\PartnerCouponCampaignController::class, 'update'])->whereNumber('coupon')->name('partners.coupon-campaigns.participation');
     // Yêu cầu hoàn tiền khách (đơn có tiền ở đối tác): đối tác có 24 giờ, quá hạn 365home hoàn thay rồi trừ ký quỹ — xem PartnerRefundClaimController.
     Route::get('partners/{partner}/refund-claims', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'index'])->name('partners.refund-claims.index');
+    Route::post('partners/{partner}/refund-claims/{claim}/partner-refund', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'partnerRefund'])->whereNumber('claim')->name('partners.refund-claims.partner-refund');
     Route::post('partners/{partner}/refund-claims/{claim}/refund-on-behalf', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'refundOnBehalf'])->whereNumber('claim')->name('partners.refund-claims.refund-on-behalf');
     Route::post('partners/{partner}/refund-claims/{claim}/cancel', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'cancel'])->whereNumber('claim')->name('partners.refund-claims.cancel');
     Route::post('orders/{order_code}/refund-claims', [\App\Http\Controllers\Api\Admin\PartnerRefundClaimController::class, 'store'])->name('orders.refund-claims.store');

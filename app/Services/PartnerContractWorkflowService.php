@@ -204,7 +204,7 @@ class PartnerContractWorkflowService
      * hiệu lực. Chưa có mức ký quỹ thì đặt mức gợi ý (1.000.000đ × số phòng, tối thiểu 5.000.000đ): đối tác mới phải nạp đủ trước khi mở bán
      * trực tuyến; đối tác đang hoạt động ($alreadyOperating) có hạn nạp ban đầu (escrow.initial_grace_days) kể từ hôm nay.
      */
-    public function activatePaymentFlow(Partner $partner, \DateTimeInterface $at, User $by, bool $alreadyOperating): void
+    public function activatePaymentFlow(Partner $partner, \DateTimeInterface $at, User $by, bool $alreadyOperating, ?PartnerContractVersion $version = null): void
     {
         if ($partner->usesDirectPayment()) {
             return;
@@ -212,12 +212,17 @@ class PartnerContractWorkflowService
 
         $partner->forceFill(['payment_flow_effective_at' => $at])->saveQuietly();
 
+        // Miễn phí tháng đầu (chỉ đối tác mới): căn cứ là điều "Ưu đãi tháng đầu" đã ghi trong hợp đồng được ký — công tắc bật/tắt sau đó không làm đổi hợp đồng đã tạo.
+        // Trong thời gian miễn phí ký quỹ chưa bắt buộc: hạn áp dụng = ngày hết miễn phí (hết hạn mà chưa nạp đủ thì ngưng bán như đối tác mới ban đầu).
+        $trial = app(PartnerTrialService::class);
+        $trialUntil = (! $alreadyOperating && $version && $trial->contractPromisesTrial($version)) ? $trial->grant($partner, $at, $by) : null;
+
         $escrow = app(EscrowService::class);
         $min = (int) ($partner->escrow_min_amount ?: $escrow->suggestedMinAmount($partner));
-        $escrow->setMinAmount($partner, $min, $alreadyOperating ? now()->addDays((int) config('escrow.initial_grace_days')) : now()->subMinute(), $by);
+        $escrow->setMinAmount($partner, $min, $trialUntil ?? ($alreadyOperating ? now()->addDays((int) config('escrow.initial_grace_days')) : now()->subMinute()), $by);
 
         $escrow->notifySuperAdmins('payment_flow_effective', 'Đối tác chuyển sang luồng thanh toán mới', ($partner->legal_name ?: $partner->name)
-            . ': hợp đồng/phụ lục đã có hiệu lực — tiền đặt phòng về thẳng đối tác (khi đã cấu hình kênh PayOS); ký quỹ tối thiểu ' . number_format($min, 0, ',', '.') . 'đ.', $partner);
+            . ': hợp đồng/phụ lục đã có hiệu lực — tiền đặt phòng về thẳng đối tác (khi đã cấu hình kênh PayOS)' . ($trialUntil ? '; MIỄN PHÍ tháng đầu đến ' . $trialUntil->format('d/m/Y') . ' (không hoa hồng, chưa bắt nạp ký quỹ)' : '') . '; ký quỹ tối thiểu ' . number_format($min, 0, ',', '.') . 'đ.', $partner);
     }
 
     /**
@@ -281,7 +286,7 @@ class PartnerContractWorkflowService
 
             // Hợp đồng mẫu mới / phụ lục có hiệu lực → tiền đặt phòng về thẳng đối tác + ký quỹ + đối soát.
             if (! $partner->isMinihouse()) {
-                $this->activatePaymentFlow($partner->fresh(), $signingTime, $actor, $version->isAddendum() || ! $isFirstContract);
+                $this->activatePaymentFlow($partner->fresh(), $signingTime, $actor, $version->isAddendum() || ! $isFirstContract, $version);
             }
         }
 

@@ -103,6 +103,7 @@ class Order extends Model implements Eventable
         // Hoa hồng / ai chịu khuyến mãi / kỳ đối soát — chỉ App\Services\OrderCommissionService và SettlementService ghi.
         'collected_by',
         'commission_rate',
+        'commission_waived',
         'commission_amount',
         'platform_subsidy',
         'discounts',
@@ -127,6 +128,7 @@ class Order extends Model implements Eventable
         'discounts'               => 'array',
         'commission_amount'       => 'integer',
         'platform_subsidy'        => 'integer',
+        'commission_waived'       => 'boolean',
         'commission_finalized_at' => 'datetime',
         'subsidy_held_at'         => 'datetime',
         'exclude_from_stats'     => 'boolean',

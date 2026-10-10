@@ -53,6 +53,7 @@ class BranchDetail extends Page implements HasForms
         $this->form->fill($this->branch->only([
             'status', 'lodging_type', 'timezone', 'operation_manager_name',
             'area_sqm', 'established_year', 'checkin_time', 'checkout_time', 'default_policy',
+            'latitude', 'longitude',
         ]));
     }
 

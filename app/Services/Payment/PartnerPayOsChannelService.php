@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\BranchPayOsAccount;
 use Modules\Payment\Entities\PartnerPayOsAccount;
 use PayOS\PayOS;
@@ -48,8 +49,116 @@ class PartnerPayOsChannelService
             // Chi nhánh đang ghi đè bằng tài khoản PayOS riêng (quản lý ở trang quản trị web).
             'branch_overrides'     => BranchPayOsAccount::query()->with('category:id,name')
                 ->whereIn('category_id', $partner->categories()->pluck('id'))->get()
-                ->map(fn (BranchPayOsAccount $branch) => ['category_id' => $branch->category_id, 'name' => $branch->category?->name, 'is_active' => $branch->is_active, 'account_holder' => $branch->account_holder])->values(),
+                ->map(fn (BranchPayOsAccount $branch) => $this->branchData($partner, $branch))->values(),
         ];
+    }
+
+    /** Một kênh PayOS riêng của chi nhánh (không kèm khoá bí mật). is_effective = đang thực sự nhận tiền (bật và luồng tiền mới của đối tác đã hiệu lực). */
+    public function branchData(Partner $partner, BranchPayOsAccount $branch): array
+    {
+        return [
+            'category_id'          => $branch->category_id,
+            'name'                 => $branch->category?->name,
+            'payos_client_id'      => $branch->client_id,
+            'is_active'            => (bool) $branch->is_active,
+            'is_effective'         => $branch->isComplete() && $branch->is_active && $partner->usesDirectPayment(),
+            'account_holder'       => $branch->account_holder,
+            'note'                 => $branch->note,
+            'webhook_confirmed_at' => $branch->webhook_confirmed_at?->toIso8601String(),
+            'updated_at'           => $branch->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /** Chi nhánh có thuộc đối tác này không (chi nhánh do đối tác quản lý, kể cả khu vực con). */
+    public function ownsBranch(Partner $partner, int $categoryId): bool
+    {
+        return $partner->categories()->whereKey($categoryId)->exists();
+    }
+
+    /**
+     * Lưu kênh PayOS RIÊNG của một chi nhánh (ghi đè kênh của đối tác — dùng khi một đối tác có nhiều pháp nhân/tài khoản).
+     * Cùng quy tắc với kênh đối tác: khoá gửi trống = giữ nguyên (tạo mới phải đủ 3 khoá), gọi thử PayOS, ghi lịch sử hồ sơ, đăng ký webhook,
+     * báo Super Admin khi chủ đối tác tự đổi. Chủ tài khoản phải trùng tab Tài chính; riêng Super Admin được lưu tài khoản khác chủ
+     * (pháp nhân khác của cùng đối tác) nhưng vẫn phải gọi thử PayOS thành công.
+     *
+     * @param  array{client_id?: ?string, api_key?: ?string, checksum_key?: ?string, is_active?: bool, note?: ?string}  $data
+     */
+    public function saveBranch(Partner $partner, Category $branch, array $data, User $by): BranchPayOsAccount
+    {
+        $account = BranchPayOsAccount::query()->where('category_id', $branch->id)->first() ?? new BranchPayOsAccount(['category_id' => $branch->id, 'is_active' => true]);
+
+        $credentials = [
+            'client_id'    => filled($data['client_id'] ?? null) ? trim((string) $data['client_id']) : $account->client_id,
+            'api_key'      => filled($data['api_key'] ?? null) ? trim((string) $data['api_key']) : $account->api_key,
+            'checksum_key' => filled($data['checksum_key'] ?? null) ? trim((string) $data['checksum_key']) : $account->checksum_key,
+        ];
+
+        foreach ($credentials as $field => $value) {
+            if (blank($value)) {
+                throw ValidationException::withMessages([$field => 'Vui lòng nhập đủ Client ID, API Key và Checksum Key của kênh PayOS.']);
+            }
+        }
+
+        $changed = ! $account->exists || $credentials !== ['client_id' => $account->client_id, 'api_key' => $account->api_key, 'checksum_key' => $account->checksum_key];
+
+        if ($changed) {
+            $accountName = $this->verifyChannel($partner, $credentials, enforceHolder: ! $by->isSuperAdmin());
+            $account->fill([...$credentials, 'account_holder' => $accountName, 'webhook_confirmed_at' => null]);
+        }
+
+        $wasActive = $account->exists ? (bool) $account->getOriginal('is_active') : null;
+        $account->fill([
+            'is_active' => array_key_exists('is_active', $data) ? (bool) $data['is_active'] : (bool) $account->is_active,
+            'note'      => array_key_exists('note', $data) ? $data['note'] : $account->note,
+        ])->save();
+
+        if ($changed) {
+            $this->confirmWebhook($account);
+        }
+
+        if ($changed || $wasActive !== $account->is_active) {
+            $this->logBranchChange($partner, $branch, $by, ($changed ? 'Đổi kênh PayOS riêng' : 'Kênh PayOS riêng') . ' của chi nhánh "' . $branch->name . '"'
+                . ($changed ? ' (Client ID …' . Str::substr($account->client_id, -4) . ', chủ tài khoản: ' . ($account->account_holder ?: 'không rõ') . ').' : '.')
+                . ' ' . ($account->is_active ? 'Đang dùng — tiền đặt phòng của chi nhánh về kênh này.' : 'Đang tắt — chi nhánh dùng kênh của đối tác.'));
+        }
+
+        return $account->fresh('category');
+    }
+
+    /** Xoá kênh riêng của chi nhánh: chi nhánh quay về dùng kênh của đối tác (hoặc 365home thu hộ nếu đối tác chưa có kênh). */
+    public function removeBranch(Partner $partner, Category $branch, User $by): void
+    {
+        $account = BranchPayOsAccount::query()->where('category_id', $branch->id)->first();
+
+        if (! $account) {
+            return;
+        }
+
+        $account->delete();
+        $this->logBranchChange($partner, $branch, $by, 'Xoá kênh PayOS riêng của chi nhánh "' . $branch->name . '" — chi nhánh dùng kênh của đối tác.');
+    }
+
+    private function logBranchChange(Partner $partner, Category $branch, User $by, string $note): void
+    {
+        PartnerStatusLog::create([
+            'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $by->id, 'note' => $note,
+        ]);
+
+        // Đối tác tự đổi nơi nhận tiền: báo Super Admin để kiểm tra.
+        if (! $by->isSuperAdmin()) {
+            try {
+                app(\App\Services\AdminNotificationService::class)->notify(
+                    User::role(config('filament-shield.super_admin.name'))->get(),
+                    'Đối tác tự đổi kênh PayOS của chi nhánh',
+                    ($partner->legal_name ?: $partner->name) . ' (' . $by->fullname . '): ' . $note,
+                    ['type' => 'partner_payment_channel_changed', 'partner_id' => $partner->id, 'partner_type' => $partner->partner_type, 'category_id' => $branch->id],
+                    'heroicon-o-banknotes',
+                    'warning',
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
     }
 
     /**
@@ -140,7 +249,7 @@ class PartnerPayOsChannelService
     }
 
     /** Đăng ký URL webhook của 365home cho kênh PayOS — cần URL công khai nên có thể thất bại trên máy local. */
-    public function confirmWebhook(PartnerPayOsAccount $account): bool
+    public function confirmWebhook(PartnerPayOsAccount|BranchPayOsAccount $account): bool
     {
         try {
             $this->client(...$account->credentials())->confirmWebhook(route('webhook.payos'));
@@ -148,7 +257,7 @@ class PartnerPayOsChannelService
 
             return true;
         } catch (\Throwable $e) {
-            Log::warning('Kênh PayOS đối tác: chưa đăng ký được webhook', ['partner' => $account->partner_id, 'error' => $e->getMessage()]);
+            Log::warning('Kênh PayOS: chưa đăng ký được webhook', ['partner' => $account->partner_id ?? null, 'category' => $account->category_id ?? null, 'error' => $e->getMessage()]);
 
             return false;
         }
@@ -160,9 +269,9 @@ class PartnerPayOsChannelService
      * @param  array{client_id: string, api_key: string, checksum_key: string}  $credentials
      * @return string|null tên chủ tài khoản nhận tiền của kênh (PayOS trả về)
      */
-    private function verifyChannel(Partner $partner, array $credentials): ?string
+    private function verifyChannel(Partner $partner, array $credentials, bool $enforceHolder = true): ?string
     {
-        if (blank($partner->bank_account_holder)) {
+        if ($enforceHolder && blank($partner->bank_account_holder)) {
             throw ValidationException::withMessages(['client_id' => 'Đối tác chưa có tên chủ tài khoản ở tab Tài chính — cập nhật trước để đối chiếu với kênh PayOS.']);
         }
 
@@ -172,7 +281,7 @@ class PartnerPayOsChannelService
             throw ValidationException::withMessages(['client_id' => 'PayOS không chấp nhận kênh này (' . $e->getMessage() . ') — kiểm tra lại Client ID, API Key và Checksum Key.']);
         }
 
-        if (filled($accountName) && $this->normalizeName($accountName) !== $this->normalizeName((string) $partner->bank_account_holder)) {
+        if ($enforceHolder && filled($accountName) && $this->normalizeName($accountName) !== $this->normalizeName((string) $partner->bank_account_holder)) {
             throw ValidationException::withMessages(['client_id' => 'Chủ tài khoản của kênh PayOS (' . $accountName . ') không trùng chủ tài khoản ở tab Tài chính (' . $partner->bank_account_holder . ').']);
         }
 

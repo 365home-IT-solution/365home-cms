@@ -33,7 +33,7 @@
                  với hàng khung giờ trong toàn bộ danh sách bên dưới. Dùng cùng class (thay vì đoán
                  cứng 1 số px) để tự động khớp chiều cao dù font-size/margin của .book-dt-room-name
                  có đổi sau này. --}}
-            <h3 class="book-room-name book-dt-room-name" style="visibility:hidden;" aria-hidden="true">&nbsp;</h3>
+            <div class="book-room-name book-dt-room-name" style="visibility:hidden;" aria-hidden="true">&nbsp;</div>
             <div class="book-dt-col-header">Thời gian</div>
             <div class="book-dt-dates-card">
                 {{-- Đồng bộ cuộn dọc với TẤT CẢ phòng (kể cả phòng chưa hiện ra, đang ở slide
