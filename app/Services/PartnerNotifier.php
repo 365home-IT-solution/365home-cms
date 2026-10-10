@@ -8,6 +8,7 @@ use App\Mail\LockNotificationMail;
 use App\Models\Partner;
 use App\Models\User;
 use Illuminate\Support\Facades\Mail;
+use Modules\Employee\Entities\Employee;
 
 // Điểm gửi thông báo TÀI CHÍNH cho đối tác (ký quỹ, đối soát, tiền đặt phòng): thông báo trong app + push (qua
 // AdminNotificationService) và EMAIL tới email đối tác + email các tài khoản chủ đối tác. Lỗi gửi chỉ báo cáo,
@@ -33,8 +34,13 @@ class PartnerNotifier
             report($e);
         }
 
+        // Email chỉ là kênh phụ: lỗi tra người nhận/gửi mail không được làm hỏng thao tác đã lưu của người gọi.
         if ($email) {
-            $this->email($partner, $title, $body);
+            try {
+                $this->email($partner, $title, $body);
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
     }
 
@@ -72,7 +78,12 @@ class PartnerNotifier
 
     public function email(Partner $partner, string $title, string $body): void
     {
-        $recipients = User::query()->where('partner_id', $partner->id)->role('partner')->pluck('email')
+        // Chủ đối tác = tài khoản thuộc đối tác nhưng KHÔNG có hồ sơ nhân viên (cùng định nghĩa User::isPartnerOwner()).
+        // Không dùng ->role('partner'): hệ thống tạo role riêng cho từng đối tác nên role 'partner' thường không tồn tại,
+        // và scope role() khi đó ném RoleDoesNotExist — lỗi 500 ngay SAU khi thao tác ký quỹ/đối soát đã lưu xong.
+        $employeeUserIds = Employee::withoutGlobalScopes()->whereNotNull('user_id')->select('user_id');
+
+        $recipients = User::query()->where('partner_id', $partner->id)->whereNotIn('id', $employeeUserIds)->pluck('email')
             ->push($partner->email)
             ->filter(fn ($address) => filled($address) && filter_var($address, FILTER_VALIDATE_EMAIL))
             ->map(fn ($address) => mb_strtolower(trim((string) $address)))
