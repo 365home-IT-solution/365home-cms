@@ -33,6 +33,8 @@ use Illuminate\Notifications\DatabaseNotification;
  *   - 'checkin'  → App\Http\Controllers\Api\UnlockController — khách mở cổng TTLock lần đầu (CHỈ
  *                  chi nhánh có đăng ký TTLock mới có loại này, chi nhánh cấp mã thủ công không tạo).
  *   - 'checkout' → cùng nơi trên, lần mở cổng thứ 2 trở đi.
+ *   - 'app_error' → App\Http\Controllers\Api\AppErrorReportController — app tự báo lỗi API/crash
+ *                  (POST /api/app-error-reports), chỉ gửi Super Admin.
  * 'order_code' xuất hiện ở hầu hết các loại trên (null với 'message' không gắn đơn) — dùng
  * order_code (không phải order_id nội bộ) vì đây là định danh FE/API bên ngoài đã dùng xuyên suốt
  * (GET /api/admin/orders/{order_code}, chat, v.v...), khỏi phải tra thêm 1 lần từ id sang code.

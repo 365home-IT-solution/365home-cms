@@ -74,6 +74,10 @@ Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->gro
     });
 });
 
+// App (khách lẫn admin) tự báo lỗi API/crash → thông báo cho Super Admin. Công khai (khách vãng lai cũng gặp lỗi), có Bearer token thì
+// ghi nhận đúng người gửi — xem AppErrorReportController.
+Route::post('app-error-reports', [\App\Http\Controllers\Api\AppErrorReportController::class, 'store'])->name('api.app-error-reports.store');
+
 Route::middleware('throttle:30,1')->prefix('partner-contracts/{token}')->name('api.partner-contracts.')->group(function () {
     Route::get('/', [PartnerContractSignController::class, 'show'])->name('show');
     Route::post('otp', [PartnerContractSignController::class, 'sendOtp'])->name('otp');
