@@ -90,7 +90,10 @@
                 $initialBookConfig = data_get($criticalHome ?? [], 'booking.default_book_config')
                     ?: \Modules\BladeThemeV1\Support\BranchBookConfig::empty();
             @endphp
-            @livewire('bladethemev1::book', ['config' => $initialBookConfig])
+            {{-- compactDays: trang chủ chỉ hiện 12 ngày/phòng, không có "Xem thêm ngày" — xem Book::$compactDays. --}}
+            {{-- deferred: bảng lịch không nằm trong HTML ban đầu, tải ngay khi khối này tới gần vùng nhìn
+                 — xem Book::$deferred. --}}
+            @livewire('bladethemev1::book', ['config' => $initialBookConfig, 'compactDays' => true, 'deferred' => true])
         </div>
     </div>
 </section>

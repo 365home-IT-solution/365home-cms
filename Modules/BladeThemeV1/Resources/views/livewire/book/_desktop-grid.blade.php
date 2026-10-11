@@ -92,7 +92,11 @@
                         @endphp
                         <div class="swiper-slide" data-room-meta="{{ $roomMetaJson }}">
                             <h3 class="book-room-name book-dt-room-name">
-                                {{ $room->name }}
+                                @if (!empty($roomDetailUrls[$room->id]))
+                                    <a href="{{ $roomDetailUrls[$room->id] }}" class="hover:underline" style="color:inherit;">{{ $room->name }}</a>
+                                @else
+                                    {{ $room->name }}
+                                @endif
                                 @if($roomHasDiscount)
                                     <img src="{{ asset('images/flash-sale.webp') }}" alt="" class="book-room-flash-icon" width="28" height="28">
                                 @endif
@@ -153,7 +157,9 @@
         </div>
     </div>
 
-    @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+    @if ($this->compactDays)
+        <p class="book-loadmore-row text-sm text-gray-500">Lịch hiển thị {{ $this->visibleDaysCount }} ngày gần nhất. Bấm vào tên phòng để xem lịch các ngày xa hơn.</p>
+    @elseif ($this->canLoadMoreDates())
         <div class="book-loadmore-row">
             <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">

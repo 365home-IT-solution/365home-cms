@@ -58,9 +58,30 @@ class ManageSigning extends SettingsPage
     public function form(Form $form): Form
     {
         return $form->schema([
+            Forms\Components\Section::make('Cách nền tảng (Bên A) ký hợp đồng')
+                ->description('Áp dụng khi nền tảng ký hợp đồng và phụ lục với đối tác Homestay, sau khi đối tác đã xác nhận. Phần đối tác xác nhận (OTP email) không đổi.')
+                ->schema([
+                    Forms\Components\Select::make('platform_sign_method')->label('Cách ký')->native(false)->selectablePlaceholder(false)->default('auto')
+                        ->options([
+                            'auto' => 'Ký tự động qua chữ ký số từ xa (mặc định) — dùng nhà cung cấp cấu hình bên dưới (MISA eSign, VNPT SmartCA...)',
+                            'usb' => 'Ký bằng USB token — tải PDF về ký trên máy có USB rồi tải bản đã ký lên',
+                        ])
+                        ->helperText('USB token không dùng được từ máy chủ nên cần người đứng tên chứng thư ký trên máy của họ. Mỗi lần ký vẫn chọn lại được cách khác khi cần.'),
+                ]),
             Forms\Components\Section::make('Nhà cung cấp chữ ký số — Homestay')
                 ->description('Dùng để nền tảng ký số hợp đồng với đối tác Homestay (hợp đồng và phụ lục). Nhập trực tiếp tại đây — không cần sửa file .env; để trống ô nào thì hệ thống dùng lại giá trị trong .env (nếu có).')
-                ->schema([SigningProviderForm::providerSelect('Nhà cung cấp')]),
+                ->schema([
+                    SigningProviderForm::providerSelect('Nhà cung cấp'),
+                    // "Local" ký bằng khoá tự sinh — dễ chọn nhầm khi test rồi quên đổi lại; hiện cảnh báo rõ ngay tại ô chọn.
+                    Forms\Components\Placeholder::make('local_provider_warning')->hiddenLabel()
+                        ->visible(fn (\Filament\Forms\Get $get) => ($get('provider') ?: config('contract_signing.default', 'local')) === 'local')
+                        ->content(new \Illuminate\Support\HtmlString(
+                            '<div style="padding:10px 12px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:8px;font-size:0.85rem;">'
+                            . '<strong>Đang chọn ký thử nghiệm (Local).</strong> Hợp đồng sẽ được "ký" bằng khoá tự sinh, <strong>không có giá trị pháp lý</strong>'
+                            . ' và <strong>không gửi xác nhận về app</strong>. Muốn ký thật hãy chọn VNPT SmartCA hoặc MISA eSign rồi nhập thông tin nhà cung cấp.'
+                            . '</div>'
+                        )),
+                ]),
             ...SigningProviderForm::sections(),
         ]);
     }

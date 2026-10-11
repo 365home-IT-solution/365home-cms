@@ -6,10 +6,12 @@ namespace App\Http\Controllers;
 
 use App\Models\PartnerContractVersion;
 use App\Services\ContractOtpService;
+use App\Services\PartnerContractCksService;
 use App\Services\PartnerLegalDocumentService;
 use App\Support\PartnerContractRenderer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 // Trang KÝ HỢP ĐỒNG ĐIỆN TỬ công khai cho đối tác — KHÔNG cần đăng nhập CMS (đối tác nhận link
@@ -112,6 +114,39 @@ class ContractSignController extends Controller
         return back()->with('success', $version->partner->fresh()->verification_status === 'approved'
             ? 'Xác nhận thành công! Hợp đồng sẽ được hoàn tất chữ ký số bởi nền tảng trong ít phút. Cảm ơn bạn đã hợp tác.'
             : 'Xác nhận thành công! Hồ sơ đã được gửi cho 365 Home duyệt; hợp đồng có hiệu lực sau khi 365 Home ký xác nhận.');
+    }
+
+    // Tải PDF chưa ký để ký bằng chữ ký số (CKS) của đối tác.
+    public function downloadPdf(string $token, PartnerContractCksService $cks)
+    {
+        try {
+            $result = $cks->preparePdf($this->findVersion($token));
+        } catch (ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->first());
+        }
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // Đối tác ký bằng chữ ký số: tải PDF đã ký lên. Hệ thống kiểm tra chữ ký, nội dung và đúng người rồi ghi nhận (thay cho OTP).
+    public function signCks(Request $request, string $token, PartnerContractCksService $cks): RedirectResponse
+    {
+        $version = $this->findVersion($token);
+        $data = $request->validate([
+            'signed_pdf' => ['required', 'file', 'mimes:pdf', 'max:20480'],
+            'signer_name' => ['nullable', 'string', 'max:255'],
+            'agree' => ['required', 'accepted'],
+        ], [], ['signed_pdf' => 'file PDF đã ký', 'agree' => 'đồng ý điều khoản']);
+
+        try {
+            $cks->submit($version, (string) file_get_contents($request->file('signed_pdf')->getRealPath()), $data['signer_name'] ?? null, (string) $request->ip(), (string) $request->userAgent());
+        } catch (ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->first())->withInput();
+        }
+
+        return back()->with('success', $version->partner->fresh()->verification_status === 'approved'
+            ? 'Đã kiểm tra chữ ký số của bạn! Hợp đồng sẽ được nền tảng ký số và phát hành trong ít phút. Cảm ơn bạn đã hợp tác.'
+            : 'Đã kiểm tra chữ ký số của bạn! Hồ sơ đã được gửi cho 365 Home duyệt; hợp đồng có hiệu lực sau khi 365 Home ký xác nhận.');
     }
 
     private function findVersion(string $token): PartnerContractVersion

@@ -96,11 +96,13 @@ class BranchPayOsAccountResource extends Resource
                     Forms\Components\TextInput::make('api_key')
                         ->label('API Key')
                         ->password()->revealable()
-                        ->required(),
+                        ->required(fn (string $operation) => $operation === 'create')
+                        ->helperText(fn (string $operation) => $operation === 'edit' ? 'Để trống = giữ nguyên khoá đã lưu.' : null),
                     Forms\Components\TextInput::make('checksum_key')
                         ->label('Checksum Key')
                         ->password()->revealable()
-                        ->required(),
+                        ->required(fn (string $operation) => $operation === 'create')
+                        ->helperText(fn (string $operation) => $operation === 'edit' ? 'Để trống = giữ nguyên khoá đã lưu.' : null),
                     Forms\Components\Placeholder::make('webhook_hint')
                         ->label('Webhook URL')
                         ->content(fn () => new HtmlString(

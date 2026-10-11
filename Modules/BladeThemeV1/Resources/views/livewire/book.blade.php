@@ -2,268 +2,7 @@
 {{-- Có ô khung giờ => layout nạp echo/ws-client (realtime). Dạng khối @php/@endphp, KHÔNG dùng
      @php(...) một dòng: Blade tách khối @php...@endphp trước, sẽ gộp nhầm tới @endphp kế tiếp. --}}
 @php \Modules\BladeThemeV1\Support\RealtimeAssets::need(); @endphp
-<div x-data="{
-    selectedSlots: [],
-    selectedRoomId: null,
-    selectedRoomIsActive: null,
-    fullBookingDiscount: 0,
-    hasFullDayBooking: false,
-    fullDayDates: [], // Thêm để track ngày nào full booking
-
-    resetSelection() {
-        document.querySelectorAll('.selectable.active').forEach(el => el.classList.remove('active'));
-        this.selectedSlots = [];
-        this.selectedRoomId = null;
-        this.selectedRoomIsActive = null;
-        this.fullBookingDiscount = 0;
-        this.hasFullDayBooking = false;
-        this.fullDayDates = [];
-    },
-
-    toggleSlot(el, slot) {
-        // Ô giờ (book/_slot-cell.blade.php) chỉ gọi toggleSlot($el) — giá/khuyến mãi/giờ nằm trong
-        // 1 bảng JSON dùng chung (data-slot-map, render 1 lần ở book-panel bên dưới) thay vì nhúng
-        // lặp lại trong @click của từng ô. Tra theo roomId|timeslotId|date lấy từ data-* của ô.
-        // Vẫn nhận tham số slot để tương thích nếu nơi khác truyền vào object đầy đủ.
-        if (!slot) {
-            const cellData = el.dataset;
-            const mapEl = el.closest('[data-room-ids]')?.querySelector('[data-slot-map]');
-            if (!mapEl) { return; }
-            const rawMap = mapEl.textContent;
-            if (mapEl._rawMap !== rawMap) {
-                mapEl._rawMap = rawMap;
-                mapEl._slotMap = JSON.parse(rawMap);
-            }
-            // Bảng nén dạng { k: [tên trường...], s: { khoá ô: [giá trị...] } } — tên trường chỉ khai
-            // báo 1 lần thay vì lặp lại ở từng ô (xem chỗ in data-slot-map bên dưới).
-            const entry = mapEl._slotMap.s[cellData.roomId + '|' + cellData.timeslotId + '|' + cellData.date];
-            if (!entry) { return; }
-            slot = { date: cellData.date, timeslotId: cellData.timeslotId, roomId: cellData.roomId };
-            mapEl._slotMap.k.forEach((name, i) => { slot[name] = entry[i]; });
-        }
-
-        // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules không còn
-        // nhúng thẳng trong @click của từng ô (xem book/_slot-cell.blade.php) — đọc lại từ
-        // data-room-meta trên wrapper của phòng (book/_desktop-grid.blade.php,
-        // book/_mobile.blade.php), gộp vào slot trước khi dùng, giữ nguyên shape/giá trị y hệt
-        // trước đây để mọi logic tính giá/discount bên dưới không cần đổi gì.
-        const metaEl = el.closest('[data-room-meta]');
-        if (metaEl) {
-            slot = { ...slot, ...JSON.parse(metaEl.dataset.roomMeta) };
-        }
-
-        if (this.selectedRoomId === null) {
-            this.selectedRoomId = slot.roomId;
-            this.selectedRoomIsActive = slot.is_activated;
-        }
-
-        if (this.selectedRoomId !== slot.roomId) {
-            return;
-        }
-
-        // Use selectedSlots as source of truth (not el.classList) to avoid DOM lag on quick clicks
-        const isSelected = this.selectedSlots.some(
-            s => s.timeslotId === slot.timeslotId && s.date === slot.date
-        );
-
-        // Mobile (book/_mobile.blade.php) và desktop (book/_desktop-grid.blade.php) render 2 DOM
-        // riêng biệt cho CÙNG 1 ô khung giờ (cùng phòng/ngày/khung giờ) — bấm chọn ở bên nào thì
-        // chỉ el bên đó nhận class active, còn ô song sinh bên kia (ẩn qua CSS lg:hidden/hidden
-        // lg:block, không phải bị gỡ khỏi DOM) không được đồng bộ, nên khi đổi kích thước trình
-        // duyệt qua breakpoint sẽ thấy ô đã chọn không tô đen dù selectedSlots vẫn đúng. Tìm mọi
-        // ô cùng data-room-id/timeslot-id/date (xem _slot-cell.blade.php) để toggle đồng thời,
-        // không chỉ riêng el. Chú ý: toàn khối x-data này nằm trong 1 attribute HTML bọc bởi dấu
-        // ngoặc kép, nên tuyệt đối không được gõ ký tự ngoặc kép ở bất kỳ đâu trong toàn bộ khối
-        // này (kể cả trong comment) — chỉ dùng dấu nháy đơn cho chuỗi.
-        const twins = document.querySelectorAll(
-            '.selectable[data-room-id=\'' + slot.roomId + '\'][data-timeslot-id=\'' + slot.timeslotId + '\'][data-date=\'' + slot.date + '\']'
-        );
-
-        if (isSelected) {
-            twins.forEach(twin => twin.classList.remove('active'));
-            // Fix: filter by BOTH date AND timeslotId — same timeslot can exist on multiple dates
-            this.selectedSlots = this.selectedSlots.filter(
-                s => !(s.timeslotId === slot.timeslotId && s.date === slot.date)
-            );
-
-            if (this.selectedSlots.length === 0) {
-                this.selectedRoomId = null;
-                this.selectedRoomIsActive = null;
-                this.fullBookingDiscount = 0;
-                this.hasFullDayBooking = false;
-                this.fullDayDates = [];
-            }
-        } else {
-            twins.forEach(twin => twin.classList.add('active'));
-            this.selectedSlots.push(slot);
-        }
-
-        this.checkFullBooking();
-    },
-
-    checkFullBooking() {
-        if (!this.selectedRoomId || this.selectedSlots.length === 0) {
-            this.fullBookingDiscount = 0;
-            this.hasFullDayBooking = false;
-            this.fullDayDates = [];
-            return;
-        }
-
-        const slotsByDate = {};
-        this.selectedSlots.forEach(slot => {
-            if (!slotsByDate[slot.date]) {
-                slotsByDate[slot.date] = [];
-            }
-            slotsByDate[slot.date].push(slot);
-        });
-
-        const firstSlot = this.selectedSlots[0];
-        const totalSlotsInRoom = firstSlot.totalSlotsInRoom;
-        const fullBookingDiscountValue = firstSlot.fullBookingDiscountValue;
-
-        let hasFullDay = false;
-        this.fullDayDates = [];
-
-        Object.entries(slotsByDate).forEach(([date, slots]) => {
-            if (slots.length === totalSlotsInRoom) {
-                hasFullDay = true;
-                // Chỉ track fullDayDates nếu có cấu hình full_booking_discount
-                if (fullBookingDiscountValue) {
-                    this.fullDayDates.push(date);
-                }
-            }
-        });
-
-        // Chỉ kích hoạt full booking mode khi có cấu hình giảm giá
-        this.hasFullDayBooking = hasFullDay && !!fullBookingDiscountValue;
-
-        if (this.hasFullDayBooking) {
-            this.fullBookingDiscount = this.calculateDiscountValue(
-                this.totalPrice,
-                fullBookingDiscountValue
-            );
-        } else {
-            this.fullBookingDiscount = 0;
-        }
-    },
-
-    calculateDiscountValue(totalPrice, discountStr) {
-        if (!discountStr) return 0;
-
-        if (discountStr.includes('%')) {
-            const percentage = parseFloat(discountStr.replace('%', ''));
-            return totalPrice * (percentage / 100);
-        } else {
-            return parseFloat(discountStr.replace(/[.,]/g, ''));
-        }
-    },
-
-    get totalOriginalPrice() {
-        return this.selectedSlots.reduce((sum, s) => sum + (s.basePrice || s.originalPrice || s.price), 0);
-    },
-
-    // SỬA: Không tính promo discount cho ngày full booking
-    get totalPromoDiscount() {
-        return this.selectedSlots.reduce((sum, s) => {
-            // Nếu ngày này full booking thì không tính promo discount
-            if (this.fullDayDates.includes(s.date)) {
-                return sum;
-            }
-            return sum + (s.promoDiscount || 0);
-        }, 0);
-    },
-
-    get totalIncreaseAmount() {
-        return this.selectedSlots.reduce((sum, s) => {
-            return sum + (s.increaseAmount || 0);
-        }, 0);
-    },
-
-    get totalPrice() {
-        return this.selectedSlots.reduce((sum, s) => {
-            // Nếu là ngày full booking, tính lại giá = basePrice + increaseAmount
-            if (this.fullDayDates.includes(s.date)) {
-                return sum + (s.basePrice + s.increaseAmount);
-            }
-            return sum + s.price;
-        }, 0);
-    },
-
-    get discountRate() {
-        if (this.hasFullDayBooking || this.selectedSlots.length === 0) {
-            return 0;
-        }
-
-        const rules = this.selectedSlots[0].bulkDiscountRules;
-        if (!rules || rules.length === 0) {
-            return 0;
-        }
-
-        const count = this.selectedSlots.length;
-        // Lấy rule có slots <= count, ưu tiên rule cao nhất
-        const matched = rules
-            .filter(r => count >= r.slots)
-            .sort((a, b) => b.slots - a.slots)[0];
-
-        return matched ? matched.discount / 100 : 0;
-    },
-
-    get discount() {
-        return this.totalPrice * this.discountRate;
-    },
-
-    get totalAfterDiscount() {
-        return this.totalPrice - this.discount;
-    },
-
-    get totalAfterAllDiscounts() {
-        return this.totalAfterDiscount - this.fullBookingDiscount;
-    },
-
-    // SỬA: Không hiển thị discount promotions cho ngày full booking
-    get promotionSummary() {
-        const summary = {
-            increases: {},
-            discounts: {}
-        };
-
-        this.selectedSlots.forEach(slot => {
-            // Xử lý TĂNG GIÁ (luôn hiển thị)
-            if (slot.increasePromotions && slot.increasePromotions.length > 0) {
-                slot.increasePromotions.forEach(promo => {
-                    if (!summary.increases[promo.name]) {
-                        summary.increases[promo.name] = {
-                            type: promo.type,
-                            total: 0,
-                            count: 0
-                        };
-                    }
-                    summary.increases[promo.name].total += promo.amount || 0;
-                    summary.increases[promo.name].count++;
-                });
-            }
-
-            // Xử lý GIẢM GIÁ (chỉ hiển thị nếu KHÔNG phải ngày full booking)
-            if (!this.fullDayDates.includes(slot.date)) {
-                if (slot.discountPromotions && slot.discountPromotions.length > 0) {
-                    slot.discountPromotions.forEach(promo => {
-                        if (!summary.discounts[promo.name]) {
-                            summary.discounts[promo.name] = {
-                                type: promo.type,
-                                total: 0,
-                                count: 0
-                            };
-                        }
-                        summary.discounts[promo.name].total += promo.amount || 0;
-                        summary.discounts[promo.name].count++;
-                    });
-                }
-            }
-        });
-
-        return summary;
-    }
-}" x-on:book-category-changed.window="resetSelection()"
+<div x-data="xBlock('bookRoot', $el)" x-on:book-category-changed.window="resetSelection()"
     class="{{ $generalSettings->holiday_theme_active ? 'holiday-theme' : '' }}"
     data-room-ids="{{ implode(',', $this->roomIds) }}">
     {{-- Sprite icon khung giờ (mặt trời/mặt trăng) — mỗi bảng có hàng chục tiêu đề khung giờ (mobile + desktop),
@@ -272,7 +11,21 @@
         <symbol id="bk-moon" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd"/></symbol>
         <symbol id="bk-sun" viewBox="0 0 16 16"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></symbol>
     </svg>
+    {{-- Đối chiếu layout server đã in với bề rộng màn hình thật (breakpoint lg = 1024px, cùng mốc
+         với lg:hidden / hidden lg:block của 2 layout): lệch thì bỏ lựa chọn đang dở (ô của layout cũ
+         sắp bị thay) rồi nhờ server in lại layout đúng. Cũng chạy khi xoay máy/đổi kích thước cửa sổ
+         qua mốc đó. Chỉ dùng nháy đơn trong x-init (nằm trong attribute nháy kép). --}}
+    <span hidden x-data x-init="(() => { const mq = window.matchMedia('(min-width: 1024px)'); const sync = () => { const want = mq.matches ? 'desktop' : 'mobile'; if ($wire.layout !== want) { resetSelection(); $wire.setLayout(want); } }; sync(); mq.addEventListener('change', sync); })()"></span>
     <div class="w-full mx-auto">
+        @if ($this->deferred)
+        {{-- Chế độ hoãn tải (Book::$deferred, trang chủ): chỉ in khung chờ; khi khối này cách vùng nhìn
+             dưới 1000px (trên desktop là gần như ngay lúc vào trang) thì gọi loadBoard() lấy bảng thật.
+             Trình duyệt không có IntersectionObserver thì tải luôn. Chỉ dùng nháy đơn trong x-init. --}}
+        <div class="book-deferred" x-data
+             x-init="(() => { const go = () => { if ($wire.deferred) $wire.loadBoard(); }; if (!('IntersectionObserver' in window)) { go(); return; } const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { io.disconnect(); go(); } }, { rootMargin: '1000px 0px' }); io.observe($el); })()">
+            @include('bladethemev1::livewire.book._skeleton')
+        </div>
+        @else
         @include('bladethemev1::livewire.book._header')
 
         <div id="default-styled-tab-content" wire:loading.class="pointer-events-none">
@@ -300,6 +53,8 @@
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();
                 $today = now()->startOfDay();
+                // Chỉ ở trang chủ (compactDays): tên phòng dẫn sang trang chi tiết để xem thêm ngày.
+                $roomDetailUrls = $this->compactDays ? $this->roomDetailUrls($styleOneRooms) : [];
                 @endphp
 
                 @if($totalStyleOneRooms > 0)
@@ -311,8 +66,12 @@
                          khung giờ. --}}
                     @php $slotMap = new \ArrayObject(); @endphp
                     <div class="book-panel">
-                        @include('bladethemev1::livewire.book._mobile')
-                        @include('bladethemev1::livewire.book._desktop-grid')
+                        {{-- Chỉ in MỘT layout (xem Book::$layout) — không in cả 2 rồi ẩn bớt bằng CSS. --}}
+                        @if ($this->layout === 'mobile')
+                            @include('bladethemev1::livewire.book._mobile')
+                        @else
+                            @include('bladethemev1::livewire.book._desktop-grid')
+                        @endif
 
                         {{-- Dữ liệu từng ô giờ do book/_slot-cell.blade.php gom vào $slotMap — in ra 1 LẦN
                              (JSON_HEX_TAG chặn chuỗi </script> trong nhãn khuyến mãi phá thẻ). --}}
@@ -369,6 +128,8 @@
                 @include('bladethemev1::livewire.book._pricing')
             </div>
         </div>
+
+        @endif
 
         @include('bladethemev1::livewire.book._styles')
     </div>

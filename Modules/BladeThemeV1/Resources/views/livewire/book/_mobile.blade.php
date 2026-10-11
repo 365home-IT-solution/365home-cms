@@ -84,7 +84,11 @@
                 <div x-show="activeRoomIdx === {{ $ri }}"
                     class="book-room-title-block">
                     <h3 class="book-room-name">
-                        {{ $roomTitle->name }}
+                        @if (!empty($roomDetailUrls[$roomTitle->id]))
+                            <a href="{{ $roomDetailUrls[$roomTitle->id] }}" class="hover:underline" style="color:inherit;">{{ $roomTitle->name }}</a>
+                        @else
+                            {{ $roomTitle->name }}
+                        @endif
                         @if($roomHasDiscount)
                             <img src="{{ asset('images/flash-sale.webp') }}" alt="" class="book-room-flash-icon" width="28" height="28">
                         @endif
@@ -222,7 +226,15 @@
     </div>{{-- end .book-grid-outer --}}
 
     {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết). ── --}}
-    @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+    @if ($this->compactDays)
+        <div class="book-loadmore-row text-sm text-gray-500">
+            @foreach ($styleOneRooms as $ri => $moreRoom)
+                @if (!empty($roomDetailUrls[$moreRoom->id]))
+                    <a x-show="activeRoomIdx === {{ $ri }}" href="{{ $roomDetailUrls[$moreRoom->id] }}" class="font-semibold underline text-gray-700">Xem thêm ngày của phòng {{ $moreRoom->name }}</a>
+                @endif
+            @endforeach
+        </div>
+    @elseif ($this->canLoadMoreDates())
         <div class="book-loadmore-row">
             <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">

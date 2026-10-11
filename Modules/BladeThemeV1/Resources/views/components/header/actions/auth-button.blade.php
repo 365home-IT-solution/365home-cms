@@ -5,61 +5,7 @@
 @endphp
 
 <div
-    x-data="{
-        user: null,
-        token: null,
-
-        init() {
-            this.loadFromStorage();
-            window.addEventListener('auth-state-changed', () => this.loadFromStorage());
-            // 'storage' bắt thay đổi localStorage từ tab/cửa sổ khác (đăng nhập/đăng xuất ở tab
-            // kia). 'pageshow' + persisted bắt trường hợp trang được phục hồi từ bfcache (nút
-            // back/forward) — Alpine không tự chạy lại init() khi đó nên tên cũ bị 'dính cache'.
-            window.addEventListener('storage', (e) => {
-                if (e.key === 'auth_token' || e.key === 'auth_user') this.loadFromStorage();
-            });
-            window.addEventListener('pageshow', (e) => {
-                if (e.persisted) this.loadFromStorage();
-            });
-        },
-
-        loadFromStorage() {
-            const token = localStorage.getItem('auth_token');
-            const user  = localStorage.getItem('auth_user');
-            if (token && user) {
-                try {
-                    this.token = token;
-                    this.user  = JSON.parse(user);
-                } catch (e) {
-                    this.clearStorage();
-                }
-            } else {
-                this.token = null;
-                this.user  = null;
-            }
-        },
-
-        logout() {
-            if (this.token) {
-                fetch('/api/auth/logout', {
-                    method:  'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + this.token,
-                        'Accept': 'application/json',
-                    },
-                });
-            }
-            this.clearStorage();
-            this.token = null;
-            this.user  = null;
-            window.dispatchEvent(new CustomEvent('auth-state-changed'));
-        },
-
-        clearStorage() {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('auth_user');
-        },
-    }"
+    x-data="xBlock('authButton', $el)"
     x-cloak
 >
     {{-- Chưa đăng nhập — style outline (viền màu primary, nền trắng, không đổi khi hover), bỏ

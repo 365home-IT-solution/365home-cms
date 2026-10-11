@@ -12,6 +12,15 @@ class AuthModal extends Component
     public string $primaryHex = '#FBCB1C';
     public string $textOnPrimary = '#1a1e25';
 
+    /** false: HTML ban đầu chỉ có 1 thẻ chờ sự kiện 'open-auth-modal'; nội dung popup (form số điện
+     *  thoại / OTP / đăng ký, ~20KB) chỉ được tải về qua load() khi khách bấm mở lần đầu. */
+    public bool $loaded = false;
+
+    public function load(): void
+    {
+        $this->loaded = true;
+    }
+
     public function mount(): void
     {
         $settings = new GeneralSettings();

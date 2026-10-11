@@ -51,78 +51,7 @@
 
                     {{-- Search bar --}}
                     <div data-bar
-                        x-data="{
-                            locOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
-                            locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
-                            selectedGuestsVal: '{{ $selectedGuests }}',
-                            guestOptions: { '': 'Tất cả', '1': '1 người', '2': '2 người', '3': '3 người', '4': '4 người', '5': '5+ người' },
-                            get locationLabel() {
-                                if (!this.selectedLocationSlug) return 'Chọn địa điểm';
-                                const loc = this.mobileLocations.find(l => l.slug === this.selectedLocationSlug);
-                                return loc ? loc.name : 'Chọn địa điểm';
-                            },
-                            get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
-                            init() {
-                                this.syncLocationFromUrl();
-                                this.autoFillLocation();
-                                this.syncGuestsFromUrl();
-                                window.addEventListener('province-selected', () => this.autoFillLocation());
-                            },
-                            // Xem giải thích chi tiết ở _banner-form.blade.php.
-                            syncGuestsFromUrl() {
-                                if (this.selectedGuestsVal) return;
-                                const adults = window.parseGuestsFromUrl ? window.parseGuestsFromUrl() : '';
-                                if (adults && this.guestOptions[adults] !== undefined) this.selectedGuestsVal = adults;
-                            },
-                            // Xem giải thích chi tiết ở _banner-form.blade.php.
-                            syncLocationFromUrl() {
-                                if (this.selectedLocationSlug) return;
-                                const slug = window.parseLocationSlugFromUrl ? window.parseLocationSlugFromUrl() : '';
-                                if (!slug) return;
-                                const loc = this.mobileLocations.find(l => l.slug === slug);
-                                if (loc) this.selectedLocationSlug = loc.slug;
-                            },
-                            // Khách đã đăng nhập và có province_id trên tài khoản: xem giải thích chi
-                            // tiết ở _banner-form.blade.php.
-                            autoFillLocation() {
-                                if (this.selectedLocationSlug) return;
-                                if (!localStorage.getItem('auth_token')) return;
-                                const provinceId = localStorage.getItem('home_province_id');
-                                if (!provinceId) return;
-                                const loc = this.mobileLocations.find(l => String(l.id) === String(provinceId));
-                                if (loc) this.selectedLocationSlug = loc.slug;
-                            },
-                            // this.open = true đặt trong setTimeout: xem giải thích chi tiết ở
-                            // _banner-form.blade.php (tránh bị @click.outside của field Thời gian
-                            // ghi đè lại thành false trong cùng lượt sự kiện).
-                            pickLocation(slug) {
-                                this.selectedLocationSlug = slug;
-                                this.locOpen = false;
-                                const loc = this.mobileLocations.find(l => l.slug === slug);
-                                if (loc) window.persistProvinceSelection(loc);
-                                setTimeout(() => {
-                                    this.open = true;
-                                    this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact));
-                                });
-                            },
-                            locateMe() {
-                                this.locating = true;
-                                window.heroLocateNearest(
-                                    (slug) => {},
-                                    @js($locations),
-                                    (loc) => {
-                                        this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug;
-                                        window.persistProvinceSelection(loc);
-                                        this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep);
-                                        setTimeout(() => {
-                                            this.open = true;
-                                            this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact));
-                                        });
-                                    },
-                                    (msg) => { this.locating = false; alert(msg); }
-                                );
-                            }
-                        }"
+                        x-data="xBlock('heroCompactBar', $el, { loc: '{{ $selectedLocation }}', locations: @js($locations), guests: '{{ $selectedGuests }}', roomType: '{{ $selectedRoomType }}' })"
                         @click.outside="locOpen = false; guestsOpen = false">
 
                     {{-- Desktop: thanh ngang đầy đủ (đồng bộ breakpoint lg với header) --}}

@@ -9,6 +9,7 @@ use App\Models\Partner;
 use App\Models\PartnerStatusLog;
 use App\Models\RoomRating;
 use App\Models\User;
+use App\Services\ContractSigning\ContractSigningManager;
 use App\Services\PartnerContractWorkflowService;
 use App\Services\PartnerLegalDocumentService;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Modules\Category\Entities\Category;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Payment\Entities\Order;
@@ -93,6 +95,30 @@ class PartnerController extends Controller
             'partner_confirmed_at' => $version?->partner_confirmed_at?->toIso8601String(),
             'platform_signed_at' => $version?->platform_signed_at?->toIso8601String(),
             'is_fully_signed' => $version?->isFullySigned() ?? false,
+            // Cách nền tảng (Bên A) ký: auto (mặc định) | usb — xem Cấu hình web > Chữ ký số. Đang chờ nền tảng ký khi đối tác đã xác nhận mà Bên A chưa ký.
+            'platform_sign_method' => app(ContractSigningManager::class)->platformSignMethod(),
+            'awaiting_platform_sign' => $version ? ($version->isPartnerConfirmed() && ! $version->isPlatformSigned()) : false,
+            'platform_sign_prepared_at' => $version?->platform_sign_prepared_at?->toIso8601String(),
+            // Nhà cung cấp sẽ dùng để ký tự động; is_test = true nghĩa là ký THỬ NGHIỆM (Local), không có giá trị pháp lý.
+            'platform_signing_provider_in_use' => app(ContractSigningManager::class)->providerNameForSide(ContractSigningManager::SIDE_HOMESTAY),
+            'platform_signing_is_test' => app(ContractSigningManager::class)->isTestProvider(),
+            // Hợp đồng đã ký thử nghiệm (Local) và nay đã có nhà cung cấp thật → có thể ký lại (POST .../contract/platform-resign).
+            'can_platform_resign' => $version ? ($version->isPlatformSigned() && $version->platform_signing_provider === 'local' && ! app(ContractSigningManager::class)->isTestProvider()) : false,
+            'platform_signed_method' => $version?->platform_sign_method,
+            'partner_sign_method' => $version?->partner_sign_method ?? ($version?->isPartnerConfirmed() ? 'otp' : null),
+            'partner_certificate' => $version?->isPartnerSignedByCks() ? [
+                'subject' => $version->partner_signature_certificate['cert_subject'] ?? null,
+                'organization' => $version->partner_signature_certificate['cert_org'] ?? null,
+                'issuer' => $version->partner_signature_certificate['cert_issuer'] ?? null,
+                'tax_code' => $version->partner_signature_certificate['tax_code'] ?? null,
+                'valid_to' => $version->partner_signature_certificate['valid_to'] ?? null,
+            ] : null,
+            'platform_certificate' => $version?->isPlatformSigned() ? [
+                'subject' => $version->platform_signature_certificate['cert_subject'] ?? null,
+                'organization' => $version->platform_signature_certificate['cert_org'] ?? null,
+                'issuer' => $version->platform_signature_certificate['cert_issuer'] ?? null,
+                'valid_to' => $version->platform_signature_certificate['valid_to'] ?? null,
+            ] : null,
         ]]);
     }
 
@@ -187,13 +213,95 @@ class PartnerController extends Controller
         ]], 201);
     }
 
+    // POST /api/admin/partners/{partner}/contract/platform-sign — nền tảng ký TỰ ĐỘNG qua nhà cung cấp chữ ký số từ xa. Body tuỳ chọn: method = auto|usb (mặc định theo
+    // Cấu hình web > Chữ ký số; mặc định hệ thống là auto). Cách usb: dùng GET .../contract/pdf-to-sign rồi POST .../contract/platform-upload.
     public function platformSign(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
     {
         $this->superAdmin($request);
         abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $manager = app(ContractSigningManager::class);
+        $method = $request->validate(['method' => ['nullable', Rule::in([ContractSigningManager::PLATFORM_SIGN_USB, ContractSigningManager::PLATFORM_SIGN_AUTO])]])['method'] ?? $manager->platformSignMethod();
+        if ($method !== ContractSigningManager::PLATFORM_SIGN_AUTO) {
+            throw ValidationException::withMessages(['method' => 'Nền tảng đang ký bằng USB token: tải PDF cần ký (GET contract/pdf-to-sign), ký trên máy có USB rồi tải bản đã ký lên (POST contract/platform-upload). Muốn ký tự động hãy gửi method=auto.']);
+        }
         $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent());
 
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/platform-resign — KÝ LẠI phần nền tảng cho hợp đồng đã ký THỬ NGHIỆM (Local) sau khi đã cấu hình nhà cung cấp thật.
+    // Chỉ thay chữ ký và PDF; không đổi trạng thái hợp đồng/luồng tiền. Trả về PDF mới. 422 nếu bản đã ký bằng chữ ký số thật hoặc nhà cung cấp vẫn là Local.
+    public function platformResign(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $result = $workflow->platformResign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent());
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // GET /api/admin/partners/{partner}/contract/pdf-to-sign — ký USB, bước 1: tải PDF hợp đồng CHƯA ký (đối tác đã xác nhận OTP) để ký bằng USB token trên máy.
+    public function pdfToSign(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $result = $workflow->preparePlatformPdf($partner);
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/platform-upload — ký USB, bước 2: tải PDF đã ký lên (multipart signed_pdf). Hệ thống kiểm tra chữ ký rồi hoàn tất hợp đồng.
+    public function platformUpload(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $request->validate(['signed_pdf' => ['required', 'file', 'mimes:pdf', 'max:20480']]);
+        $result = $workflow->platformUpload($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent(), (string) file_get_contents($request->file('signed_pdf')->getRealPath()));
+        $cert = $result['certificate'];
+
+        return response()->json(['message' => 'Đã kiểm tra chữ ký số và hoàn tất hợp đồng.', 'data' => [
+            'is_fully_signed' => true,
+            'contract_status' => $partner->fresh()->contract_status,
+            'platform_certificate' => [
+                'subject' => $cert['cert_subject'] ?? null, 'organization' => $cert['cert_org'] ?? null, 'issuer' => $cert['cert_issuer'] ?? null,
+                'serial' => $cert['serial'] ?? null, 'valid_from' => $cert['valid_from'] ?? null, 'valid_to' => $cert['valid_to'] ?? null,
+                'tax_code' => $cert['tax_code'] ?? null, 'signing_time' => $cert['signing_time'] ?? null,
+            ],
+        ]]);
+    }
+
+    // GET /api/admin/partners/{partner}/contract/partner-pdf-to-sign — PDF hợp đồng CHƯA ký để ĐỐI TÁC ký bằng chữ ký số (CKS) của họ (admin gửi hộ khi đối tác không dùng link).
+    public function partnerPdfToSign(Request $request, Partner $partner, \App\Services\PartnerContractCksService $cks): StreamedResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $version = $partner->contractVersions()->first();
+        abort_unless($version, 404, 'Đối tác chưa có hợp đồng.');
+        $result = $cks->preparePdf($version);
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/partner-upload — tải lên PDF đã được đối tác ký bằng CKS (multipart signed_pdf, signer_name?). Kiểm tra như khi đối tác tự tải lên ở link ký.
+    public function partnerUpload(Request $request, Partner $partner, \App\Services\PartnerContractCksService $cks): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $version = $partner->contractVersions()->first();
+        abort_unless($version, 404, 'Đối tác chưa có hợp đồng.');
+        $data = $request->validate(['signed_pdf' => ['required', 'file', 'mimes:pdf', 'max:20480'], 'signer_name' => ['nullable', 'string', 'max:255']]);
+
+        $result = $cks->submit($version, (string) file_get_contents($request->file('signed_pdf')->getRealPath()), $data['signer_name'] ?? null, (string) $request->ip(), (string) $request->userAgent());
+        $cert = $result['certificate'];
+
+        return response()->json(['message' => 'Đã kiểm tra chữ ký số của đối tác và ghi nhận hợp đồng.', 'data' => [
+            'partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String(),
+            'partner_sign_method' => 'cks',
+            'partner_certificate' => [
+                'subject' => $cert['cert_subject'] ?? null, 'organization' => $cert['cert_org'] ?? null, 'issuer' => $cert['cert_issuer'] ?? null,
+                'tax_code' => $cert['tax_code'] ?? null, 'valid_to' => $cert['valid_to'] ?? null,
+            ],
+        ]]);
     }
 
     // GET /api/admin/partners/{partner}/contract/signed-pdf — tải lại PDF hợp đồng đã ký số lưu trên server (không ký lại).

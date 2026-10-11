@@ -9,7 +9,9 @@ use App\Models\Partner;
 use App\Models\PartnerContractVersion;
 use App\Models\User;
 use App\Services\ContractSigning\Contracts\DigitalSignatureProvider;
+use App\Services\PdfSigning\ContractPdfRenderer;
 use App\Services\PdfSigning\ContractPdfSigningService;
+use App\Services\PdfSigning\UploadedPdfSignatureVerifier;
 use App\Support\PartnerContractRenderer;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -250,6 +252,13 @@ class PartnerContractWorkflowService
             return ['pdf' => file_get_contents($stored->getPath()), 'file_name' => $stored->file_name];
         }
 
+        if (! $reExport) {
+            $manager = app(\App\Services\ContractSigning\ContractSigningManager::class);
+            if ($manager->isTestProvider() && ! $manager->localSigningAllowed()) {
+                throw ValidationException::withMessages(['contract' => 'Nhà cung cấp chữ ký số đang là "Local" (ký thử nghiệm, KHÔNG có giá trị pháp lý) nên không dùng để ký hợp đồng thật. Vào Cấu hình web › Chữ ký số, chọn VNPT SmartCA hoặc MISA eSign, lưu rồi bấm Kiểm tra kết nối.']);
+            }
+        }
+
         $signingTime = now();
         if (! $reExport) {
             // Gán tạm vào bộ nhớ trước khi render PDF để khung ký "Nền tảng" trong PDF không hiện sai "Chưa ký".
@@ -257,37 +266,21 @@ class PartnerContractWorkflowService
             $version->setRelation('platformSignedBy', $actor);
         }
 
-        $result = app(ContractPdfSigningService::class)->signAndEmbed($version, [
-            'role' => 'platform', 'name' => $actor->name, 'user_id' => $actor->id,
-        ]);
+        $context = ['role' => 'platform', 'name' => $actor->name, 'user_id' => $actor->id];
+        $partnerPdf = $version->getFirstMedia('partner_signed_pdf');
+        if ($partnerPdf && is_file($partnerPdf->getPath())) {
+            // Đối tác đã ký bằng CKS: ký chồng lên đúng file đó để PDF cuối có đủ 2 chữ ký số.
+            try {
+                $result = app(ContractPdfSigningService::class)->signExisting((string) file_get_contents($partnerPdf->getPath()), $context);
+            } catch (\RuntimeException $e) {
+                throw ValidationException::withMessages(['contract' => 'Không ký chồng được lên file đối tác đã ký: ' . $e->getMessage() . ' Hãy dùng cách ký USB (tải PDF về ký bằng Adobe/Foxit rồi tải lên).']);
+            }
+        } else {
+            $result = app(ContractPdfSigningService::class)->signAndEmbed($version, $context);
+        }
 
         if (! $reExport) {
-            $version->update([
-                'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
-                'platform_signature_certificate' => $result['certificate'],
-                'platform_signed_at' => $signingTime,
-                'platform_signed_by' => $actor->id,
-                'platform_signed_ip' => $ip,
-                'platform_signed_user_agent' => $userAgent,
-            ]);
-            // Phụ lục không đổi ngày hiệu lực/hết hạn của hợp đồng gốc — chỉ chuyển đối tác sang luồng tiền mới (activatePaymentFlow).
-            $attributes = $version->isAddendum() ? [] : ['contract_status' => 'active', 'contract_signed_at' => $signingTime];
-            $isFirstContract = blank($partner->contract_signed_at);
-            // Điều 7 + 15 (mẫu Homestay): thời hạn N tháng tính từ ngày Hợp đồng có hiệu lực = ngày Bên A ký. Hợp đồng ĐẦU TIÊN của đối tác:
-            // tính lại ngày hết hạn = ngày ký này + đúng số tháng đã in trong bản đối tác ký (số tháng suy từ ngày hết hạn lúc tạo bản),
-            // để đối tác ký sớm, Bên A ký trễ thì thời hạn thực tế vẫn đủ N tháng. Bản tạo lại cho hợp đồng đã từng có hiệu lực thì giữ nguyên.
-            if (! $version->isAddendum() && ! $partner->isMinihouse() && $isFirstContract && $partner->contract_expires_at && $version->created_at) {
-                $months = PartnerContractRenderer::termMonths($partner->contract_expires_at, $version->created_at);
-                $attributes['contract_expires_at'] = $signingTime->copy()->startOfDay()->addMonths($months);
-            }
-            if ($attributes !== []) {
-                $partner->update($attributes);
-            }
-
-            // Hợp đồng mẫu mới / phụ lục có hiệu lực → tiền đặt phòng về thẳng đối tác + ký quỹ + đối soát.
-            if (! $partner->isMinihouse()) {
-                $this->activatePaymentFlow($partner->fresh(), $signingTime, $actor, $version->isAddendum() || ! $isFirstContract, $version);
-            }
+            $this->completePlatformSigning($partner, $version, $actor, $ip, $userAgent, $signingTime, app(DigitalSignatureProvider::class)->name(), 'auto', $result['certificate']);
         }
 
         $fileName = "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf";
@@ -295,5 +288,175 @@ class PartnerContractWorkflowService
         $version->addMediaFromString($result['pdf'])->usingFileName($fileName)->toMediaCollection('signed_pdf', 'local');
 
         return ['pdf' => $result['pdf'], 'file_name' => $fileName];
+    }
+
+    /** Hoàn tất khi Bên A đã ký (tự động hoặc USB): ghi chữ ký, chuyển hợp đồng sang hiệu lực, kích hoạt luồng tiền, lưu PDF đã ký. */
+    private function completePlatformSigning(Partner $partner, PartnerContractVersion $version, User $actor, string $ip, string $userAgent, \DateTimeInterface $signingTime, string $provider, string $method, array $certificate): void
+    {
+        $signingTime = \Illuminate\Support\Carbon::instance($signingTime);
+        $version->update([
+            'platform_signing_provider' => $provider,
+            'platform_sign_method' => $method,
+            'platform_signature_certificate' => $certificate,
+            'platform_signed_at' => $signingTime,
+            'platform_signed_by' => $actor->id,
+            'platform_signed_ip' => $ip,
+            'platform_signed_user_agent' => $userAgent,
+        ]);
+        // Phụ lục không đổi ngày hiệu lực/hết hạn của hợp đồng gốc — chỉ chuyển đối tác sang luồng tiền mới (activatePaymentFlow).
+        $attributes = $version->isAddendum() ? [] : ['contract_status' => 'active', 'contract_signed_at' => $signingTime];
+        $isFirstContract = blank($partner->contract_signed_at);
+        // Điều 7 + 15 (mẫu Homestay): thời hạn N tháng tính từ ngày Hợp đồng có hiệu lực = ngày Bên A ký. Hợp đồng ĐẦU TIÊN của đối tác:
+        // tính lại ngày hết hạn = ngày ký này + đúng số tháng đã in trong bản đối tác ký (số tháng suy từ ngày hết hạn lúc tạo bản),
+        // để đối tác ký sớm, Bên A ký trễ thì thời hạn thực tế vẫn đủ N tháng. Bản tạo lại cho hợp đồng đã từng có hiệu lực thì giữ nguyên.
+        if (! $version->isAddendum() && ! $partner->isMinihouse() && $isFirstContract && $partner->contract_expires_at && $version->created_at) {
+            $months = PartnerContractRenderer::termMonths($partner->contract_expires_at, $version->created_at);
+            $attributes['contract_expires_at'] = $signingTime->copy()->startOfDay()->addMonths($months);
+        }
+        if ($attributes !== []) {
+            $partner->update($attributes);
+        }
+
+        // Hợp đồng mẫu mới / phụ lục có hiệu lực → tiền đặt phòng về thẳng đối tác + ký quỹ + đối soát.
+        if (! $partner->isMinihouse()) {
+            $this->activatePaymentFlow($partner->fresh(), $signingTime, $actor, $version->isAddendum() || ! $isFirstContract, $version);
+        }
+
+    }
+
+    /**
+     * KÝ LẠI phần nền tảng cho hợp đồng đã được ký THỬ NGHIỆM (nhà cung cấp "local", khoá tự sinh, không có giá trị pháp lý) khi nay đã cấu hình
+     * nhà cung cấp thật. Chỉ thay chữ ký và file PDF đã ký — KHÔNG đổi trạng thái hợp đồng, ngày hiệu lực, luồng tiền, tài khoản đối tác
+     * (những thứ đó đã được kích hoạt ở lần ký trước). Bản đã ký bằng chữ ký số thật thì không cho ký lại.
+     *
+     * @return array{pdf: string, file_name: string}
+     */
+    public function platformResign(Partner $partner, User $actor, string $ip, string $userAgent): array
+    {
+        $this->documents->assertContractEligible($partner);
+        $version = $partner->contractVersions()->first();
+        if (! $version || ! $version->isPlatformSigned()) {
+            throw ValidationException::withMessages(['contract' => 'Hợp đồng chưa được nền tảng ký — hãy ký bình thường.']);
+        }
+        if ($version->platform_signing_provider !== 'local') {
+            throw ValidationException::withMessages(['contract' => 'Hợp đồng đã được ký bằng chữ ký số thật, không ký lại được.']);
+        }
+        $manager = app(\App\Services\ContractSigning\ContractSigningManager::class);
+        if ($manager->isTestProvider()) {
+            throw ValidationException::withMessages(['contract' => 'Nhà cung cấp chữ ký số vẫn đang là "Local" (thử nghiệm). Vào Cấu hình web › Chữ ký số chọn VNPT SmartCA hoặc MISA eSign, lưu rồi thử lại.']);
+        }
+
+        $signingTime = now();
+        // Khung "ĐẠI DIỆN BÊN A" trong PDF lấy theo thời gian/người ký: gán tạm trong bộ nhớ trước khi render.
+        $version->platform_signed_at = $signingTime;
+        $version->setRelation('platformSignedBy', $actor);
+
+        $context = ['role' => 'platform', 'name' => $actor->name, 'user_id' => $actor->id];
+        $partnerPdf = $version->getFirstMedia('partner_signed_pdf');
+        try {
+            if ($partnerPdf && is_file($partnerPdf->getPath())) {
+                $result = app(ContractPdfSigningService::class)->signExisting((string) file_get_contents($partnerPdf->getPath()), $context);
+            } else {
+                $result = app(ContractPdfSigningService::class)->signAndEmbed($version, $context);
+            }
+        } catch (\RuntimeException $e) {
+            throw ValidationException::withMessages(['contract' => 'Không ký lại được: ' . $e->getMessage()]);
+        }
+
+        $version->update([
+            'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
+            'platform_sign_method' => 'auto',
+            'platform_signature_certificate' => $result['certificate'],
+            'platform_signed_at' => $signingTime,
+            'platform_signed_by' => $actor->id,
+            'platform_signed_ip' => $ip,
+            'platform_signed_user_agent' => $userAgent,
+        ]);
+
+        $fileName = "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf";
+        $version->addMediaFromString($result['pdf'])->usingFileName($fileName)->toMediaCollection('signed_pdf', 'local');
+
+        \App\Models\PartnerStatusLog::create([
+            'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $actor->id,
+            'note' => 'Nền tảng đã KÝ LẠI hợp đồng bằng chữ ký số thật (thay bản ký thử nghiệm Local).',
+        ]);
+
+        return ['pdf' => $result['pdf'], 'file_name' => $fileName];
+    }
+
+    /** Bản hợp đồng đang chờ nền tảng ký: đối tác đã xác nhận OTP, nền tảng chưa ký. */
+    private function versionAwaitingPlatform(Partner $partner): PartnerContractVersion
+    {
+        $this->documents->assertContractEligible($partner);
+        $version = $partner->contractVersions()->first();
+        if (! $version || ! $version->isPartnerConfirmed()) {
+            throw ValidationException::withMessages(['contract' => 'Đối tác chưa xác nhận hợp đồng bằng OTP.']);
+        }
+        if ($version->isPlatformSigned()) {
+            throw ValidationException::withMessages(['contract' => 'Hợp đồng đã được nền tảng ký số.']);
+        }
+
+        return $version;
+    }
+
+    /**
+     * Ký bằng USB token, bước 1: PDF hợp đồng CHƯA ký để người giữ chứng thư số ký trên máy của họ. Giữ nguyên từng byte giữa các lần tải
+     * (lưu lại bản đã đưa đi ký) để bản tải lên đối chiếu được.
+     *
+     * @return array{pdf: string, file_name: string}
+     */
+    public function preparePlatformPdf(Partner $partner): array
+    {
+        $version = $this->versionAwaitingPlatform($partner);
+        $fileName = "hop-dong-{$version->id}-can-ky.pdf";
+
+        $stored = $version->getFirstMedia('platform_base_pdf');
+        if ($stored && is_file($stored->getPath()) && filled($version->platform_sign_base_hash)) {
+            $pdf = (string) file_get_contents($stored->getPath());
+            if (hash_equals($version->platform_sign_base_hash, hash('sha256', $pdf))) {
+                return ['pdf' => $pdf, 'file_name' => $fileName];
+            }
+        }
+
+        // Đối tác đã ký bằng CKS: bản cần ký tiếp CHÍNH LÀ file đối tác đã ký (không render lại, nếu không sẽ mất chữ ký của đối tác).
+        $partnerSigned = $version->getFirstMedia('partner_signed_pdf');
+        $pdf = $partnerSigned && is_file($partnerSigned->getPath())
+            ? (string) file_get_contents($partnerSigned->getPath())
+            : ContractPdfRenderer::render(PartnerContractRenderer::renderFramed($version->content, $version->partner, $version));
+        $version->addMediaFromString($pdf)->usingFileName($fileName)->toMediaCollection('platform_base_pdf', 'local');
+        $version->update([
+            'platform_sign_base_hash' => hash('sha256', $pdf),
+            'platform_sign_base_length' => strlen($pdf),
+            'platform_sign_prepared_at' => now(),
+        ]);
+
+        return ['pdf' => $pdf, 'file_name' => $fileName];
+    }
+
+    /**
+     * Ký bằng USB token, bước 2: nhận PDF đã ký, kiểm tra rồi hoàn tất như khi nền tảng ký tự động.
+     *
+     * @return array{pdf: string, file_name: string, certificate: array<string, mixed>}
+     */
+    public function platformUpload(Partner $partner, User $actor, string $ip, string $userAgent, string $signedPdf): array
+    {
+        $version = $this->versionAwaitingPlatform($partner);
+        if (blank($version->platform_sign_base_hash)) {
+            throw ValidationException::withMessages(['signed_pdf' => 'Chưa tải PDF hợp đồng để ký — hãy tải file cần ký từ hệ thống trước.']);
+        }
+
+        $check = app(UploadedPdfSignatureVerifier::class)->verify($signedPdf, $version->platform_sign_base_hash, (int) $version->platform_sign_base_length);
+        if (! $check['ok']) {
+            throw ValidationException::withMessages(['signed_pdf' => implode(' ', $check['errors'])]);
+        }
+
+        $signingTime = now();
+        $this->completePlatformSigning($partner, $version, $actor, $ip, $userAgent, $signingTime, 'usb_token', 'usb', $check['certificate']);
+
+        // Bản tải lên chính là bản ký — hợp đồng đã hoàn tất, lưu đúng file đó (không render lại).
+        $fileName = "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf";
+        $version->addMediaFromString($signedPdf)->usingFileName($fileName)->toMediaCollection('signed_pdf', 'local');
+
+        return ['pdf' => $signedPdf, 'file_name' => $fileName, 'certificate' => $check['certificate']];
     }
 }

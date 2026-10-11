@@ -35,9 +35,41 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="{{ config('app.locale', 'vi') }}">
+<html lang="{{ config('app.locale', 'vi') }}" data-vp="{{ \App\Support\ViewportMode::current() }}">
 
 <head>
+    {{-- Đối chiếu bản giao diện server đã in (data-vp: mobile/desktop/both — xem
+         App\Support\ViewportMode) với màn hình thật. Lệch (vd iPad dùng UA máy tính, cửa sổ máy tính
+         đang thu hẹp) thì ghi cookie vp_mode rồi tải lại trang ĐÚNG 1 LẦN để server in bản đúng;
+         thiết bị có thể qua lại mốc 1024px (tablet xoay máy, cửa sổ bị kéo qua mốc) chuyển hẳn
+         sang 'both' để về sau đổi bằng CSS, không tải lại nữa. Đặt đầu <head> để tải lại xảy ra
+         trước khi trang kịp vẽ. sessionStorage chặn vòng lặp khi trình duyệt chặn cookie. --}}
+    <script>
+        (function () {
+            var COOKIE = '{{ \App\Support\ViewportMode::COOKIE }}', GUARD = 'vp_mode_reloaded';
+            var served = document.documentElement.getAttribute('data-vp');
+            var mq = window.matchMedia('(min-width: 1024px)');
+            var wanted = function () {
+                var longSide = Math.max(screen.width, screen.height), shortSide = Math.min(screen.width, screen.height);
+                if (navigator.maxTouchPoints > 0 && longSide >= 1024 && shortSide < 1024) return 'both';
+                return mq.matches ? 'desktop' : 'mobile';
+            };
+            var apply = function (mode) {
+                document.cookie = COOKIE + '=' + mode + '; path=/; max-age=' + (60 * 60 * 24 * 180) + '; SameSite=Lax';
+                try {
+                    if (sessionStorage.getItem(GUARD) === mode) return;
+                    sessionStorage.setItem(GUARD, mode);
+                } catch (e) { return; }
+                location.reload();
+            };
+            if (served !== 'both') {
+                var want = wanted();
+                if (want !== served) apply(want);
+                // Kéo cửa sổ / xoay máy qua mốc 1024px sau khi trang đã tải: thiết bị này cần cả 2 bản.
+                mq.addEventListener('change', function () { apply('both'); });
+            }
+        })();
+    </script>
     @if ($generalSettings->google_analytics_enabled && $generalSettings->google_analytics_id)
         {{-- Google tag (gtag.js) — hàng đợi dataLayer + gtag('config') khởi tạo NGAY (mọi lệnh gtag()
              gọi sớm vẫn được xếp hàng, không mất sự kiện), nhưng file gtag/js (~174KB, phần lớn
@@ -91,6 +123,12 @@
     {{-- Page-specific resource hints (e.g. LCP image preload) — pushed from individual page views,
          since a hint that's only relevant on the home page shouldn't ship on every page. --}}
     @stack('head')
+
+    {{-- Các khối x-data/x-init dài của Alpine (lịch đặt phòng, chọn khu vực, đăng nhập, header, form
+         tìm kiếm) — trong HTML chỉ còn xBlock('tên', $el). defer: chạy trước DOMContentLoaded nên
+         luôn có trước khi Alpine (livewire.js) khởi động — cùng cách với js/hero-section.min.js.
+         Sửa public/js/alpine-blocks.js xong phải build lại bản .min (lệnh ghi ở đầu file đó). --}}
+    <script src="{{ asset('js/alpine-blocks.min.js') }}?v={{ filemtime(public_path('js/alpine-blocks.min.js')) }}" defer></script>
 
     <!-- Google Fonts (non-blocking: load stylesheet without pausing rendering, apply once ready) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

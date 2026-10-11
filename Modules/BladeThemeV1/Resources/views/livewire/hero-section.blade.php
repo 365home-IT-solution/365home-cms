@@ -28,58 +28,7 @@
          sẽ gọi ngay các getter (viewMonthName, displayCheckIn, ...) và đóng băng thành giá trị
          tĩnh, làm mất reactivity. --}}
     <div x-data="heroDatePicker({{ $selectedBuoi === '2' ? 'true' : 'false' }})">
-        <div x-data="{
-                mobileSearchOpen: false,
-                locOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
-                locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
-                selectedGuestsVal: '{{ $selectedGuests }}',
-                guestOptions: { '': 'Tất cả', '1': '1 người', '2': '2 người', '3': '3 người', '4': '4 người', '5': '5+ người' },
-                get locationLabel() {
-                    if (!this.selectedLocationSlug) return 'Chọn địa điểm';
-                    const loc = this.mobileLocations.find(l => l.slug === this.selectedLocationSlug);
-                    return loc ? loc.name : 'Chọn địa điểm';
-                },
-                get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
-                init() {
-                    this.syncLocationFromUrl();
-                    this.autoFillLocation();
-                    this.syncGuestsFromUrl();
-                    window.addEventListener('province-selected', () => this.autoFillLocation());
-                },
-                // Xem giải thích chi tiết ở _banner-form.blade.php.
-                syncGuestsFromUrl() {
-                    if (this.selectedGuestsVal) return;
-                    const adults = window.parseGuestsFromUrl ? window.parseGuestsFromUrl() : '';
-                    if (adults && this.guestOptions[adults] !== undefined) this.selectedGuestsVal = adults;
-                },
-                // Xem giải thích chi tiết ở _banner-form.blade.php.
-                syncLocationFromUrl() {
-                    if (this.selectedLocationSlug) return;
-                    const slug = window.parseLocationSlugFromUrl ? window.parseLocationSlugFromUrl() : '';
-                    if (!slug) return;
-                    const loc = this.mobileLocations.find(l => l.slug === slug);
-                    if (loc) this.selectedLocationSlug = loc.slug;
-                },
-                // Khách đã đăng nhập và có province_id trên tài khoản: xem giải thích chi tiết ở
-                // _banner-form.blade.php.
-                autoFillLocation() {
-                    if (this.selectedLocationSlug) return;
-                    if (!localStorage.getItem('auth_token')) return;
-                    const provinceId = localStorage.getItem('home_province_id');
-                    if (!provinceId) return;
-                    const loc = this.mobileLocations.find(l => String(l.id) === String(provinceId));
-                    if (loc) this.selectedLocationSlug = loc.slug;
-                },
-                locateMe() {
-                    this.locating = true;
-                    window.heroLocateNearest(
-                        (slug) => {},
-                        @js($locations),
-                        (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
-                        (msg) => { this.locating = false; alert(msg); }
-                    );
-                }
-            }">
+        <div x-data="xBlock('heroMobileModal', $el, { loc: '{{ $selectedLocation }}', locations: @js($locations), guests: '{{ $selectedGuests }}', roomType: '{{ $selectedRoomType }}' })">
         @include('bladethemev1::livewire.hero-section._header-compact-pill-mobile')
 
         {{-- Modal toàn màn hình khi bấm vào thanh tìm kiếm trên mobile, mượt như Airbnb --}}

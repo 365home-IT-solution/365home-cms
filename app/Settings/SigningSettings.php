@@ -11,6 +11,8 @@ class SigningSettings extends Settings
 {
     public ?string $provider;          // local | vnpt_smartca | misa_esign | csc_custom (null = theo .env) — CHỈ cho Homestay; MiniHouse có MinihouseSigningSettings riêng
 
+    public ?string $platform_sign_method;   // auto (mặc định) | usb — cách nền tảng (Bên A) ký hợp đồng Homestay
+
     public ?string $base_url;          // domain gốc VNPT SmartCA
 
     public ?string $client_id;
