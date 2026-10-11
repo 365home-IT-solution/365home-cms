@@ -104,81 +104,7 @@
             return this.isHomePage ? (this.isSticky && this.searchExpanded) : (!this.isSticky || this.searchExpanded);
         }
     }"
-     x-init="
-        let stickyOnThreshold = {{ request()->is('/') ? 400 : 80 }};
-        // Ngưỡng bật sticky-pill — mặc định 80px (trang thường)/400px (trang chủ, fallback trước
-        // khi đo xong). Trang chủ cần đo ĐỘNG theo vị trí thật của khung tìm kiếm nổi đè banner
-        // (#hero-banner-search-overlay, xem flash-sale.blade.php): thanh tìm kiếm RIÊNG của header
-        // (hàng 2 + pill gọn) phải ẩn hẳn lúc đầu trang, chỉ hiện sau khi cuộn qua khỏi khung nổi
-        // đó — tránh 2 khung tìm kiếm cùng hiện chồng nhau. QUAN TRỌNG: dòng let trên phải là dòng
-        // ĐẦU TIÊN (không có comment/khoảng trắng nào đứng trước nó trong x-init) — Alpine chỉ tự
-        // bọc IIFE cho x-init nhiều câu lệnh khi phần đầu (sau trim) khớp đúng regex bắt đầu bằng
-        // let hoặc const (xem generateFunctionFromString trong livewire.js); nếu có comment đứng
-        // trước từ khoá let thì điều kiện này không khớp, Alpine coi cả khối là 1 biểu thức đơn và
-        // gán thẳng vào with(scope) — vỡ cú pháp ngay (lỗi Unexpected identifier đã gặp, mất cả
-        // buổi mới dò ra được). Đồng thời KHÔNG được để ký tự dấu ngoặc kép ở bất kỳ đâu trong toàn
-        // bộ x-init này (kể cả trong comment) — x-init nằm trong 1 thuộc tính HTML bọc bởi dấu
-        // ngoặc kép, gặp phải ký tự đó sẽ cắt đứt thuộc tính ngay tại đó (lỗi Unexpected end of
-        // input vừa gặp lại, y hệt lỗi đã ghi chú ở toggleSlot() trong book.blade.php trước đây).
-        const recomputeStickyThreshold = () => {
-            const overlay = document.getElementById('hero-banner-search-overlay');
-            if (!overlay || overlay.offsetHeight === 0) return;
-            const rect = overlay.getBoundingClientRect();
-            stickyOnThreshold = Math.round(rect.bottom + window.scrollY);
-        };
-        // Đo sau khi frame đã vẽ xong (rAF + setTimeout 0), không đo thẳng trong setTimeout: mốc
-        // 250ms dễ rơi đúng lúc Livewire/Alpine còn đang sửa DOM => ép reflow đồng bộ.
-        setTimeout(() => requestAnimationFrame(() => setTimeout(recomputeStickyThreshold, 0)), 250);
-        let __hstResizeTimer;
-        window.addEventListener('resize', () => {
-            clearTimeout(__hstResizeTimer);
-            __hstResizeTimer = setTimeout(recomputeStickyThreshold, 200);
-        }, { passive: true });
-        let ticking = false;
-        window.addEventListener('scroll', () => {
-            // Một số trang (vd tìm kiếm) cần header giữ nguyên kích thước cố định vì có phần tử
-            // sticky khác (bản đồ) neo theo chiều cao header — nếu header co giãn khi cuộn, phần
-            // tử đó bị giật theo. window.__headerAlwaysExpanded = true tắt hẳn hành vi thu gọn này.
-            if (ticking || window.__headerAlwaysExpanded) return;
-            ticking = true;
-            requestAnimationFrame(() => {
-                // Hysteresis: ngưỡng bật khác ngưỡng tắt (cách nhau 40px) để tránh isSticky
-                // nhấp nháy liên tục (gây rung/giật) khi scrollY dao động quanh 1 mốc duy nhất.
-                if (!isSticky && window.scrollY > stickyOnThreshold) isSticky = true;
-                else if (isSticky && window.scrollY < stickyOnThreshold - 40) isSticky = false;
-                ticking = false;
-            });
-        }, { passive: true });
-        // Khi cuộn lại lên đầu (isSticky tắt) thì thanh tìm kiếm đầy đủ đã hiện sẵn rồi,
-        // reset searchExpanded để lần cuộn xuống kế tiếp lại bắt đầu từ trạng thái thu gọn.
-        // emitFormPinState() bắn CustomEvent sang scope Alpine khác của chính form tìm kiếm (nằm
-        // trong hàng 2 header — _banner-form.blade.php, khác cây Alpine, không đọc thẳng
-        // isSticky/searchExpanded được) để form biết lúc nào cần ẩn bớt hàng tab RIÊNG của nó (đã
-        // có hàng tab hiện ngay trong hàng 1 header rồi — xem khối tab tuyệt đối phía dưới): true
-        // bất cứ khi nào KHÔNG phải trạng thái pill gọn (isSticky && !searchExpanded) — tức hễ hàng
-        // tab ngoài (hàng 1) đang hiện thì hàng tab riêng trong form phải ẩn đi, ở mọi lúc kể cả
-        // chưa cuộn.
-        const emitFormPinState = () => {
-            const pinned = !isSticky || searchExpanded;
-            window.dispatchEvent(new CustomEvent('header-form-pin', { detail: { pinned } }));
-        };
-        // Gọi ngay từ đầu (không chỉ đợi $watch, vốn chỉ bắn khi có THAY ĐỔI): hàng tab ngoài phải
-        // hiện + hàng tab riêng trong form phải ẩn NGAY LÚC TẢI TRANG, không cần đợi người dùng
-        // cuộn/mở rộng tìm kiếm trước. Trì hoãn qua setTimeout(...,0) — không gọi thẳng ngay tại
-        // đây — vì #main-header-bar (phần tử NGOÀI) chạy x-init này TRƯỚC KHI Alpine kịp khởi tạo
-        // xong các component con nằm sâu bên trong hàng 2 (data-bar của _banner-form.blade.php, nơi
-        // lắng nghe event này); bắn ngay lúc đó thì listener chưa kịp gắn, mất event. setTimeout 0
-        // đẩy lệnh gọi này ra sau toàn bộ lượt duyệt cây Alpine đồng bộ ban đầu của cả trang, đảm
-        // bảo mọi component con đã sẵn sàng lắng nghe.
-        setTimeout(emitFormPinState, 0);
-        $watch('isSticky', val => { if (!val) searchExpanded = false; emitFormPinState(); });
-        $watch('searchExpanded', () => emitFormPinState());
-        // activeTabMirror chỉ để tô sáng đúng tab (Theo giờ/Qua đêm/Theo ngày) ở hàng tab hiện
-        // ngay trong header khi đã cuộn xuống — dữ liệu thật (activeTab) nằm ở scope Alpine khác
-        // (_banner-form.blade.php, khác cây), nghe qua CustomEvent 'hero-active-tab-changed' do
-        // banner-form tự bắn mỗi khi activeTab đổi.
-        window.addEventListener('hero-active-tab-changed', (e) => { activeTabMirror = e.detail.tab; });
-    "
+     x-init="xBlock('headerInit', $el, { threshold: {{ request()->is('/') ? 400 : 80 }} })"
      @click.outside="searchExpanded = false"
      :class="{
         'shadow-md': {{ $addShadow ? 'true' : 'false' }} && isSticky,
@@ -438,10 +364,13 @@
             </div>
 
         {{-- Mobile: thanh tìm kiếm gọn (luôn hiện) + hàng menu, đặt ngay trong header --}}
+        {{-- Chỉ in khi request cần bản mobile (xem App\Support\ViewportMode) — máy tính không in. --}}
         <div class="lg:hidden">
+            @if (\App\Support\ViewportMode::rendersMobile())
             <div class="w-full px-4 pb-1 pt-3">
                 @livewire('bladethemev1::hero-section', ['mobileHeaderModal' => true], key('hero-section-mobile'))
             </div>
+            @endif
         </div>
 
         {{-- Hàng 2: form tìm kiếm đầy đủ — co/giãn mượt bằng grid-template-rows (không dùng height:auto).
@@ -453,7 +382,11 @@
              Trang đăng nhập/đăng ký: ẩn hẳn khối này server-side qua $isAuthPage (không dựa
              cờ JS __headerAlwaysCompact — xem giải thích ở khối #header-search-slot phía trên). --}}
         @unless ($isAuthPage)
-        <div class="hidden lg:grid transition-[grid-template-rows] duration-150 ease-in-out"
+        {{-- Trang chủ: hàng này khởi đầu ở trạng thái THU GỌN (formRowExpanded = false cho tới khi cuộn
+             qua khung tìm kiếm đè banner), nhưng trước khi Alpine chạy thì :style chưa có hiệu lực
+             nên nó hiện đủ chiều cao (~139px) rồi mới co lại, đẩy cả trang lên (CLS ~0.09 trên
+             desktop). x-cloak ẩn nó cho tới khi Alpine khởi tạo xong (Alpine tự gỡ x-cloak). --}}
+        <div class="hidden lg:grid transition-[grid-template-rows] duration-150 ease-in-out" @if (request()->is('/')) x-cloak @endif
              :class="formRowExpanded ? 'overflow-visible' : 'overflow-hidden'"
              :style="{ gridTemplateRows: formRowExpanded ? '1fr' : '0fr' }">
             <div :class="formRowExpanded ? 'overflow-visible' : 'overflow-hidden'" class="min-h-0">
@@ -461,9 +394,12 @@
                     {{-- Thanh tìm kiếm giờ nằm thẳng trong hàng 2 header này ở MỌI trang, kể cả
                          trang chủ (không còn teleport đè lên banner nữa) — gộp thành 1 khối liền
                          mạch với header thay vì 1 thẻ nổi tách biệt trên banner. --}}
+                    {{-- Chỉ in khi request cần bản desktop (xem App\Support\ViewportMode). --}}
+                    @if (\App\Support\ViewportMode::rendersDesktop())
                     @livewire('bladethemev1::hero-section', [
                         'headerRow' => true,
                     ], key('hero-section-header-row'))
+                    @endif
                 </div>
             </div>
         </div>

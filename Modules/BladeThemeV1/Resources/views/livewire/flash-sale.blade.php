@@ -619,10 +619,13 @@
                          (header-main.blade.php) đo vị trí, biết khi nào đã cuộn qua khỏi khung này
                          mới hiện thanh tìm kiếm riêng của header. --}}
                     <div id="hero-banner-search-overlay" class="hidden lg:block hero-banner-form-overlay">
+                        {{-- Khung này chỉ hiện từ lg trở lên — điện thoại không in (xem App\Support\ViewportMode). --}}
+                        @if (\App\Support\ViewportMode::rendersDesktop())
                         @livewire('bladethemev1::hero-section', [
                             'headerRow' => true,
                             'skipHeaderPill' => true,
                         ], key('hero-section-banner-overlay'))
+                        @endif
                     </div>
                 </div>
 
@@ -958,6 +961,86 @@
             </div>
         </section>
 
+        {{-- Nội dung chữ thật cho trang chủ (SEO audit: tỉ lệ text/HTML thấp, trang thiếu phần giải
+             thích dịch vụ): homestay tự check-in là gì, cách đặt theo giờ/qua đêm/theo ngày, các khu
+             vực có phòng. Chỉ nêu dữ kiện có thật trong hệ thống (khoá thông minh + mã mở cửa, đăng
+             nhập bằng OTP Zalo, giờ nhận/trả phòng theo ngày 14:00/12:00, lịch đặt phòng trực tuyến) —
+             không nêu giá/khuyến mãi cụ thể vì mỗi phòng cấu hình khác nhau. Danh sách chi nhánh lấy
+             động từ \App\Support\BranchLodgingSchema (cùng nguồn với schema LodgingBusiness) nên tự
+             cập nhật khi thêm chi nhánh có toạ độ. --}}
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Homestay tự check-in tại Cần Thơ là gì?</h2>
+                <p class="text-gray-600 leading-relaxed mb-3">
+                    Homestay tự check-in là mô hình lưu trú không có quầy lễ tân: bạn chọn phòng, chọn giờ và
+                    thanh toán ngay trên website hoặc ứng dụng 365 Home, sau đó nhận mã mở cửa và tự vào phòng
+                    bằng khoá thông minh. Không phải chờ làm thủ tục, không phải hẹn giờ với chủ nhà, đến lúc
+                    nào trong khung giờ đã đặt cũng vào được. Cách làm này đặc biệt hợp với khách đi công tác
+                    ghé Cần Thơ vài tiếng, cặp đôi cần không gian riêng tư, nhóm bạn đi chơi cuối tuần hay
+                    người cần một chỗ nghỉ trưa yên tĩnh gần trung tâm quận Ninh Kiều.
+                </p>
+                <p class="text-gray-600 leading-relaxed">
+                    Mỗi phòng tại 365 Home có phong cách trang trí riêng, có hình ảnh, tiện nghi và đánh giá của
+                    khách đã ở để bạn xem trước khi quyết định. Lịch đặt phòng trực tuyến cho thấy khung giờ nào
+                    còn trống theo từng ngày, giá của từng khung giờ được hiển thị trước khi thanh toán nên bạn
+                    luôn biết chính xác số tiền phải trả.
+                </p>
+            </div>
+        </section>
+
+        <section class="py-6 sm:py-8 bg-gray-50">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Cách đặt phòng theo giờ, qua đêm và theo ngày</h2>
+                <p class="text-gray-600 leading-relaxed mb-4">
+                    Toàn bộ việc đặt phòng làm trực tuyến trong vài phút, không cần gọi điện giữ chỗ:
+                </p>
+                <ol class="list-decimal pl-5 space-y-2 text-gray-600 leading-relaxed mb-4">
+                    <li><strong class="text-gray-900">Chọn khu vực và chi nhánh</strong> gần nơi bạn muốn ở, rồi mở lịch đặt phòng của chi nhánh đó.</li>
+                    <li><strong class="text-gray-900">Chọn phòng và khung giờ còn trống</strong> trên lịch. Bạn có thể chọn nhiều khung giờ liền nhau trong cùng một phòng để ở lâu hơn.</li>
+                    <li><strong class="text-gray-900">Đăng nhập bằng số điện thoại</strong>, mã xác thực được gửi qua Zalo.</li>
+                    <li><strong class="text-gray-900">Kiểm tra tổng tiền và thanh toán trực tuyến</strong> để xác nhận đơn.</li>
+                    <li><strong class="text-gray-900">Nhận mã mở cửa</strong> và tự check-in bằng khoá thông minh khi đến giờ.</li>
+                </ol>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
+                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo giờ</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">Chọn một hoặc vài khung giờ ban ngày trên lịch, phù hợp để nghỉ trưa, nghỉ giữa hai chuyến đi hoặc làm việc yên tĩnh vài tiếng.</p>
+                    </div>
+                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
+                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt qua đêm</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">Chọn khung giờ có biểu tượng mặt trăng (Qua đêm) trên lịch: nhận phòng buổi tối và trả phòng vào sáng hôm sau.</p>
+                    </div>
+                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
+                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo ngày</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">Chọn ngày nhận và ngày trả trên thanh tìm kiếm: nhận phòng từ 14:00 và trả phòng trước 12:00 trưa ngày trả.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        @if (count($homeBranchAreas = \App\Support\BranchLodgingSchema::forHomepage()) > 0)
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Khu vực có phòng 365 Home tại Cần Thơ</h2>
+                <p class="text-gray-600 leading-relaxed mb-4">
+                    Các chi nhánh trên 365 Home đều nằm trong khu vực trung tâm quận Ninh Kiều, thuận tiện đi
+                    bến Ninh Kiều, chợ đêm, các trường đại học và bệnh viện lớn của thành phố. Bấm vào từng chi
+                    nhánh để xem phòng và lịch trống:
+                </p>
+                <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    @foreach ($homeBranchAreas as $homeBranchArea)
+                        <li class="rounded-2xl border border-gray-100 p-4">
+                            <a href="{{ $homeBranchArea['url'] }}" class="font-semibold text-gray-900 hover:underline">{{ $homeBranchArea['name'] }}</a>
+                            @if (!empty($homeBranchArea['address']['addressLocality']))
+                                <p class="text-sm text-gray-500 mt-1">{{ $homeBranchArea['address']['addressLocality'] }}, {{ $homeBranchArea['address']['addressRegion'] ?? 'Cần Thơ' }}</p>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        </section>
+        @endif
+
         <section class="py-6 sm:py-8 bg-white">
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <x-bladethemev1::seo-content.feature-grid title="Vì sao chọn 365 Home" :show-icon="false" :items="[
@@ -999,6 +1082,10 @@
             ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch có thể khác nhau theo từng loại phòng và thời điểm đặt, được hiển thị rõ trong bước đặt phòng trước khi thanh toán. Khách có thể liên hệ hotline để được hỗ trợ thêm.'],
             ['q' => '365 Home có ứng dụng di động không?', 'a' => 'Có. Ứng dụng 365 Home có trên App Store và Google Play, cho phép đặt phòng, theo dõi đơn đặt và nhận ưu đãi.'],
             ['q' => 'An ninh phòng ở 365 Home ra sao?', 'a' => 'Nhiều phòng/chi nhánh được trang bị khoá điện tử thông minh, hỗ trợ quản lý và mở khoá từ xa, giúp đảm bảo an toàn và thuận tiện cho khách lưu trú.'],
+            ['q' => 'Homestay tự check-in là gì?', 'a' => 'Là hình thức lưu trú không cần lễ tân: khách đặt và thanh toán trực tuyến, nhận mã mở cửa rồi tự vào phòng bằng khoá thông minh trong khung giờ đã đặt.'],
+            ['q' => 'Đặt phòng qua đêm tại 365 Home như thế nào?', 'a' => 'Trên lịch đặt phòng, chọn khung giờ có biểu tượng mặt trăng (Qua đêm) của phòng muốn ở, sau đó đăng nhập và thanh toán trực tuyến để nhận mã mở cửa.'],
+            ['q' => 'Giờ nhận và trả phòng khi đặt theo ngày là mấy giờ?', 'a' => 'Khi đặt theo ngày, khách nhận phòng từ 14:00 và trả phòng trước 12:00 trưa của ngày trả phòng.'],
+            ['q' => '365 Home có phòng ở những khu vực nào tại Cần Thơ?', 'a' => 'Các chi nhánh hiện có nằm tại quận Ninh Kiều, Cần Thơ, gồm khu vực đường Xuân Thủy (phường An Bình), đường Trần Nam Phú và đường 30 Tháng 4 (phường Tân An). Danh sách chi nhánh và lịch trống được cập nhật trên trang chủ.'],
             ['q' => 'Liên hệ 365 Home bằng cách nào?', 'a' => 'Khách có thể liên hệ qua hotline +84 939 174 365, email 365home.cantho@gmail.com hoặc các kênh mạng xã hội chính thức của 365 Home.'],
         ])
         <section class="py-6 sm:py-8 bg-white">

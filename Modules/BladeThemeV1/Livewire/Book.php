@@ -47,6 +47,24 @@ class Book extends Component
     const INITIAL_VISIBLE_DAYS = 15;
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
+    // Trang chủ: cố định 12 ngày, không có "Xem thêm ngày" — xem $compactDays.
+    const COMPACT_VISIBLE_DAYS = 12;
+
+    /** true khi nhúng ở trang chủ (home-booking-board.blade.php): chỉ hiện COMPACT_VISIBLE_DAYS
+     *  ngày và KHÔNG cho tải thêm — mỗi ngày thêm là (số phòng x số khung giờ x 2 layout) ô lịch
+     *  trong HTML trang chủ. Muốn xem ngày xa hơn, khách bấm tên phòng sang trang chi tiết phòng. */
+    public bool $compactDays = false;
+
+    /** Layout lịch đang render: 'desktop' (book/_desktop-grid) hoặc 'mobile' (book/_mobile). Chỉ in
+     *  ra HTML MỘT layout — trước đây in cả 2 rồi ẩn 1 bằng CSS (lg:hidden / hidden lg:block), mỗi ô
+     *  lịch bị lặp 2 lần. Server đoán theo User-Agent lúc mount; trình duyệt tự đối chiếu với bề
+     *  rộng màn hình thật và gọi setLayout() nếu lệch (xem book.blade.php). */
+    public string $layout = 'desktop';
+
+    /** true (chỉ trang chủ): HTML ban đầu KHÔNG chứa bảng lịch (hàng trăm ô, ~120KB) mà chỉ có khung
+     *  chờ; trình duyệt gọi loadBoard() ngay khi khối lịch tới gần vùng nhìn (xem book.blade.php).
+     *  Đổi chi nhánh (loadBranch()) cũng tải bảng thật luôn. */
+    public bool $deferred = false;
 
     // Danh sách id các phòng đang hiển thị trên bảng — render thành 1 attribute DUY NHẤT
     // "data-room-ids" trên div gốc (book.blade.php), giống hệt cách ProductDetail expose
@@ -106,11 +124,18 @@ class Book extends Component
         $this->loadActiveCategoryData();
     }
 
-    public function mount($config, bool $showBranchHeader = false)
+    public function mount($config, bool $showBranchHeader = false, bool $compactDays = false, bool $deferred = false)
     {
+        $this->deferred = $deferred;
         $this->showBranchHeader = $showBranchHeader;
+        $this->compactDays = $compactDays;
+        $this->layout = $this->detectLayout();
+        $this->visibleDaysCount = $this->initialVisibleDays();
         $this->setConfig($config);
-        $this->initializeData();
+        // Hoãn tải: chưa truy vấn phòng/khung giờ/đơn — để dành cho loadBoard().
+        if (! $this->deferred) {
+            $this->initializeData();
+        }
         $this->blindBag = BlindBag::first();
     }
 
@@ -130,10 +155,11 @@ class Book extends Component
             return;
         }
 
+        $this->deferred = false;
         $this->categoryTabs = [];
         $this->activeCategoryId = null;
         $this->activeCategoryData = [];
-        $this->visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
+        $this->visibleDaysCount = $this->initialVisibleDays();
 
         $this->setConfig($result['bookConfig']);
         $this->initializeData();
@@ -262,7 +288,59 @@ class Book extends Component
 
     public function loadMoreDates(): void
     {
+        if (! $this->canLoadMoreDates()) {
+            return;
+        }
+
         $this->visibleDaysCount = min($this->visibleDaysCount + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
+    }
+
+    /** Tải bảng lịch thật cho lần hiển thị đầu ở chế độ $deferred (gọi từ trình duyệt). */
+    public function loadBoard(): void
+    {
+        if (! $this->deferred) {
+            return;
+        }
+
+        $this->deferred = false;
+        $this->initializeData();
+    }
+
+    public function setLayout(string $layout): void
+    {
+        if (in_array($layout, ['desktop', 'mobile'], true)) {
+            $this->layout = $layout;
+        }
+    }
+
+    // Điện thoại -> 'mobile', còn lại (máy tính, tablet) -> 'desktop' — cùng nguồn với các khối
+    // khác (App\Support\ViewportMode). Tablet đang ở chiều dọc sẽ lệch — trình duyệt tự sửa qua setLayout().
+    private function detectLayout(): string
+    {
+        return \App\Support\ViewportMode::current() === \App\Support\ViewportMode::MOBILE ? 'mobile' : 'desktop';
+    }
+
+    public function canLoadMoreDates(): bool
+    {
+        return ! $this->compactDays && $this->visibleDaysCount < self::MAX_VISIBLE_DAYS;
+    }
+
+    private function initialVisibleDays(): int
+    {
+        return $this->compactDays ? self::COMPACT_VISIBLE_DAYS : self::INITIAL_VISIBLE_DAYS;
+    }
+
+    // URL trang chi tiết của từng phòng đang hiển thị (id => url) — chỉ dùng ở chế độ $compactDays
+    // để tên phòng dẫn sang trang chi tiết (nơi xem được lịch các ngày xa hơn).
+    public function roomDetailUrls($rooms): array
+    {
+        $urls = [];
+        foreach ($rooms as $room) {
+            $room->loadMissing(['categories', 'roomType']);
+            $urls[$room->id] = \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($room);
+        }
+
+        return $urls;
     }
 
     public function getDatesForOneMonth()

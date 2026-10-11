@@ -46,8 +46,12 @@
     @livewire('bladethemev1::drawer-menu')
 
     @if (request()->path() === '/')
-        {{-- Trang chủ: chỉ render hero-section + các section tùy chỉnh --}}
-        @livewire('bladethemev1::hero-section')
+        {{-- Trang chủ: chỉ render hero-section + các section tùy chỉnh. Instance mặc định này chỉ
+             có thanh tìm kiếm thu gọn + menu của MOBILE (lg:hidden) — máy tính không in (xem
+             App\Support\ViewportMode). --}}
+        @if (\App\Support\ViewportMode::rendersMobile())
+            @livewire('bladethemev1::hero-section')
+        @endif
         @livewire('bladethemev1::flash-sale', ['criticalHome' => $criticalHome ?? []])
         @livewire('bladethemev1::voucher')
 

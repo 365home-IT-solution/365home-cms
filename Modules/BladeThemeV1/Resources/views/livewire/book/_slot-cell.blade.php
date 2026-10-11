@@ -179,8 +179,5 @@
             . ' stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg></div>';
     }
 @endphp
-<div class="selectable {{ $classes }}"
-    style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
-    data-room-id="{{ $room->id }}" data-timeslot-id="{{ $roomTimeSlot->timeSlot->id }}" data-date="{{ $date['date'] }}"
-    data-iso-date="{{ $slotDateYmd }}"
-    @click="toggleSlot($el)">{!! $overlayHtml !!}</div>
+{{-- 1 dòng, không xuống dòng/thụt lề giữa các thuộc tính: ô này lặp (phòng x khung giờ x ngày x 2 layout) lần. --}}
+<div class="selectable {{ $classes }}" style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}" data-room-id="{{ $room->id }}" data-timeslot-id="{{ $roomTimeSlot->timeSlot->id }}" data-date="{{ $date['date'] }}" data-iso-date="{{ $slotDateYmd }}" @click="toggleSlot($el)">{!! $overlayHtml !!}</div>
