@@ -75,6 +75,7 @@
         .btn-secondary { background: #fff; color: var(--ink); border: 1px solid #d1d5db; }
         .checkbox-row { display: flex; align-items: flex-start; gap: 10px; margin: 6px 0 16px; font-size: .88rem; }
         .checkbox-row input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+        .cks-box { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--line); }
         .signed-meta { font-size: .88rem; color: var(--muted); margin-top: 12px; line-height: 1.7; }
         .jump { display: none; }
         @media (max-width: 1023px) { .jump { display: block; margin-bottom: 14px; } }
@@ -147,6 +148,13 @@
                         @if ($version->isPartnerConfirmed())
                             <h2>Bạn đã ký hợp đồng</h2>
                             <div class="signed-meta">
+                                @if ($version->isPartnerSignedByCks())
+                                    Hình thức: <strong>chữ ký số (CKS)</strong>
+                                    @if (filled($version->partner_signature_certificate['cert_subject'] ?? null))
+                                        — {{ $version->partner_signature_certificate['cert_subject'] }}
+                                    @endif
+                                    <br>
+                                @endif
                                 Xác nhận bởi: <strong>{{ $version->partner_signed_by_name }}</strong><br>
                                 Thời gian: {{ $version->partner_confirmed_at->format('H:i d/m/Y') }}<br>
                                 IP: {{ $version->partner_signed_ip }}<br>
@@ -186,6 +194,37 @@
 
                                 <button type="submit" class="btn-primary">Xác nhận ký hợp đồng</button>
                             </form>
+
+                            <div class="cks-box">
+                                <h2 style="font-size:.95rem;margin:0 0 4px;">Hoặc ký bằng chữ ký số (CKS)</h2>
+                                <div class="signed-meta" style="margin:0 0 12px;">
+                                    Dành cho đối tác đã có chữ ký số (USB token hoặc chữ ký số từ xa). Chứng thư phải đứng tên đúng doanh nghiệp/người đại diện trong hồ sơ.
+                                </div>
+                                <ol class="steps">
+                                    <li><b>1</b><span>Tải PDF hợp đồng về máy.</span></li>
+                                    <li><b>2</b><span>Ký bằng phần mềm chữ ký số của bạn (Adobe Acrobat, Foxit, phần mềm của nhà cung cấp CKS), giữ nguyên nội dung.</span></li>
+                                    <li><b>3</b><span>Tải file đã ký lên đây.</span></li>
+                                </ol>
+                                <a href="{{ route('contract.sign.download-pdf', $version->signing_token) }}" class="btn-secondary" style="display:block;text-align:center;padding:13px 16px;border-radius:10px;text-decoration:none;font-weight:700;font-size:.95rem;margin-bottom:14px;">Tải PDF để ký bằng CKS</a>
+
+                                <form method="POST" action="{{ route('contract.sign.submit-cks', $version->signing_token) }}" enctype="multipart/form-data">
+                                    @csrf
+                                    <label for="signed_pdf">File PDF đã ký</label>
+                                    <input type="file" id="signed_pdf" name="signed_pdf" accept="application/pdf,.pdf" required style="width:100%;margin-bottom:14px;">
+
+                                    <label for="signer_name_cks">Họ tên người ký</label>
+                                    <input type="text" id="signer_name_cks" name="signer_name" value="{{ old('signer_name') }}" autocomplete="name">
+
+                                    <div class="checkbox-row">
+                                        <input type="checkbox" name="agree" id="agree_cks" value="1" required>
+                                        <label for="agree_cks" style="margin:0;font-weight:400;">
+                                            Tôi đã đọc toàn văn hợp đồng và đồng ý ký kết bằng chữ ký số này.
+                                        </label>
+                                    </div>
+
+                                    <button type="submit" class="btn-primary">Kiểm tra &amp; hoàn tất ký</button>
+                                </form>
+                            </div>
                         @else
                             <div class="alert alert-error" style="margin:0;">
                                 Hồ sơ pháp lý của đối tác chưa được Super Admin phê duyệt hoặc đang cần xác minh lại. Hợp đồng tạm thời chưa thể ký.

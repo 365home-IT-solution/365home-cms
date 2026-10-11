@@ -54,7 +54,7 @@ class OcrSpaceService
                         'isOverlayRequired' => 'false',
                         'detectOrientation' => 'true',
                         'scale' => 'true',
-                        'OCREngine' => '2',
+                        'OCREngine' => '3',
                     ]);
 
             if ($response->successful()) {

@@ -75,7 +75,7 @@ class SigningProviderForm
     /** Giá trị mặc định khi không giải mã được cấu hình đã lưu (APP_KEY khác): form trống, không làm sập trang. */
     public static function emptyState(): array
     {
-        $data = array_fill_keys(['provider', 'base_url', 'client_id', 'client_secret', 'subscriber_user_id', 'subscriber_password'], null);
+        $data = array_fill_keys(['provider', 'platform_sign_method', 'base_url', 'client_id', 'client_secret', 'subscriber_user_id', 'subscriber_password'], null);
         foreach (['misa', 'csc'] as $profile) {
             foreach (['label', 'base_url', 'grant_type', 'client_id', 'client_secret', 'username', 'password', 'credential_id', 'pin'] as $key) {
                 $data["{$profile}_{$key}"] = null;

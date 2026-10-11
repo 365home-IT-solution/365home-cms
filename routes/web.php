@@ -1101,6 +1101,10 @@ Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function 
         ->name('contract.sign.send-otp');
     Route::post('ky/{token}/xac-nhan', [\App\Http\Controllers\ContractSignController::class, 'sign'])
         ->name('contract.sign.submit');
+    Route::get('ky/{token}/tai-pdf', [\App\Http\Controllers\ContractSignController::class, 'downloadPdf'])
+        ->name('contract.sign.download-pdf');
+    Route::post('ky/{token}/ky-so', [\App\Http\Controllers\ContractSignController::class, 'signCks'])
+        ->name('contract.sign.submit-cks');
 });
 
 // Xoá tài khoản — trang CÔNG KHAI theo yêu cầu Data Safety của Google Play (xem

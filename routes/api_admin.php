@@ -99,6 +99,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('partners/{partner}/contract/send', [AdminPartnerController::class, 'createContract'])->name('partners.contract.send');
     Route::post('partners/{partner}/contract/addendum', [AdminPartnerController::class, 'createAddendum'])->name('partners.contract.addendum');
     Route::post('partners/{partner}/contract/platform-sign', [AdminPartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
+    Route::get('partners/{partner}/contract/pdf-to-sign', [AdminPartnerController::class, 'pdfToSign'])->name('partners.contract.pdf-to-sign');
+    Route::get('partners/{partner}/contract/partner-pdf-to-sign', [AdminPartnerController::class, 'partnerPdfToSign'])->name('partners.contract.partner-pdf-to-sign');
+    Route::post('partners/{partner}/contract/partner-upload', [AdminPartnerController::class, 'partnerUpload'])->name('partners.contract.partner-upload');
+    Route::post('partners/{partner}/contract/platform-upload', [AdminPartnerController::class, 'platformUpload'])->name('partners.contract.platform-upload');
+    Route::post('partners/{partner}/contract/platform-resign', [AdminPartnerController::class, 'platformResign'])->name('partners.contract.platform-resign');
+    Route::get('signing-settings', [\App\Http\Controllers\Api\Admin\SigningSettingsController::class, 'show'])->name('signing-settings.show');
+    Route::match(['put', 'patch'], 'signing-settings', [\App\Http\Controllers\Api\Admin\SigningSettingsController::class, 'update'])->name('signing-settings.update');
     // Điều khoản Homestay (loại partner_homestay được ép theo đường dẫn). MiniHouse dùng /api/admin/minihouse/terms/... (routes/api_minihouse.php).
     Route::get('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'versions'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.index');
     Route::post('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'storeVersion'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.store');

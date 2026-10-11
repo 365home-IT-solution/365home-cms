@@ -34,6 +34,39 @@ class ContractSigningManager extends Manager
         return $this->providerNameForSide(self::SIDE_HOMESTAY);
     }
 
+    public const PLATFORM_SIGN_USB = 'usb';
+
+    public const PLATFORM_SIGN_AUTO = 'auto';
+
+    /** Cách nền tảng (Bên A) ký hợp đồng Homestay: auto (mặc định, qua nhà cung cấp chữ ký số từ xa) hoặc usb — chọn ở Cấu hình web > Chữ ký số. */
+    public function platformSignMethod(): string
+    {
+        try {
+            $method = app(SigningSettings::class)->platform_sign_method;
+        } catch (\Throwable $e) {
+            $method = null;
+        }
+
+        return $method === self::PLATFORM_SIGN_USB ? self::PLATFORM_SIGN_USB : self::PLATFORM_SIGN_AUTO;
+    }
+
+    /** Nhà cung cấp của bên đó đang là "local" (ký THỬ NGHIỆM bằng khoá tự sinh, KHÔNG có giá trị pháp lý). */
+    public function isTestProvider(string $side = self::SIDE_HOMESTAY): bool
+    {
+        return $this->providerNameForSide($side) === 'local';
+    }
+
+    /**
+     * Có cho ký bằng nhà cung cấp "local" không. Mặc định: chỉ ở môi trường không phải production (thử nghiệm). Production mà vẫn để "local" thì
+     * hợp đồng sẽ được đánh dấu "đã ký số" bằng khoá giả — chặn lại; cần ký thử ở production thì đặt CONTRACT_SIGNING_ALLOW_LOCAL=true.
+     */
+    public function localSigningAllowed(): bool
+    {
+        $override = $this->config->get('contract_signing.allow_local');
+
+        return $override === null ? ! app()->isProduction() : (bool) $override;
+    }
+
     /** Tên nhà cung cấp của 1 bên — cấu hình của Homestay và MiniHouse lưu RIÊNG (SigningSettings / MinihouseSigningSettings). */
     public function providerNameForSide(string $side): string
     {

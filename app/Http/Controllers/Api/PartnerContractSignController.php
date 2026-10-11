@@ -7,9 +7,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PartnerContractVersion;
 use App\Services\ContractOtpService;
+use App\Services\PartnerContractCksService;
 use App\Services\PartnerLegalDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PartnerContractSignController extends Controller
 {
@@ -27,6 +29,46 @@ class PartnerContractSignController extends Controller
             'can_confirm' => $documents->canPartnerSign($version->partner) && ! $version->isPartnerConfirmed(),
             'partner_confirmed_at' => $version->partner_confirmed_at?->toIso8601String(),
             'platform_signed_at' => $version->platform_signed_at?->toIso8601String(),
+            // Đối tác có thể ký bằng chữ ký số (CKS) thay cho OTP: GET pdf → ký → POST confirm-cks.
+            'can_sign_cks' => $documents->canPartnerSign($version->partner) && ! $version->isPartnerConfirmed(),
+            'partner_sign_method' => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
+            'partner_certificate' => $version->isPartnerSignedByCks() ? [
+                'subject' => $version->partner_signature_certificate['cert_subject'] ?? null,
+                'organization' => $version->partner_signature_certificate['cert_org'] ?? null,
+                'issuer' => $version->partner_signature_certificate['cert_issuer'] ?? null,
+                'valid_to' => $version->partner_signature_certificate['valid_to'] ?? null,
+            ] : null,
+        ]]);
+    }
+
+    // GET /api/partner-contracts/{token}/pdf — tải PDF hợp đồng CHƯA ký để ký bằng chữ ký số (CKS) của đối tác.
+    public function pdf(string $token, PartnerContractCksService $cks): StreamedResponse
+    {
+        $result = $cks->preparePdf($this->version($token));
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // POST /api/partner-contracts/{token}/confirm-cks — tải PDF đã ký bằng CKS lên (multipart signed_pdf). Thay cho OTP.
+    public function confirmCks(Request $request, string $token, PartnerContractCksService $cks): JsonResponse
+    {
+        $version = $this->version($token);
+        $data = $request->validate([
+            'signed_pdf' => ['required', 'file', 'mimes:pdf', 'max:20480'],
+            'signer_name' => ['nullable', 'string', 'max:255'],
+            'agree' => ['required', 'accepted'],
+        ]);
+
+        $result = $cks->submit($version, (string) file_get_contents($request->file('signed_pdf')->getRealPath()), $data['signer_name'] ?? null, (string) $request->ip(), (string) $request->userAgent());
+        $cert = $result['certificate'];
+
+        return response()->json(['message' => 'Đã kiểm tra chữ ký số và ghi nhận hợp đồng.', 'data' => [
+            'partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String(),
+            'partner_sign_method' => 'cks',
+            'partner_certificate' => [
+                'subject' => $cert['cert_subject'] ?? null, 'organization' => $cert['cert_org'] ?? null, 'issuer' => $cert['cert_issuer'] ?? null,
+                'tax_code' => $cert['tax_code'] ?? null, 'valid_to' => $cert['valid_to'] ?? null,
+            ],
         ]]);
     }
 

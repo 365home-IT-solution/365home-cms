@@ -34,6 +34,10 @@ class PartnerContractVersion extends Model implements HasMedia
         'signing_token',
         'partner_confirmed_at',
         'partner_signing_provider',
+        'partner_sign_method',
+        'partner_sign_base_hash',
+        'partner_sign_base_length',
+        'partner_sign_prepared_at',
         'partner_signed_at',
         'partner_signed_by_name',
         'partner_signed_ip',
@@ -41,6 +45,10 @@ class PartnerContractVersion extends Model implements HasMedia
         'partner_signature',
         'partner_signature_certificate',
         'platform_signing_provider',
+        'platform_sign_method',
+        'platform_sign_base_hash',
+        'platform_sign_base_length',
+        'platform_sign_prepared_at',
         'platform_signed_at',
         'platform_signed_by',
         'platform_signed_ip',
@@ -52,7 +60,9 @@ class PartnerContractVersion extends Model implements HasMedia
     protected $casts = [
         'partner_confirmed_at' => 'datetime',
         'partner_signed_at' => 'datetime',
+        'partner_sign_prepared_at' => 'datetime',
         'platform_signed_at' => 'datetime',
+        'platform_sign_prepared_at' => 'datetime',
         'partner_signature_certificate' => 'array',
         'platform_signature_certificate' => 'array',
         'legal_document_snapshot' => 'array',
@@ -82,6 +92,11 @@ class PartnerContractVersion extends Model implements HasMedia
         $this->addMediaCollection('document')->singleFile();
         // PDF hợp đồng ĐÃ KÝ SỐ — lưu ở đĩa riêng tư (storage/app), chỉ tải qua chức năng có phân quyền, không có URL công khai.
         $this->addMediaCollection('signed_pdf')->singleFile()->useDisk('local');
+        // PDF gốc CHƯA ký đã đưa cho người ký USB — giữ nguyên từng byte để mọi lần tải đều giống nhau và đối chiếu được với bản đã ký.
+        $this->addMediaCollection('platform_base_pdf')->singleFile()->useDisk('local');
+        // Đối tác ký bằng chữ ký số (CKS): PDF gốc đã đưa cho đối tác và bản đối tác đã ký (nền tảng ký chồng lên bản này).
+        $this->addMediaCollection('partner_base_pdf')->singleFile()->useDisk('local');
+        $this->addMediaCollection('partner_signed_pdf')->singleFile()->useDisk('local');
     }
 
     public function partner(): BelongsTo
@@ -111,6 +126,11 @@ class PartnerContractVersion extends Model implements HasMedia
     // (không hợp lý: không phải "chữ ký của đối tác" thật, chỉ là nền tảng tự ký rồi gắn nhãn). Giữ
     // lại hàm/cột này chỉ để đọc dữ liệu CŨ đã ký theo kiểu đó — KHÔNG còn được set mới nữa. Phần
     // "đối tác" giờ chỉ cần isPartnerConfirmed() (xác nhận qua OTP) là đủ đại diện cho ý chí đồng ý.
+    public function isPartnerSignedByCks(): bool
+    {
+        return $this->partner_sign_method === 'cks' && $this->isPartnerConfirmed();
+    }
+
     public function isPartnerSigned(): bool
     {
         return ! is_null($this->partner_signed_at);
@@ -167,6 +187,11 @@ class PartnerContractVersion extends Model implements HasMedia
 
     public function verifyPlatformSignature(): bool
     {
+        // Ký bằng USB token: chữ ký nằm trong PDF đã ký, đã được kiểm tra lúc tải lên (xem UploadedPdfSignatureVerifier).
+        if ($this->platform_sign_method === 'usb') {
+            return $this->isPlatformSigned() && ($this->platform_signature_certificate['verified'] ?? false) === true;
+        }
+
         if (blank($this->platform_signature) || blank($this->platform_signature_certificate)) {
             return false;
         }
