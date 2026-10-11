@@ -20,12 +20,20 @@ class PdfIncrementalSigner
     public function prepare(string $pdfBytes): PreparedPdfSignature
     {
         $maxObjNum = $this->findMaxObjectNumber($pdfBytes);
-        [$catalogObjNum, $catalogDict] = $this->findObjectByType($pdfBytes, 'Catalog');
+        // File đã có chữ ký (ký chồng: bên A ký sau bên B): lấy đúng PHIÊN BẢN MỚI NHẤT của catalog/trang và thêm trường chữ ký vào AcroForm đang có,
+        // không ghi đè — ghi đè sẽ làm mất chữ ký trước đó.
+        $existingSignatures = preg_match_all('/\/ByteRange\s*\[/', $pdfBytes);
+        [$catalogObjNum, $catalogDict] = $existingSignatures > 0 ? $this->latestRevision($pdfBytes, $this->rootObjectNumber($pdfBytes)) : $this->findObjectByType($pdfBytes, 'Catalog');
         [$pageObjNum, $pageDict] = $this->findObjectByType($pdfBytes, 'Page');
+        if ($existingSignatures > 0) {
+            [$pageObjNum, $pageDict] = $this->latestRevision($pdfBytes, $pageObjNum);
+        }
+        $existingAcro = $existingSignatures > 0 ? $this->existingAcroForm($pdfBytes, $catalogDict) : null;
 
         $sigObjNum = $maxObjNum + 1;
         $widgetObjNum = $maxObjNum + 2;
-        $acroFormObjNum = $maxObjNum + 3;
+        $acroFormObjNum = $existingAcro['ref'] ?? ($maxObjNum + 3);
+        $fieldName = '365home Contract Signature' . ($existingSignatures > 0 ? ' ' . ($existingSignatures + 1) : '');
 
         $byteRangePlaceholder = '0000000000 0000000000 0000000000';
         $contentsPlaceholder = str_repeat('00', self::RESERVED_CONTENT_BYTES);
@@ -36,11 +44,22 @@ class PdfIncrementalSigner
             . " /M (D:{$signDate}) /ByteRange [0 {$byteRangePlaceholder}] /Contents <{$contentsPlaceholder}> >>";
 
         $widgetBody = "<< /Type /Annot /Subtype /Widget /FT /Sig /Rect [0 0 0 0] /F 132"
-            . " /V {$sigObjNum} 0 R /T (365home Contract Signature) /P {$pageObjNum} 0 R >>";
+            . " /V {$sigObjNum} 0 R /T ({$fieldName}) /P {$pageObjNum} 0 R >>";
 
-        $acroFormBody = "<< /Fields [{$widgetObjNum} 0 R] /SigFlags 3 >>";
-
-        $newCatalogDict = $this->upsertDictKey($catalogDict, 'AcroForm', "{$acroFormObjNum} 0 R");
+        $writeAcroForm = true;
+        if ($existingAcro === null) {
+            $acroFormBody = "<< /Fields [{$widgetObjNum} 0 R] /SigFlags 3 >>";
+            $newCatalogDict = $this->upsertDictKey($catalogDict, 'AcroForm', "{$acroFormObjNum} 0 R");
+        } elseif ($existingAcro['ref'] !== null) {
+            // AcroForm là object riêng: ghi phiên bản mới của chính object đó (cùng số), catalog giữ nguyên.
+            $acroFormBody = $this->addFieldToAcroForm($existingAcro['dict'], $widgetObjNum);
+            $newCatalogDict = $catalogDict;
+        } else {
+            // AcroForm nằm trực tiếp trong catalog: sửa ngay trong catalog.
+            $acroFormBody = '';
+            $writeAcroForm = false;
+            $newCatalogDict = str_replace($existingAcro['dict'], $this->addFieldToAcroForm($existingAcro['dict'], $widgetObjNum), $catalogDict);
+        }
         $newPageDict = $this->appendToAnnotsArray($pageDict, $widgetObjNum);
 
         $appendix = '';
@@ -62,23 +81,24 @@ class PdfIncrementalSigner
         $hexEndAbs = $hexStartAbs + strlen($contentsPlaceholder);
 
         $addObj($widgetObjNum, $widgetBody);
-        $addObj($acroFormObjNum, $acroFormBody);
+        if ($writeAcroForm) {
+            $addObj($acroFormObjNum, $acroFormBody);
+        }
         $addObj($catalogObjNum, $newCatalogDict);
         $addObj($pageObjNum, $newPageDict);
 
-        // Tổng độ dài file SAU KHI thêm appendix (nhưng byteRange còn placeholder — sẽ patch số
-        // thật vào ĐÚNG VỊ TRÍ này, độ dài không đổi vì đã dùng placeholder cố định 10 chữ số).
-        $totalLenAfterAppendix = $baseOffset + strlen($appendix);
-        $byteRange = [0, $hexStartAbs, $hexEndAbs, $totalLenAfterAppendix - $hexEndAbs];
-
         $xrefOffset = $baseOffset + strlen($appendix);
-        $maxNewObjNum = $acroFormObjNum; // số object mới cao nhất (widget/acroform > sig > catalog/page vốn đã có)
+        $maxNewObjNum = max($widgetObjNum, $acroFormObjNum); // số object mới cao nhất (widget/acroform > sig > catalog/page vốn đã có)
         $size = max($maxNewObjNum, $catalogObjNum, $pageObjNum) + 1;
 
         $originalStartXref = $this->findLastStartXref($pdfBytes);
 
         $xrefAndTrailer = $this->buildXrefAndTrailer($offsets, $size, $catalogObjNum, $originalStartXref);
         $appendix .= $xrefAndTrailer . "startxref\n{$xrefOffset}\n%%EOF\n";
+
+        // /ByteRange phải phủ TOÀN BỘ file kể cả bảng xref/trailer ở cuối, nếu không công cụ kiểm tra coi như file bị thêm nội dung sau khi ký.
+        // Tính SAU khi đã ghép xref/trailer; số thật được patch vào placeholder cố định 10 chữ số nên không làm lệch offset nào.
+        $byteRange = [0, $hexStartAbs, $hexEndAbs, $baseOffset + strlen($appendix) - $hexEndAbs];
 
         $finalPdf = $pdfBytes . $appendix;
 
@@ -121,6 +141,75 @@ class PdfIncrementalSigner
         $part2 = substr($prepared->pdfBytes, $r2, $r3);
 
         return hash('sha256', $part1 . $part2);
+    }
+
+    // Số object của catalog (/Root) theo trailer MỚI NHẤT của file.
+    private function rootObjectNumber(string $pdf): int
+    {
+        if (! preg_match_all('/\/Root\s+(\d+)\s+0\s+R/', $pdf, $m)) {
+            throw new \RuntimeException('Không tìm thấy /Root trong PDF đã có chữ ký (có thể file dùng cross-reference stream).');
+        }
+
+        return (int) end($m[1]);
+    }
+
+    // Phiên bản MỚI NHẤT của một object (incremental update ghi lại cùng số object ở cuối file).
+    private function latestRevision(string $pdf, int $objNum): array
+    {
+        if (! preg_match_all('/(?<!\d)' . $objNum . '\s+0\s+obj\s*(<<.*?>>)\s*endobj/s', $pdf, $m)) {
+            throw new \RuntimeException("Không tìm thấy object {$objNum} trong PDF đã có chữ ký (có thể nằm trong object stream).");
+        }
+
+        return [$objNum, end($m[1])];
+    }
+
+    /** @return array{ref: ?int, dict: string}|null ref = số object riêng của AcroForm, null nếu AcroForm nằm trong catalog */
+    private function existingAcroForm(string $pdf, string $catalogDict): ?array
+    {
+        if (preg_match('/\/AcroForm\s+(\d+)\s+0\s+R/', $catalogDict, $m)) {
+            [, $dict] = $this->latestRevision($pdf, (int) $m[1]);
+
+            return ['ref' => (int) $m[1], 'dict' => $dict];
+        }
+
+        if (preg_match('/\/AcroForm\s*(<<)/', $catalogDict, $m, PREG_OFFSET_CAPTURE)) {
+            $start = $m[1][1];
+            $depth = 0;
+            for ($i = $start, $n = strlen($catalogDict); $i < $n - 1; $i++) {
+                $two = substr($catalogDict, $i, 2);
+                if ($two === '<<') {
+                    $depth++;
+                    $i++;
+                } elseif ($two === '>>') {
+                    $depth--;
+                    $i++;
+                    if ($depth === 0) {
+                        return ['ref' => null, 'dict' => substr($catalogDict, $start, $i - $start + 1)];
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function addFieldToAcroForm(string $dict, int $widgetObjNum): string
+    {
+        if (preg_match('/\/Fields\s+\d+\s+0\s+R/', $dict)) {
+            throw new \RuntimeException('AcroForm dùng danh sách trường gián tiếp — chưa hỗ trợ ký chồng.');
+        }
+
+        if (preg_match('/\/Fields\s*\[(.*?)\]/s', $dict, $m)) {
+            $dict = preg_replace('/\/Fields\s*\[.*?\]/s', '/Fields [' . trim($m[1]) . " {$widgetObjNum} 0 R]", $dict, 1);
+        } else {
+            $dict = $this->upsertDictKey($dict, 'Fields', "[{$widgetObjNum} 0 R]");
+        }
+
+        if (! preg_match('/\/SigFlags\s+\d+/', $dict)) {
+            $dict = $this->upsertDictKey($dict, 'SigFlags', '3');
+        }
+
+        return $dict;
     }
 
     private function findMaxObjectNumber(string $pdf): int

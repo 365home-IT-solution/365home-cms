@@ -932,6 +932,22 @@ class PartnerOnboardingService
     {
         $find = fn () => Role::query()->where('name', $this->ownerRoleName($partner))->where('guard_name', 'web')->first();
         $role = $find();
+
+        // Homestay: môi trường chưa chạy RolesAndPermissionsSeeder (vd server mới dựng) không có vai trò "partner" → không tạo được tài khoản chủ đối tác, đối tác không
+        // đăng nhập để nạp ký quỹ. Tự tạo vai trò rồi cấp bộ quyền mặc định của chủ đối tác (PartnerRolePermissionsSeeder chỉ đồng bộ quyền cho vai trò đã có và
+        // chỉ gán những quyền Shield đã sinh — deploy luôn chạy shield:generate).
+        if (! $role && ! $partner->isMinihouse()) {
+            try {
+                Role::query()->firstOrCreate(['name' => 'partner', 'guard_name' => 'web']);
+                app(\Database\Seeders\PartnerRolePermissionsSeeder::class)->run();
+                app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+                $this->log($partner, 'Môi trường chưa có vai trò "partner" — đã tự tạo kèm bộ quyền mặc định của chủ đối tác.');
+            } catch (\Throwable $e) {
+                report($e);
+            }
+            $role = $find();
+        }
+
         if (! $role && $partner->isMinihouse()) {
             try {
                 app(\Database\Seeders\MinihousePermissionSeeder::class)->run();

@@ -615,7 +615,7 @@ class LegalDocumentScanService
                     'scale'             => 'true',
                     'isTable'           => 'false',
                     'filetype'          => $extension === 'jpeg' ? 'JPG' : strtoupper($extension),
-                    'OCREngine'         => '2',
+                    'OCREngine'         => '3',
                 ]);
 
             $result = $response->json();

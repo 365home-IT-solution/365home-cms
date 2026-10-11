@@ -494,11 +494,24 @@
                     <template x-if="status && status.stage === 'contract_sent'">
                         <div class="space-y-5">
                             <h2 class="text-lg font-bold text-gray-900">Ký hợp đồng hợp tác</h2>
-                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và ký xác nhận bằng mã OTP gửi về email.</p>
-                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng và ký xác nhận bằng mã OTP gửi về email. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
+                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn.</p>
+                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
                             <template x-if="contract && contract.content">
                                 <div class="max-h-96 overflow-y-auto rounded-lg border border-gray-200 p-4 text-sm text-gray-800" x-html="contract.content"></div>
                             </template>
+                            <div class="grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Cách ký hợp đồng">
+                                <label class="flex items-start gap-3 rounded-lg border p-3 cursor-pointer" :class="signMethod === 'otp' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'">
+                                    <input type="radio" value="otp" x-model="signMethod" class="mt-1">
+                                    <span><span class="block font-semibold text-gray-900">Xác nhận bằng mã OTP</span>
+                                        <span class="block text-sm text-gray-600">Nhận mã gửi về email đã đăng ký. Phù hợp khi bạn chưa có chữ ký số.</span></span>
+                                </label>
+                                <label class="flex items-start gap-3 rounded-lg border p-3 cursor-pointer" :class="signMethod === 'cks' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'">
+                                    <input type="radio" value="cks" x-model="signMethod" class="mt-1">
+                                    <span><span class="block font-semibold text-gray-900">Ký bằng chữ ký số (CKS)</span>
+                                        <span class="block text-sm text-gray-600">Dùng chữ ký số USB token hoặc chữ ký số từ xa của doanh nghiệp/người đại diện.</span></span>
+                                </label>
+                            </div>
+                            <div x-show="signMethod === 'otp'" class="space-y-5">
                             <div class="flex flex-wrap items-end gap-3">
                                 <button type="button" :disabled="loading || otpCooldown > 0" class="rounded-lg border border-gray-900 px-4 py-2.5 font-semibold disabled:opacity-60" @click="sendOtp()"
                                     x-text="otpCooldown > 0 ? ('Gửi lại mã sau ' + otpCooldown + 's') : 'Gửi mã OTP về email'"></button>
@@ -522,6 +535,37 @@
                                 <button type="button" class="rounded-lg border border-gray-300 px-5 py-3" x-show="signFirst && editable" @click="go(2)">Sửa thông tin</button>
                                 <span x-show="!(signFirst && editable)"></span>
                                 <button type="button" :disabled="loading || !sign.agree || sign.otp.length !== 6 || !sign.signer_name" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" @click="confirmSign()">Ký xác nhận</button>
+                            </div>
+                            </div>
+                            <div x-show="signMethod === 'cks'" class="space-y-4">
+                                <ol class="list-decimal pl-5 text-sm text-gray-700 space-y-1">
+                                    <li>Tải file PDF hợp đồng về máy.</li>
+                                    <li>Ký file bằng phần mềm chữ ký số của bạn (Adobe Acrobat, Foxit hoặc phần mềm của nhà cung cấp chữ ký số). Không chỉnh sửa nội dung.</li>
+                                    <li>Chọn file đã ký và tải lên bên dưới.</li>
+                                </ol>
+                                <p class="text-sm text-gray-600">Chứng thư số phải đứng tên đúng doanh nghiệp (mã số thuế) hoặc người đại diện (số CCCD) mà bạn đã khai ở bước thông tin ký hợp đồng.</p>
+                                <a :href="'/api/partner-contracts/' + signingToken + '/pdf'" target="_blank" rel="noopener"
+                                    class="inline-block rounded-lg border border-gray-900 px-4 py-2.5 font-semibold">Tải PDF để ký bằng CKS</a>
+                                <div class="grid sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">File PDF đã ký <span class="text-red-500">*</span></label>
+                                        <input type="file" accept="application/pdf,.pdf" @change="cks.file = $event.target.files[0] || null" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                                        <p class="mt-1 text-sm text-red-600" x-show="errors.signed_pdf" x-text="errors.signed_pdf && errors.signed_pdf[0]"></p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Họ tên người ký</label>
+                                        <input type="text" maxlength="255" x-model="cks.signer_name" placeholder="Để trống = lấy theo chứng thư" class="w-full rounded-lg border border-gray-300 px-3 py-2.5">
+                                    </div>
+                                </div>
+                                <label class="flex items-start gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" x-model="cks.agree" class="mt-1">
+                                    <span>Tôi đã đọc và đồng ý với toàn bộ nội dung hợp đồng, và ký bằng chữ ký số của mình.</span>
+                                </label>
+                                <div class="flex justify-between gap-3">
+                                    <button type="button" class="rounded-lg border border-gray-300 px-5 py-3" x-show="signFirst && editable" @click="go(2)">Sửa thông tin</button>
+                                    <span x-show="!(signFirst && editable)"></span>
+                                    <button type="button" :disabled="loading || !cks.agree || !cks.file" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" @click="confirmCks()">Kiểm tra &amp; hoàn tất ký</button>
+                                </div>
                             </div>
                         </div>
                     </template>
@@ -676,6 +720,9 @@
                 rtCfg: @js(config('services.reverb_public')),
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
+                // Cách ký của đối tác: 'otp' (mã gửi email) hoặc 'cks' (chữ ký số của đối tác — tải PDF, ký, tải lên)
+                signMethod: 'otp',
+                cks: { signer_name: '', agree: false, file: null },
                 infoFields: [
                     { key: 'legal_name', label: 'Tên pháp lý (công ty / hộ kinh doanh)', required: true, full: true },
                     { key: 'tax_code', label: 'Mã số thuế' },
@@ -1100,6 +1147,20 @@
                     await this.syncContract();
                     this.goToStage();
                     this.flash(this.signFirst && this.status.stage === 'pending_review' ? 'Đã ký hợp đồng và gửi hồ sơ cho 365 HOME duyệt.' : 'Đã ký hợp đồng.', true);
+                },
+                // Ký bằng chữ ký số: tải PDF đã ký lên, máy chủ kiểm tra chữ ký/nội dung/chứng thư đúng đối tác rồi ghi nhận (thay cho OTP).
+                async confirmCks() {
+                    const body = new FormData();
+                    body.append('signed_pdf', this.cks.file);
+                    if (this.cks.signer_name) body.append('signer_name', this.cks.signer_name);
+                    body.append('agree', '1');
+                    const data = await this.call('POST', `/api/partner-contracts/${this.signingToken}/confirm-cks`, body, true);
+                    if (!data || data._status) return;
+                    this.cks = { signer_name: '', agree: false, file: null };
+                    await this.refresh();
+                    await this.syncContract();
+                    this.goToStage();
+                    this.flash(this.signFirst && this.status.stage === 'pending_review' ? 'Đã ký hợp đồng bằng chữ ký số và gửi hồ sơ cho 365 HOME duyệt.' : 'Đã ký hợp đồng bằng chữ ký số.', true);
                 },
                 async recover() {
                     const data = await this.call('POST', `${API}/recover`, this.rec);

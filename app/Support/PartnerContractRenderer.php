@@ -406,17 +406,21 @@ class PartnerContractRenderer
         $platformBox = self::renderSignatureBox(
             'ĐẠI DIỆN BÊN A',
             $version?->isPlatformSigned() ?? false,
-            $version?->platformSignedBy?->fullname,
+            // Bên ký là CÔNG TY (Bên A), không phải tài khoản nhân viên thao tác — tài khoản không có họ tên cũng không còn hiện "—".
+            (string) config('contract.platform.name'),
             $version?->platform_signed_at?->format('d/m/Y H:i')
         );
 
         // Đối tác xác nhận qua OTP (chữ ký điện tử theo Luật GDĐT), KHÔNG dùng chứng thư số PKI riêng — ghi rõ "ĐÃ XÁC NHẬN QUA OTP".
-        $partnerBox = self::renderConfirmationBox(
-            'ĐẠI DIỆN BÊN B',
-            $version?->isPartnerConfirmed() ?? false,
-            $version?->partner_signed_by_name,
-            $version?->partner_confirmed_at?->format('d/m/Y H:i')
-        );
+        // Đối tác ký bằng chữ ký số (CKS) thì hiển thị đúng là "ĐÃ KÝ SỐ".
+        $partnerBox = ($version?->isPartnerSignedByCks() ?? false)
+            ? self::renderSignatureBox('ĐẠI DIỆN BÊN B', true, $version->partner_signed_by_name, $version->partner_confirmed_at?->format('d/m/Y H:i'))
+            : self::renderConfirmationBox(
+                'ĐẠI DIỆN BÊN B',
+                $version?->isPartnerConfirmed() ?? false,
+                $version?->partner_signed_by_name,
+                $version?->partner_confirmed_at?->format('d/m/Y H:i')
+            );
 
         $font = self::FONT;
         $lh = self::LH13;

@@ -7,6 +7,17 @@ return [
     // cần tài khoản đối tác VNPT SmartCA — xem doitac-smartca.vnpt.vn).
     'default' => env('CONTRACT_SIGNING_PROVIDER', 'local'),
 
+    // Cho phép ký bằng nhà cung cấp "local" (khoá tự sinh, KHÔNG có giá trị pháp lý). null = chỉ cho phép khi APP_ENV không phải production.
+    'allow_local' => env('CONTRACT_SIGNING_ALLOW_LOCAL'),
+
+    // Đối tác ký bằng chữ ký số của chính họ (CKS USB / từ xa) thay cho OTP email — xem App\Services\PartnerContractCksService.
+    'partner_cks' => [
+        // Bắt buộc chứng thư khớp hồ sơ đối tác (MST hoặc CCCD người đại diện). Chỉ tắt khi thử nghiệm.
+        'require_identity_match' => env('CONTRACT_PARTNER_CKS_REQUIRE_MATCH', true),
+        // Cho phép chứng thư tự ký (không có giá trị pháp lý) — chỉ để thử nghiệm.
+        'allow_self_signed' => env('CONTRACT_PARTNER_CKS_ALLOW_SELF_SIGNED', false),
+    ],
+
     'providers' => [
 
         'local' => [

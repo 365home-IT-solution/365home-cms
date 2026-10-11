@@ -809,15 +809,82 @@ class PartnerForm
                                             ->modalDescription('Phụ lục sửa điều thanh toán (tiền đặt phòng về thẳng đối tác, đối soát hoa hồng theo kỳ) và thêm điều Ký quỹ. Link ký được gửi qua email đối tác, ký bằng OTP như hợp đồng. Chỉ khi phụ lục có hiệu lực (nền tảng ký số) đối tác mới chuyển sang luồng tiền mới; trước đó 365home vẫn thu hộ.')
                                             ->action(fn (?Partner $record) => self::createAddendum($record)),
 
+                                        // Đối tác ký bằng chữ ký số (CKS) của họ thay cho OTP — admin thao tác hộ khi đối tác gửi file đã ký.
+                                        Forms\Components\Actions\Action::make('downloadPartnerPdfToSign')
+                                            ->label('Tải PDF để đối tác ký CKS')
+                                            ->icon('heroicon-o-arrow-down-tray')
+                                            ->color('gray')
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record) && ! self::latestVersion($record)?->isPartnerConfirmed())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->canPartnerSign($record))
+                                            ->action(fn (?Partner $record) => self::downloadPartnerPdfToSign($record)),
+
+                                        Forms\Components\Actions\Action::make('uploadPartnerSignedPdf')
+                                            ->label('Tải lên PDF đối tác đã ký CKS')
+                                            ->icon('heroicon-o-arrow-up-tray')
+                                            ->color('gray')
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record) && ! self::latestVersion($record)?->isPartnerConfirmed())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->canPartnerSign($record))
+                                            ->modalHeading('Tải lên PDF hợp đồng đối tác đã ký bằng chữ ký số')
+                                            ->modalDescription('Chọn đúng file đã tải từ nút "Tải PDF để đối tác ký CKS" sau khi đối tác ký. Hệ thống kiểm tra chữ ký, nội dung và chứng thư có đúng MST/CCCD của đối tác không.')
+                                            ->modalSubmitActionLabel('Kiểm tra & ghi nhận')
+                                            ->form([
+                                                Forms\Components\FileUpload::make('signed_pdf')->label('File PDF đối tác đã ký')->acceptedFileTypes(['application/pdf'])
+                                                    ->disk('local')->directory('tmp/partner-signed')->maxSize(20480)->required(),
+                                                Forms\Components\TextInput::make('signer_name')->label('Họ tên người ký (bỏ trống = lấy theo chứng thư)')->maxLength(255),
+                                            ])
+                                            ->action(fn (?Partner $record, array $data) => self::uploadPartnerSignedPdf($record, (string) ($data['signed_pdf'] ?? ''), $data['signer_name'] ?? null)),
+
+                                        // Ký bằng USB token (mặc định, xem Cấu hình web > Chữ ký số): tải PDF về ký trên máy có USB rồi tải bản đã ký lên.
+                                        Forms\Components\Actions\Action::make('downloadPdfToSign')
+                                            ->label('Tải PDF để ký USB')
+                                            ->icon('heroicon-o-arrow-down-tray')
+                                            ->color(fn () => self::platformSignMethod() === 'usb' ? 'success' : 'gray')
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isPlatformSigned())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
+                                            ->action(fn (?Partner $record) => self::downloadPdfToSign($record)),
+
+                                        Forms\Components\Actions\Action::make('uploadSignedPdf')
+                                            ->label('Tải lên PDF đã ký USB')
+                                            ->icon('heroicon-o-arrow-up-tray')
+                                            ->color(fn () => self::platformSignMethod() === 'usb' ? 'success' : 'gray')
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isPlatformSigned())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
+                                            ->modalHeading('Tải lên PDF hợp đồng đã ký bằng USB token')
+                                            ->modalDescription('Chọn đúng file đã tải từ nút "Tải PDF để ký USB" sau khi ký. Hệ thống kiểm tra chữ ký và nội dung hợp đồng trước khi hoàn tất.')
+                                            ->modalSubmitActionLabel('Kiểm tra & hoàn tất')
+                                            ->form([
+                                                Forms\Components\FileUpload::make('signed_pdf')->label('File PDF đã ký')->acceptedFileTypes(['application/pdf'])
+                                                    ->disk('local')->directory('tmp/platform-signed')->maxSize(20480)->required(),
+                                            ])
+                                            ->action(fn (?Partner $record, array $data) => self::uploadSignedPdf($record, (string) ($data['signed_pdf'] ?? ''))),
+
                                         Forms\Components\Actions\Action::make('signAndExportContract')
-                                            ->label('Ký số & xuất PDF hợp đồng')
+                                            ->label('Ký số tự động & xuất PDF hợp đồng')
                                             ->icon('heroicon-o-shield-check')
-                                            ->color('success')
+                                            ->color(fn () => self::platformSignMethod() === 'auto' ? 'success' : 'gray')
                                             ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isPlatformSigned())
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
-                                            ->modalDescription('Đối tác đã xác nhận đồng ý qua email — bấm để NỀN TẢNG ký số THẬT niêm phong hợp đồng (chỉ 1 lượt ký duy nhất) và TẢI VỀ MÁY file PDF đã nhúng chữ ký (chuẩn PAdES, nộp được lên neac.gov.vn) — file được lưu trên server, sau này bấm "Tải lại PDF đã ký" để tải lại mà không phải ký lại. Nếu đang dùng chữ ký số thật (VNPT SmartCA), hệ thống sẽ gửi thông báo tới điện thoại của thuê bao — cần MỞ ĐIỆN THOẠI BẤM XÁC NHẬN trong ít phút để hoàn tất.')
+                                            ->modalHeading(fn () => 'Ký số bằng: ' . self::signingProviderLabel())
+                                            ->modalDescription(fn () => (self::isTestSigningProvider()
+                                                ? '⚠ ĐANG Ở CHẾ ĐỘ KÝ THỬ NGHIỆM (Local) — chữ ký KHÔNG có giá trị pháp lý. Muốn ký thật, vào Cấu hình web › Chữ ký số và chọn VNPT SmartCA hoặc MISA eSign. '
+                                                : 'Sẽ ký bằng ' . self::signingProviderLabel() . ' — nếu là SmartCA, hãy mở app và bấm xác nhận khi có yêu cầu. ')
+                                                . 'Đối tác đã xác nhận đồng ý qua email — bấm để NỀN TẢNG ký số niêm phong hợp đồng (chỉ 1 lượt ký duy nhất) và TẢI VỀ MÁY file PDF đã nhúng chữ ký (chuẩn PAdES, nộp được lên neac.gov.vn) — file được lưu trên server, sau này bấm "Tải lại PDF đã ký" để tải lại mà không phải ký lại. Nếu đang dùng chữ ký số thật (VNPT SmartCA), hệ thống sẽ gửi thông báo tới điện thoại của thuê bao — cần MỞ ĐIỆN THOẠI BẤM XÁC NHẬN trong ít phút để hoàn tất.')
                                             ->action(fn (?Partner $record) => self::signAndExportContract($record)),
+
+                                        // Hợp đồng đã ký THỬ NGHIỆM (Local) mà nay đã cấu hình nhà cung cấp thật: ký lại phần nền tảng (không đổi trạng thái/luồng tiền).
+                                        Forms\Components\Actions\Action::make('resignPlatform')
+                                            ->label('Ký lại bằng chữ ký số thật')
+                                            ->icon('heroicon-o-arrow-path')
+                                            ->color('warning')
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPlatformSigned()
+                                                && self::latestVersion($record)?->platform_signing_provider === 'local')
+                                            ->disabled(fn () => self::isTestSigningProvider())
+                                            ->tooltip(fn () => self::isTestSigningProvider() ? 'Nhà cung cấp vẫn là Local — chọn VNPT SmartCA/MISA ở Cấu hình web › Chữ ký số trước.' : null)
+                                            ->requiresConfirmation()
+                                            ->modalHeading(fn () => 'Ký lại bằng: ' . self::signingProviderLabel())
+                                            ->modalDescription('Hợp đồng này mới chỉ được ký THỬ NGHIỆM (Local, không có giá trị pháp lý). Bấm để nền tảng ký lại bằng chữ ký số thật — chỉ thay chữ ký và file PDF, không đổi trạng thái hợp đồng, ngày hiệu lực hay luồng tiền. Nếu là SmartCA, hãy mở app và bấm xác nhận.')
+                                            ->action(fn (?Partner $record) => self::resignPlatformSignature($record)),
 
                                         Forms\Components\Actions\Action::make('reExportSignedPdf')
                                             ->label('Tải lại PDF đã ký')
@@ -1103,11 +1170,161 @@ class PartnerForm
         );
     }
 
+    private static function downloadPartnerPdfToSign(?Partner $record): ?StreamedResponse
+    {
+        $version = self::latestVersion($record);
+        if (! $version) {
+            return null;
+        }
+
+        try {
+            $result = app(\App\Services\PartnerContractCksService::class)->preparePdf($version);
+        } catch (ValidationException $e) {
+            Notification::make()->title('Chưa thể tải PDF để đối tác ký')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->send();
+
+            return null;
+        }
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    private static function uploadPartnerSignedPdf(?Partner $record, string $path, ?string $signerName): void
+    {
+        $version = self::latestVersion($record);
+        if (! $version || $path === '') {
+            return;
+        }
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+
+        try {
+            $result = app(\App\Services\PartnerContractCksService::class)->submit(
+                $version,
+                (string) $disk->get($path),
+                $signerName,
+                (string) request()->ip(),
+                (string) request()->userAgent(),
+            );
+        } catch (ValidationException $e) {
+            Notification::make()->title('PDF đối tác ký chưa hợp lệ')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->persistent()->send();
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->title('Không ghi nhận được chữ ký của đối tác')->body($e->getMessage())->danger()->send();
+
+            return;
+        } finally {
+            $disk->delete($path);
+        }
+
+        Notification::make()->title('Đã kiểm tra chữ ký số của đối tác')
+            ->body('Chứng thư: ' . ($result['certificate']['cert_subject'] ?? '—') . (filled($result['certificate']['cert_org'] ?? null) ? ' — ' . $result['certificate']['cert_org'] : '') . '. Nền tảng có thể ký xác nhận ngay.')
+            ->success()->send();
+    }
+
+    private static function resignPlatformSignature(?Partner $record): ?StreamedResponse
+    {
+        if (! $record) {
+            return null;
+        }
+
+        try {
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->platformResign($record, auth()->user(), (string) request()->ip(), (string) request()->userAgent());
+        } catch (ValidationException $e) {
+            Notification::make()->title('Chưa ký lại được')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->send();
+
+            return null;
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->title('Ký lại thất bại')->body($e->getMessage())->danger()->send();
+
+            return null;
+        }
+
+        Notification::make()->title('Đã ký lại bằng chữ ký số thật')->success()->send();
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    private static function isTestSigningProvider(): bool
+    {
+        return app(\App\Services\ContractSigning\ContractSigningManager::class)->isTestProvider();
+    }
+
+    // Tên nhà cung cấp sẽ dùng để nền tảng ký (hiển thị trong hộp xác nhận để không ký nhầm bằng chế độ thử nghiệm).
+    private static function signingProviderLabel(): string
+    {
+        $manager = app(\App\Services\ContractSigning\ContractSigningManager::class);
+        $name = $manager->providerNameForSide(\App\Services\ContractSigning\ContractSigningManager::SIDE_HOMESTAY);
+
+        return \App\Services\ContractSigning\ContractSigningManager::PROVIDERS[$name] ?? $name;
+    }
+
+    private static function platformSignMethod(): string
+    {
+        return app(\App\Services\ContractSigning\ContractSigningManager::class)->platformSignMethod();
+    }
+
+    // Ký USB, bước 1: PDF CHƯA ký để người giữ chứng thư ký trên máy của họ (xem PartnerContractWorkflowService::preparePlatformPdf).
+    private static function downloadPdfToSign(?Partner $record): ?StreamedResponse
+    {
+        if (! $record) {
+            return null;
+        }
+
+        try {
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->preparePlatformPdf($record);
+        } catch (ValidationException $e) {
+            Notification::make()->title('Chưa thể tải PDF để ký')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->send();
+
+            return null;
+        }
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // Ký USB, bước 2: kiểm tra PDF đã ký rồi hoàn tất hợp đồng (cùng quy trình khi nền tảng ký tự động).
+    private static function uploadSignedPdf(?Partner $record, string $path): void
+    {
+        if (! $record || $path === '') {
+            return;
+        }
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+
+        try {
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->platformUpload(
+                $record,
+                auth()->user(),
+                (string) request()->ip(),
+                (string) request()->userAgent(),
+                (string) $disk->get($path),
+            );
+        } catch (ValidationException $e) {
+            Notification::make()->title('PDF đã ký chưa hợp lệ')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->persistent()->send();
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->title('Không hoàn tất được hợp đồng')->body($e->getMessage())->danger()->send();
+
+            return;
+        } finally {
+            $disk->delete($path);
+        }
+
+        Notification::make()->title('Đã kiểm tra chữ ký và hoàn tất hợp đồng')
+            ->body('Chứng thư: ' . ($result['certificate']['cert_subject'] ?? '—') . (filled($result['certificate']['cert_org'] ?? null) ? ' — ' . $result['certificate']['cert_org'] : ''))
+            ->success()->send();
+    }
+
     // Tên hiển thị cho từng provider ký số — xem config/contract_signing.php. 'local' luôn phải
     // ghi rõ "chưa có giá trị pháp lý" để không ai nhầm tưởng đây là chữ ký số thật do CA cấp.
     private const SIGNING_PROVIDER_LABELS = [
         'local' => 'Local — chữ ký test, KHÔNG có giá trị pháp lý',
         'vnpt_smartca' => 'VNPT SmartCA — chữ ký số thật',
+        'usb_token' => 'USB token — chữ ký số thật (ký trên máy, tải bản đã ký lên)',
     ];
 
     private static function renderSignatureStatus(?PartnerContractVersion $version): string
@@ -1117,8 +1334,16 @@ class PartnerForm
         }
 
         $partnerRow = $version->isPartnerConfirmed()
-            ? '<span style="color:#0369a1;font-weight:700;">✓ Đã xác nhận (OTP)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
-                .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')'
+            ? ($version->isPartnerSignedByCks()
+                ? '<span style="color:#0369a1;font-weight:700;">✓ Đã ký số (CKS)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
+                    .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')'
+                    .(($pc = $version->partner_signature_certificate) && filled($pc['cert_subject'] ?? null)
+                        ? '<div style="margin-top:2px;font-size:0.76rem;color:#374151;">Chứng thư số: <strong>'.e($pc['cert_subject']).'</strong>'
+                            .(filled($pc['cert_org'] ?? null) ? ' — '.e($pc['cert_org']) : '').(filled($pc['cert_issuer'] ?? null) ? ' (CA: '.e($pc['cert_issuer']).')' : '')
+                            .(filled($pc['tax_code'] ?? null) ? ' — MST '.e($pc['tax_code']) : '').'</div>'
+                        : '')
+                : '<span style="color:#0369a1;font-weight:700;">✓ Đã xác nhận (OTP)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
+                    .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')')
             : '<span style="color:#f59e0b;font-weight:700;">Chưa xác nhận</span> — đang chờ đối tác xác nhận qua link đã gửi';
 
         $platformRow = $version->isPlatformSigned()

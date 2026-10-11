@@ -22,6 +22,12 @@ class ContractPdfSigningService
     ) {
     }
 
+    /** Ký chồng lên một PDF đã có chữ ký (bản đối tác đã ký bằng CKS) — giữ nguyên chữ ký trước. */
+    public function signExisting(string $pdf, array $signerContext): array
+    {
+        return $this->pkiSigner->sign($pdf, $this->signer, $signerContext);
+    }
+
     public function signAndEmbed(PartnerContractVersion $version, array $signerContext): array
     {
         $html = PartnerContractRenderer::renderFramed($version->content, $version->partner, $version);
