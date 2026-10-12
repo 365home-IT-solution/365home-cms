@@ -29,7 +29,11 @@ class SigningSettingsController extends Controller
     public function update(Request $request): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate(['platform_sign_method' => ['required', Rule::in([ContractSigningManager::PLATFORM_SIGN_USB, ContractSigningManager::PLATFORM_SIGN_AUTO])]]);
+        $data = $request->validate(
+            ['platform_sign_method' => ['required', Rule::in([ContractSigningManager::PLATFORM_SIGN_USB, ContractSigningManager::PLATFORM_SIGN_AUTO])]],
+            [],
+            ['platform_sign_method' => 'cách ký (auto hoặc usb)'],
+        );
 
         $settings = app(SigningSettings::class);
         $settings->platform_sign_method = $data['platform_sign_method'];

@@ -182,6 +182,11 @@ class PartnerController extends Controller
             'id' => $version->id, 'kind' => $version->kind, 'version_label' => $version->version_label, 'change_note' => $version->change_note,
             'changed_by' => $version->changedBy ? ['id' => $version->changedBy->id, 'name' => $version->changedBy->fullname] : null,
             'content_hash' => $version->content_hash, 'is_partner_confirmed' => $version->isPartnerConfirmed(), 'is_platform_signed' => $version->isPlatformSigned(),
+            // Cách mỗi bên đã ký: partner = otp | cks; platform = auto | usb (null khi chưa ký hoặc bản cũ). *_provider cho biết ký bằng nhà cung cấp nào (local = thử nghiệm).
+            'partner_sign_method' => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
+            'partner_signing_provider' => $version->partner_signing_provider,
+            'platform_sign_method' => $version->platform_sign_method,
+            'platform_signing_provider' => $version->platform_signing_provider,
             'document' => $doc ? ['name' => $doc->file_name, 'mime_type' => $doc->mime_type, 'size' => $doc->size, 'url' => $doc->getUrl()] : null,
             'created_at' => $version->created_at?->toIso8601String(),
         ];

@@ -54,6 +54,94 @@ class DashboardController extends Controller
     }
 
     /**
+     * GET /api/admin/dashboard/commission-stats
+     * THỐNG KÊ HOA HỒNG & DOANH THU của đối tác Homestay, tách hai góc nhìn (xem App\Services\CommissionStatsService):
+     *  - scope=platform (mặc định với Super Admin): CHỦ NỀN TẢNG — hoa hồng, tiền 365home bù khuyến mãi, thu nhập ròng, theo đối tác / tháng /
+     *    kênh thu tiền, công nợ đối soát, ký quỹ. Đối tác không được gọi (403).
+     *  - scope=partner: ĐỐI TÁC — doanh thu, hoa hồng phải nộp, thực nhận, công nợ với nền tảng. Chủ đối tác luôn là đối tác của chính mình;
+     *    Super Admin phải truyền partner_id.
+     * Query: filter (today|yesterday|7d|30d|90d|this_month|last_month|this_year|last_year|custom; mặc định this_month), start_date, end_date
+     * (khi custom), partner_id (lọc một đối tác ở scope=platform, hoặc chọn đối tác ở scope=partner), limit (số dòng by_partner, mặc định 10).
+     */
+    public function commissionStats(Request $request, \App\Services\CommissionStatsService $stats): JsonResponse
+    {
+        [$user, $scope, $partnerId, $from, $to] = $this->commissionContext($request, $stats);
+
+        if ($scope === 'platform') {
+            $data = $stats->forPlatform($user, $from, $to, $partnerId, (int) $request->query('limit', 10));
+        } else {
+            $data = $stats->forPartner(\App\Models\Partner::query()->findOrFail($partnerId), $from, $to);
+        }
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * GET /api/admin/dashboard/commission-stats/orders — từng đơn đã chốt hoa hồng trong kỳ (phân trang) để đối chiếu số tổng.
+     * Query như commission-stats, thêm: per_page (≤ 100), collected_by (partner|platform|cash), waived (0|1).
+     */
+    public function commissionOrders(Request $request, \App\Services\CommissionStatsService $stats): JsonResponse
+    {
+        [$user, $scope, $partnerId, $from, $to] = $this->commissionContext($request, $stats);
+
+        $page = $stats->ordersPage(
+            $scope === 'platform' ? $user : null,
+            $from,
+            $to,
+            $partnerId,
+            (int) $request->query('per_page', 20),
+            in_array($request->query('collected_by'), ['partner', 'platform', 'cash'], true) ? $request->query('collected_by') : null,
+            $request->query('waived') === null ? null : filter_var($request->query('waived'), FILTER_VALIDATE_BOOLEAN),
+        );
+
+        return response()->json($page);
+    }
+
+    /**
+     * GET /api/admin/dashboard/commission-stats/partners — BẢNG SO SÁNH TẤT CẢ ĐỐI TÁC trong kỳ (chỉ Super Admin).
+     * Query: filter/start_date/end_date như commission-stats, search (tên, SĐT, email), sort (commission|revenue_base|orders|name|
+     * platform_subsidy|platform_net_income|partner_receives|settlement_net|open_to_collect|escrow_balance), direction (asc|desc).
+     */
+    public function commissionPartners(Request $request, \App\Services\CommissionStatsService $stats): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isSuperAdmin(), 403, 'Chỉ chủ nền tảng được xem so sánh các đối tác.');
+
+        $filter = in_array($request->query('filter'), \App\Services\CommissionStatsService::FILTERS, true) ? $request->query('filter') : 'this_month';
+        [$from, $to] = $stats->range($filter, $request->query('start_date'), $request->query('end_date'));
+
+        return response()->json(['data' => $stats->partnersTable(
+            $user, $from, $to,
+            trim((string) $request->query('search', '')),
+            (string) $request->query('sort', 'commission'),
+            $request->query('direction') === 'asc' ? 'asc' : 'desc',
+        )]);
+    }
+
+    /** @return array{0: \App\Models\User, 1: string, 2: ?string, 3: \Carbon\Carbon, 4: \Carbon\Carbon} */
+    private function commissionContext(Request $request, \App\Services\CommissionStatsService $stats): array
+    {
+        $user = $request->user();
+        $filter = in_array($request->query('filter'), \App\Services\CommissionStatsService::FILTERS, true) ? $request->query('filter') : 'this_month';
+        [$from, $to] = $stats->range($filter, $request->query('start_date'), $request->query('end_date'));
+
+        if ($user->isSuperAdmin()) {
+            $scope = $request->query('scope') === 'partner' ? 'partner' : 'platform';
+            $partnerId = $request->query('partner_id') ? (string) $request->query('partner_id') : null;
+            abort_if($scope === 'partner' && $partnerId === null, 422, 'Xem góc nhìn đối tác cần truyền partner_id.');
+        } else {
+            // Chủ/nhân viên đối tác: chỉ thấy đối tác của chính mình, không có góc nhìn nền tảng.
+            abort_if($request->query('scope') === 'platform', 403, 'Chỉ chủ nền tảng được xem thống kê của toàn hệ thống.');
+            // Giống Dashboard: số liệu tài chính chỉ dành cho CHỦ đối tác, không phải nhân viên.
+            abort_unless($user->isPartnerOwner() && ! empty($user->partner_id), 403, 'Chỉ chủ đối tác được xem thống kê hoa hồng.');
+            $scope = 'partner';
+            $partnerId = (string) $user->partner_id;
+        }
+
+        return [$user, $scope, $partnerId, $from, $to];
+    }
+
+    /**
      * GET /api/admin/dashboard/rankings
      * Dữ liệu phân tích theo NĂM (khác kpi-stats — lọc theo period): Xếp hạng phòng, Top khách
      * đặt phòng nhiều nhất, Doanh thu theo tháng, Doanh thu từng chi nhánh theo tháng.

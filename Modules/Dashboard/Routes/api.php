@@ -9,6 +9,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])
     ->group(function () {
         Route::get('/overview', [DashboardController::class, 'overview']);
         Route::get('/kpi-stats', [DashboardController::class, 'kpiStats']);
+        Route::get('/commission-stats', [DashboardController::class, 'commissionStats']);
+        Route::get('/commission-stats/orders', [DashboardController::class, 'commissionOrders']);
+        Route::get('/commission-stats/partners', [DashboardController::class, 'commissionPartners']);
         Route::get('/rankings', [DashboardController::class, 'rankings']);
         Route::get('/occupancy', [DashboardController::class, 'occupancy']);
         Route::get('/occupancy-top', [DashboardController::class, 'occupancyTop']);
