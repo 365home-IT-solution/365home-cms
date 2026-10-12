@@ -17,11 +17,23 @@
 
     @include('dashboard::pages.dashboard._header')
 
-    @include('dashboard::pages.dashboard._kpi')
+    {{-- Thống kê hoa hồng: Super Admin có thêm tab Các đối tác và Chi tiết đối tác; chủ đối tác có tab Chi tiết của mình. --}}
+    @include('dashboard::pages.dashboard._stats-tabs')
 
-    @include('dashboard::pages.dashboard._room-cards')
+    {{-- Tổng quan giữ nguyên như cũ; chỉ ẩn bằng CSS (không gỡ khỏi DOM) khi đang xem tab thống kê để biểu đồ/script không bị mất. --}}
+    <div @if ($statsTab !== 'overview') style="display:none" @endif>
+        @include('dashboard::pages.dashboard._kpi')
 
-    @include('dashboard::pages.dashboard._bottom-grid')
+        @include('dashboard::pages.dashboard._room-cards')
+
+        @include('dashboard::pages.dashboard._bottom-grid')
+    </div>
+
+    @if ($statsTab === 'partners' && $this->isStatsPlatform())
+        @include('dashboard::pages.dashboard._stats-partners')
+    @elseif ($statsTab === 'detail' && $this->canViewStats())
+        @include('dashboard::pages.dashboard._stats-detail')
+    @endif
 
 </div>
 </div>

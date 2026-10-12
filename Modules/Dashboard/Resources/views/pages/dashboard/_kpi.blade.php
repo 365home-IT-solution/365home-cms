@@ -38,7 +38,7 @@
             {{ $revenueDelta >= 0 ? '↑' : '↓' }} {{ abs($revenueDelta) }}%
             <span class="dbar" style="--w:{{ min(abs($revenueDelta) * 2, 100) }}%"></span>
         </div>
-        <div class="ta-kpi-hint">Đã thanh toán + tiền cọc · so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span></div>
+        <div class="ta-kpi-hint">Đã thanh toán + tiền cọc, theo ngày đặt (gồm đơn chưa trả phòng) · so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span></div>
     </div>
     {{-- <div class="ta-kpi">
         <div class="ta-kpi-label">Tổng giá gốc (lúc đặt)</div>

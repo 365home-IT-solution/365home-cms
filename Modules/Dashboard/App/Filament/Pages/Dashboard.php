@@ -32,6 +32,115 @@ class Dashboard extends FilamentDashboard
     public int $commissionMonth;
     public int $commissionYear;
 
+    // ─── Thống kê hoa hồng ngay trên Dashboard (cùng service với trang Quản lý › Thống kê hoa hồng và API commission-stats) ───
+    // Super Admin: Tổng quan (như cũ) · Các đối tác · Chi tiết một đối tác. Chủ đối tác: Tổng quan (như cũ) · Chi tiết (chỉ của chính mình).
+    public string $statsTab = 'overview';
+
+    public ?string $statsPartnerId = null;
+
+    public string $statsSearch = '';
+
+    public string $statsSort = 'commission';
+
+    public string $statsDirection = 'desc';
+
+    public function canViewStats(): bool
+    {
+        $user = auth()->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        return $user->isSuperAdmin()
+            || ($user->isPartnerOwner() && filled($user->partner_id)
+                && \App\Models\Partner::query()->whereKey($user->partner_id)->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->exists());
+    }
+
+    public function isStatsPlatform(): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
+
+    public function setStatsTab(string $tab): void
+    {
+        $allowed = $this->canViewStats() ? ($this->isStatsPlatform() ? ['overview', 'partners', 'detail'] : ['overview', 'detail']) : ['overview'];
+        $this->statsTab = in_array($tab, $allowed, true) ? $tab : 'overview';
+    }
+
+    /** Super Admin bấm một dòng ở tab Các đối tác → mở chi tiết đối tác đó. */
+    public function openPartnerDetail(string $partnerId): void
+    {
+        if ($this->isStatsPlatform()) {
+            $this->statsPartnerId = $partnerId;
+            $this->statsTab = 'detail';
+        }
+    }
+
+    public function sortStatsBy(string $column): void
+    {
+        $this->statsDirection = $this->statsSort === $column && $this->statsDirection === 'desc' ? 'asc' : 'desc';
+        $this->statsSort = $column;
+    }
+
+    /**
+     * Kỳ thống kê dùng CHUNG bộ lọc kỳ của phần Tổng quan (nút Hôm nay, 7 ngày, Tháng này, Tuỳ chọn... ở đầu trang): $period, $customStart, $customEnd.
+     *
+     * @return array{0: Carbon, 1: Carbon, 2: string}
+     */
+    private function statsRange(\App\Services\CommissionStatsService $service): array
+    {
+        $filter = $this->period === 'ytd' ? 'this_year' : $this->period;
+
+        return $service->range($filter, $this->customStart, $this->customEnd);
+    }
+
+    /** @return array<string, mixed>|null số liệu bảng các đối tác (chỉ Super Admin) */
+    public function statsPartnersTable(): ?array
+    {
+        if (! $this->isStatsPlatform()) {
+            return null;
+        }
+
+        $service = app(\App\Services\CommissionStatsService::class);
+        [$from, $to] = $this->statsRange($service);
+
+        return $service->partnersTable(auth()->user(), $from, $to, trim($this->statsSearch), $this->statsSort, $this->statsDirection);
+    }
+
+    /** @return array<string, mixed>|null chi tiết một đối tác: Super Admin theo statsPartnerId, chủ đối tác luôn là của mình */
+    public function statsDetail(): ?array
+    {
+        if (! $this->canViewStats()) {
+            return null;
+        }
+
+        $user = auth()->user();
+        $partnerId = $this->isStatsPlatform() ? $this->statsPartnerId : $user->partner_id;
+        $partner = $partnerId ? \App\Models\Partner::query()->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->find($partnerId) : null;
+
+        if (! $partner) {
+            return null;
+        }
+
+        $service = app(\App\Services\CommissionStatsService::class);
+        [$from, $to] = $this->statsRange($service);
+
+        return $service->forPartner($partner, $from, $to);
+    }
+
+    /** @return array<string, string> đối tác Homestay để chọn ở tab Chi tiết (Super Admin) */
+    public function statsPartnerOptions(): array
+    {
+        if (! $this->isStatsPlatform()) {
+            return [];
+        }
+
+        return \App\Models\Partner::query()->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->orderBy('name')->get()
+            ->reject(fn ($p) => $p->isSystemPartner() || $p->isPlatformPartner())
+            ->mapWithKeys(fn ($p) => [$p->id => $p->legal_name ?: $p->name])->all();
+    }
+
     public function mount(): void
     {
         $this->commissionMonth = now()->month;

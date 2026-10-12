@@ -406,6 +406,17 @@ class PartnerOnboardingService
             'signing_token'        => $signingActive ? $version->signing_token : null,
             'partner_confirmed_at' => $version->partner_confirmed_at?->toIso8601String(),
             'partner_signed_by'    => $version->partner_signed_by_name,
+            // Cách ký đối tác có thể chọn khi còn chờ ký: otp (mã gửi email) hoặc cks (chữ ký số của đối tác: GET /api/partner-contracts/{token}/pdf rồi
+            // POST .../confirm-cks). Sau khi ký: partner_sign_method cho biết đã ký theo cách nào, partner_certificate là chứng thư khi ký CKS.
+            'sign_methods'         => $signingActive ? ['otp', 'cks'] : [],
+            'partner_sign_method'  => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
+            'partner_certificate'  => $version->isPartnerSignedByCks() ? [
+                'subject'      => $version->partner_signature_certificate['cert_subject'] ?? null,
+                'organization' => $version->partner_signature_certificate['cert_org'] ?? null,
+                'issuer'       => $version->partner_signature_certificate['cert_issuer'] ?? null,
+                'tax_code'     => $version->partner_signature_certificate['tax_code'] ?? null,
+                'valid_to'     => $version->partner_signature_certificate['valid_to'] ?? null,
+            ] : null,
             'platform_signed_at'   => $version->platform_signed_at?->toIso8601String(),
             'is_fully_signed'      => $version->isFullySigned(),
             'contract_status'      => $partner->contract_status,
