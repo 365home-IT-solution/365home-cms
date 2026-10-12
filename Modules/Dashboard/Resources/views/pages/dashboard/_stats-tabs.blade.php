@@ -1,9 +1,7 @@
-{{-- Thanh chọn góc nhìn thống kê hoa hồng. Super Admin: Tổng quan · Các đối tác · Chi tiết. Chủ đối tác: Tổng quan · Chi tiết (của chính mình). --}}
+{{-- Super Admin chọn góc nhìn doanh thu: Của 365home · Tổng quan (mình + tất cả đối tác) · Theo đối tác. Chủ đối tác không có thanh này. --}}
 @if ($this->canViewStats())
 @php
-    $tabs = $this->isStatsPlatform()
-        ? ['overview' => 'Tổng quan', 'partners' => 'Các đối tác', 'detail' => 'Chi tiết đối tác']
-        : ['overview' => 'Tổng quan', 'detail' => 'Chi tiết hoa hồng của tôi'];
+    $tabs = ['own' => 'Doanh thu của 365home', 'overview' => 'Tổng quan', 'partner' => 'Theo đối tác'];
 @endphp
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px;border-bottom:1px solid #e5e7eb;">
     @foreach ($tabs as $key => $label)

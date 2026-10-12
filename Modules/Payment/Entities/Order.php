@@ -100,6 +100,7 @@ class Order extends Model implements Eventable
         'refunded_at',
         'refunded_by',
         'refund_paid_by',
+        'refund_fault',
         // Hoa hồng / ai chịu khuyến mãi / kỳ đối soát — chỉ App\Services\OrderCommissionService và SettlementService ghi.
         'collected_by',
         'commission_rate',

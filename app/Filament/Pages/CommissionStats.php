@@ -37,6 +37,13 @@ class CommissionStats extends Page implements HasForms
     /** @var array<string, mixed> */
     public array $data = [];
 
+    // Bảng so sánh các đối tác (góc nhìn "Các đối tác"): tìm kiếm + sắp xếp.
+    public string $search = '';
+
+    public string $sort = 'commission';
+
+    public string $direction = 'desc';
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -68,7 +75,7 @@ class CommissionStats extends Page implements HasForms
     {
         return $form->statePath('data')->columns(4)->schema([
             Forms\Components\Select::make('scope')->label('Góc nhìn')->native(false)->live()->selectablePlaceholder(false)
-                ->options(['platform' => 'Chủ nền tảng', 'partner' => 'Đối tác'])
+                ->options(['platform' => 'Chủ nền tảng', 'partners' => 'Các đối tác (bảng so sánh)', 'partner' => 'Chi tiết một đối tác'])
                 ->visible(fn () => $this->isPlatformSide()),
             Forms\Components\Select::make('partner_id')
                 ->label(fn (Forms\Get $get) => ($get('scope') ?? 'platform') === 'partner' ? 'Đối tác' : 'Lọc theo đối tác')
@@ -76,7 +83,7 @@ class CommissionStats extends Page implements HasForms
                 ->placeholder('Tất cả đối tác')
                 ->options(fn () => Partner::query()->where('partner_type', Partner::TYPE_HOMESTAY)->orderBy('name')->get(['id', 'name', 'legal_name'])
                     ->mapWithKeys(fn (Partner $p) => [$p->id => $p->legal_name ?: $p->name])->all())
-                ->visible(fn () => $this->isPlatformSide()),
+                ->visible(fn (Forms\Get $get) => $this->isPlatformSide() && ($get('scope') ?? 'platform') !== 'partners'),
             Forms\Components\Select::make('filter')->label('Kỳ')->native(false)->live()->selectablePlaceholder(false)
                 ->options([
                     'today' => 'Hôm nay', 'yesterday' => 'Hôm qua', '7d' => '7 ngày qua', '30d' => '30 ngày qua', '90d' => '90 ngày qua',
@@ -87,6 +94,39 @@ class CommissionStats extends Page implements HasForms
             Forms\Components\DatePicker::make('end_date')->label('Đến ngày')->live()->native(false)->displayFormat('d/m/Y')
                 ->visible(fn (Forms\Get $get) => $get('filter') === 'custom'),
         ]);
+    }
+
+    public function isPartnersView(): bool
+    {
+        return $this->isPlatformSide() && ($this->data['scope'] ?? 'platform') === 'partners';
+    }
+
+    /** @return array<string, mixed>|null số liệu bảng các đối tác (chỉ Super Admin) */
+    public function getPartnersTable(): ?array
+    {
+        if (! $this->isPlatformSide()) {
+            return null;
+        }
+
+        $service = app(CommissionStatsService::class);
+        [$from, $to] = $service->range((string) ($this->data['filter'] ?? 'this_month'), $this->data['start_date'] ?? null, $this->data['end_date'] ?? null);
+
+        return $service->partnersTable(auth()->user(), $from, $to, trim($this->search), $this->sort, $this->direction);
+    }
+
+    public function sortBy(string $column): void
+    {
+        $this->direction = $this->sort === $column && $this->direction === 'desc' ? 'asc' : 'desc';
+        $this->sort = $column;
+    }
+
+    /** Bấm một dòng ở bảng các đối tác → chuyển sang chi tiết đối tác đó. */
+    public function openPartner(string $partnerId): void
+    {
+        if ($this->isPlatformSide()) {
+            $this->data['scope'] = 'partner';
+            $this->data['partner_id'] = $partnerId;
+        }
     }
 
     /** @return array<string, mixed>|null */

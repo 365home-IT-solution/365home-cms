@@ -91,7 +91,70 @@ class CommissionStatsService
             'settlements'    => $this->settlementSummary($settlements->get()),
             'receivables'    => $this->receivables($partnerId),
             'escrow'         => $this->platformEscrow($partnerId),
+            'pending'        => $this->pending($partnerId, $viewer),
+            'income'         => $partnerId === null ? $this->income($from, $to, (int) $this->summarize($rows)['platform_net_income']) : null,
         ];
+    }
+
+    /**
+     * ĐƠN ĐÃ THANH TOÁN NHƯNG CHƯA CHỐT HOA HỒNG (đang ở / sắp tới / chưa trả phòng) — KHÔNG phụ thuộc kỳ lọc, là số hiện tại. Hoa hồng chỉ chốt khi
+     * khách trả phòng nên các đơn này chưa nằm trong summary; ở đây chỉ báo trước số tiền và hoa hồng DỰ KIẾN (tỉ lệ hợp đồng × tiền khách đã trả, chưa
+     * gồm khoản 365home bù) để đối chiếu với doanh thu ở Dashboard. Đối tác đang trong thời gian miễn hoa hồng: dự kiến = 0.
+     *
+     * @return array{orders: int, customer_paid: int, expected_commission: int, note: string}
+     */
+    private function pending(?string $partnerId, ?User $viewer): array
+    {
+        // Chỉ đối tác có hoa hồng (Homestay, không phải đối tác nền tảng / hệ thống): lọc ở SQL để không nạp các đơn tự doanh của 365home.
+        $partners = Partner::query()->where('partner_type', Partner::TYPE_HOMESTAY)->where('is_platform_partner', false)
+            ->when($partnerId !== null, fn ($q) => $q->where('id', $partnerId))->get()
+            ->reject(fn (Partner $p) => $p->isSystemPartner())->keyBy('id');
+
+        $query = Order::withoutGlobalScopes()->countedInStats($viewer)->where('status', 'paid')->whereNull('commission_finalized_at')
+            ->whereIn('partner_id', $partners->keys()->all() ?: ['']);
+        $orders = 0;
+        $paid = 0;
+        $expected = 0;
+
+        foreach ($query->cursor() as $order) {
+            $partner = $partners->get($order->partner_id);
+            if (! $partner || ! $this->commission->applies($order, $partner)) {
+                continue;
+            }
+            $amount = $this->commission->retainedAmount($order);
+            $rate = $order->commission_rate !== null ? (float) $order->commission_rate : $this->commission->commissionRateOf($partner);
+            $orders++;
+            $paid += $amount;
+            $expected += $partner->isInFeeFreePeriod() ? 0 : (int) round($amount * $rate / 100);
+        }
+
+        return [
+            'orders' => $orders, 'customer_paid' => $paid, 'expected_commission' => $expected,
+            'note' => 'Đơn đã thanh toán nhưng chưa trả phòng; hoa hồng chốt khi khách trả phòng. Số dự kiến chưa gồm khoản 365home bù.',
+        ];
+    }
+
+    /**
+     * TỔNG THU NHẬP của 365home trong kỳ = doanh thu phòng của CHÍNH MÌNH (đơn đã thanh toán của đối tác nền tảng) + thu nhập ròng từ hoa hồng
+     * (hoa hồng − khoản bù khuyến mãi). Doanh thu của đối tác KHÔNG phải tiền của 365home nên không cộng vào. Ngày ghi nhận của đơn tự doanh:
+     * ngày trả phòng thực tế → ngày trả phòng cuối của đơn → ngày đặt.
+     *
+     * @return array{own_orders: int, own_revenue: int, commission_net_income: int, total: int}
+     */
+    private function income(Carbon $from, Carbon $to, int $commissionNet): array
+    {
+        $p = DB::getTablePrefix();
+        $o = $p . 'orders';
+        $i = $p . 'order_items';
+        $expr = "COALESCE({$o}.checked_out_at, (SELECT MAX(oi.checkout_date) FROM {$i} oi WHERE oi.order_id = {$o}.id), {$o}.created_at)";
+
+        $own = Order::withoutGlobalScopes()->where('exclude_from_stats', false)->where('status', 'paid')
+            ->whereIn('partner_id', Partner::query()->where('is_platform_partner', true)->select('id'))
+            ->whereRaw("({$expr}) between ? and ?", [$from, $to]);
+
+        $revenue = (int) (clone $own)->selectRaw('COALESCE(SUM(COALESCE(amount, full_amount)), 0) as t')->value('t');
+
+        return ['own_orders' => (int) (clone $own)->count(), 'own_revenue' => $revenue, 'commission_net_income' => $commissionNet, 'total' => $revenue + $commissionNet];
     }
 
     /**
@@ -168,6 +231,7 @@ class CommissionStatsService
             'by_collected' => $this->byCollected($rows),
             'settlements'  => $this->settlementSummary($settlements),
             'receivables'  => $this->receivables($partner->id),
+            'pending'      => $this->pending($partner->id, null),
             'escrow'       => [
                 'balance'    => (int) $partner->escrow_balance,
                 'min_amount' => $partner->escrow_min_amount !== null ? (int) $partner->escrow_min_amount : null,

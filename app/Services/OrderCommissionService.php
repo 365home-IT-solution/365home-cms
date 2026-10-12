@@ -267,6 +267,11 @@ class OrderCommissionService
     public function retainedAmount(Order $order): int
     {
         if ($order->status === 'refunded') {
+            // Hoàn do lỗi vận hành của Bên A (Điều 6.1): Bên A tự chịu — không khấu trừ vào doanh thu của đối tác.
+            if ($order->refund_fault === 'platform') {
+                return max(0, $this->paidAmount($order));
+            }
+
             return max(0, $this->paidAmount($order) - (int) $order->refund_amount);
         }
 

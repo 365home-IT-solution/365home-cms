@@ -47,7 +47,24 @@ class ContractSigningManager extends Manager
             $method = null;
         }
 
+        // Mặc định CHỈ tải file về ký. Ký tự động chỉ còn khi bật CONTRACT_ALLOW_AUTO_SIGN và cấu hình chọn "auto".
+        if (! self::platformAutoAllowed()) {
+            return self::PLATFORM_SIGN_USB;
+        }
+
         return $method === self::PLATFORM_SIGN_USB ? self::PLATFORM_SIGN_USB : self::PLATFORM_SIGN_AUTO;
+    }
+
+    /** Cho nền tảng ký TỰ ĐỘNG qua nhà cung cấp từ xa? (mặc định không: chỉ tải file về ký) */
+    public static function platformAutoAllowed(): bool
+    {
+        return (bool) config('contract_signing.allow_platform_auto_sign', false);
+    }
+
+    /** Cho đối tác xác nhận bằng mã OTP email? (mặc định không: đối tác tải file về ký bằng chữ ký số) */
+    public static function otpAllowed(): bool
+    {
+        return (bool) config('contract_signing.allow_otp_confirm', false);
     }
 
     /** Nhà cung cấp của bên đó đang là "local" (ký THỬ NGHIỆM bằng khoá tự sinh, KHÔNG có giá trị pháp lý). */

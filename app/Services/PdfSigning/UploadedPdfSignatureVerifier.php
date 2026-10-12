@@ -150,12 +150,44 @@ class UploadedPdfSignatureVerifier
             'tax_code' => preg_match('/(?:MST|TAXCODE|TAX\s*CODE)\s*[:\-]?\s*([0-9]{10}(?:-[0-9]{3})?)/i', $flat, $m) ? $m[1] : null,
             'citizen_id' => preg_match('/(?:CCCD|CMND|CMT|CITIZEN\s*ID)\s*[:\-]?\s*([0-9]{9,12})/i', $flat, $m) ? $m[1] : null,
             'self_signed' => ($parsed['subject'] ?? null) === ($parsed['issuer'] ?? 1),
-            'signing_time' => $signed['signing_time'],
+            // Thời gian ký: thuộc tính signingTime trong chữ ký; nhiều công cụ (SmartCA...) không ghi thuộc tính này nên lấy từ trường /M của từ điển chữ ký trong PDF.
+            'signing_time' => $signed['signing_time'] ?? $this->signingTimeFromDictionary($pdf, $range),
             'digest' => $algo,
             'signature_sha256' => hash('sha256', $signed['signature']),
         ];
 
         return ['ok' => $errors === [], 'errors' => $errors, 'certificate' => $certificate];
+    }
+
+    /**
+     * Thời gian ký ghi ở /M (D:YYYYMMDDHHmmSS+HH'mm') của từ điển chữ ký chứa ByteRange này, dạng ISO 8601; null nếu không có / không đọc được.
+     *
+     * @param  array{0: int, 1: int, 2: int, 3: int}  $range
+     */
+    private function signingTimeFromDictionary(string $pdf, array $range): ?string
+    {
+        $needle = '/ByteRange';
+        $offset = 0;
+        while (($pos = strpos($pdf, $needle, $offset)) !== false) {
+            $offset = $pos + strlen($needle);
+            if (! preg_match('/\G\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/', $pdf, $m, 0, $offset)
+                || [(int) $m[1], (int) $m[2], (int) $m[3], (int) $m[4]] !== $range) {
+                continue;
+            }
+            $window = substr($pdf, max(0, $pos - 500), 1100);
+            if (! preg_match("/\\/M\\s*\\(D:(\\d{14})([+\\-Z])?(\\d{2})?'?(\\d{2})?'?\\)/", $window, $t)) {
+                return null;
+            }
+            $zone = ($t[2] ?? 'Z') === 'Z' || ! isset($t[3]) ? '+00:00' : ($t[2] . $t[3] . ':' . ($t[4] ?? '00'));
+            try {
+                return (new \DateTimeImmutable(substr($t[1], 0, 4) . '-' . substr($t[1], 4, 2) . '-' . substr($t[1], 6, 2) . 'T'
+                    . substr($t[1], 8, 2) . ':' . substr($t[1], 10, 2) . ':' . substr($t[1], 12, 2) . $zone))->format('c');
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /** Gộp mọi giá trị trong tên chủ thể thành 1 chuỗi để tìm MST / CCCD (mỗi CA đặt ở 1 trường khác nhau: UID, serialNumber, CN...). */

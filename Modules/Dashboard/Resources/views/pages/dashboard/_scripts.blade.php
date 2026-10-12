@@ -2187,9 +2187,19 @@ window.rcCalSaveOrderNote = function(btn) {
                        ' <span class="dbar" style="--w:' + w + '%"></span>';
     }
 
+    // Tab Dashboard của Super Admin (Của 365home / Tất cả đối tác / Theo đối tác) — để lần polling không ghi đè thẻ doanh thu bằng số toàn hệ thống.
+    function kpiScopeQuery() {
+        var g = document.querySelector('.ta-kpi-grid');
+        var scope = g ? g.getAttribute('data-revenue-scope') : '';
+        if (!scope || scope === 'all') return '';
+        var pid = g.getAttribute('data-partner-id');
+        return '&revenue_scope=' + encodeURIComponent(scope) + (pid ? '&partner_id=' + encodeURIComponent(pid) : '');
+    }
+
     function pollKpi() {
         var period = getCurrentPeriod();
         var url    = '/admin/api/kpi-stats?period=' + period;
+        url += kpiScopeQuery();
         if (period === 'custom') {
             var cs = document.getElementById('ta-custom-start');
             var ce = document.getElementById('ta-custom-end');
@@ -2403,6 +2413,7 @@ window.rcCalSaveOrderNote = function(btn) {
     pollKpi = function() {
         var period = getCurrentPeriod();
         var url    = '/admin/api/kpi-stats?period=' + period;
+        url += kpiScopeQuery();
         if (period === 'custom') {
             var cs = document.getElementById('ta-custom-start');
             var ce = document.getElementById('ta-custom-end');

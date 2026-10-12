@@ -494,13 +494,13 @@
                     <template x-if="status && status.stage === 'contract_sent'">
                         <div class="space-y-5">
                             <h2 class="text-lg font-bold text-gray-900">Ký hợp đồng hợp tác</h2>
-                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn.</p>
-                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
+                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng, tải PDF về ký bằng chữ ký số (CKS) của bạn rồi tải bản đã ký lên.</p>
+                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng, tải PDF về ký bằng chữ ký số (CKS) của bạn rồi tải bản đã ký lên. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
                             <template x-if="contract && contract.content">
                                 <div class="max-h-96 overflow-y-auto rounded-lg border border-gray-200 p-4 text-sm text-gray-800" x-html="contract.content"></div>
                             </template>
                             <div class="grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Cách ký hợp đồng">
-                                <label class="flex items-start gap-3 rounded-lg border p-3 cursor-pointer" :class="signMethod === 'otp' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'">
+                                <label x-show="signMethods.includes('otp')" class="flex items-start gap-3 rounded-lg border p-3 cursor-pointer" :class="signMethod === 'otp' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'">
                                     <input type="radio" value="otp" x-model="signMethod" class="mt-1">
                                     <span><span class="block font-semibold text-gray-900">Xác nhận bằng mã OTP</span>
                                         <span class="block text-sm text-gray-600">Nhận mã gửi về email đã đăng ký. Phù hợp khi bạn chưa có chữ ký số.</span></span>
@@ -703,6 +703,7 @@
                 get signFirst() { return this.status && this.status.flow ? !!this.status.flow.sign_before_review : this.signFirstDefault; },
                 get stepLabels() { return this.signFirst ? ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Ký hợp đồng', 'Chờ duyệt'] : ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Gửi duyệt', 'Ký hợp đồng']; },
                 get signStep() { return this.signFirst ? 3 : 4; },
+                get signMethods() { const c = this.contract || (this.status && this.status.contract); return (c && c.sign_methods && c.sign_methods.length) ? c.sign_methods : ['cks']; },
                 get reviewStep() { return this.signFirst ? 4 : 3; },
                 recoverOpen: false, rec: { phone: '', email: '' },
                 step: 0, loading: false, message: '', messageOk: false, errors: {},
@@ -721,7 +722,7 @@
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 // Cách ký của đối tác: 'otp' (mã gửi email) hoặc 'cks' (chữ ký số của đối tác — tải PDF, ký, tải lên)
-                signMethod: 'otp',
+                signMethod: 'cks',
                 cks: { signer_name: '', agree: false, file: null },
                 infoFields: [
                     { key: 'legal_name', label: 'Tên pháp lý (công ty / hộ kinh doanh)', required: true, full: true },

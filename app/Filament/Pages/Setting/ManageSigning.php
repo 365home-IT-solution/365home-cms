@@ -61,7 +61,7 @@ class ManageSigning extends SettingsPage
             Forms\Components\Section::make('Cách nền tảng (Bên A) ký hợp đồng')
                 ->description('Áp dụng khi nền tảng ký hợp đồng và phụ lục với đối tác Homestay, sau khi đối tác đã xác nhận. Phần đối tác xác nhận (OTP email) không đổi.')
                 ->schema([
-                    Forms\Components\Select::make('platform_sign_method')->label('Cách ký')->native(false)->selectablePlaceholder(false)->default('auto')
+                    Forms\Components\Select::make('platform_sign_method')->label('Cách ký')->native(false)->selectablePlaceholder(false)->default('auto')->visible(fn () => \App\Services\ContractSigning\ContractSigningManager::platformAutoAllowed())
                         ->options([
                             'auto' => 'Ký tự động qua chữ ký số từ xa (mặc định) — dùng nhà cung cấp cấu hình bên dưới (MISA eSign, VNPT SmartCA...)',
                             'usb' => 'Ký bằng USB token — tải PDF về ký trên máy có USB rồi tải bản đã ký lên',

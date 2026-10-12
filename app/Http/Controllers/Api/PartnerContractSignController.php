@@ -75,6 +75,9 @@ class PartnerContractSignController extends Controller
     public function sendOtp(string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): JsonResponse
     {
         $version = $this->version($token);
+        if (! \App\Services\ContractSigning\ContractSigningManager::otpAllowed()) {
+            return response()->json(['message' => 'Hợp đồng được ký bằng chữ ký số: tải PDF về, ký rồi tải bản đã ký lên (POST confirm-cks).', 'code' => 'OTP_DISABLED'], 410);
+        }
         if (! $documents->canPartnerSign($version->partner)) {
             return response()->json(['message' => 'Hồ sơ pháp lý chưa đủ điều kiện ký.'], 409);
         }
@@ -100,6 +103,9 @@ class PartnerContractSignController extends Controller
     public function confirm(Request $request, string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): JsonResponse
     {
         $version = $this->version($token);
+        if (! \App\Services\ContractSigning\ContractSigningManager::otpAllowed()) {
+            return response()->json(['message' => 'Hợp đồng được ký bằng chữ ký số: tải PDF về, ký rồi tải bản đã ký lên (POST confirm-cks).', 'code' => 'OTP_DISABLED'], 410);
+        }
         if (! $documents->canPartnerSign($version->partner)) {
             return response()->json(['message' => 'Hồ sơ pháp lý chưa đủ điều kiện ký.'], 409);
         }
@@ -119,9 +125,15 @@ class PartnerContractSignController extends Controller
             'partner_signed_ip' => $request->ip(), 'partner_signed_user_agent' => (string) $request->userAgent(),
         ]);
 
+        // Bên A đã ký trước thì hợp đồng có hiệu lực ngay khi đối tác xác nhận.
+        app(\App\Services\PartnerContractWorkflowService::class)->completeAfterPartnerSignature($version);
         app(\App\Services\PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
 
-        return response()->json(['message' => 'Đã xác nhận hợp đồng.', 'data' => ['partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String()]]);
+        return response()->json(['message' => 'Đã xác nhận hợp đồng.', 'data' => [
+            'partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String(),
+            'is_fully_signed' => $version->fresh()->isFullySigned(),
+            'contract_status' => $version->partner->fresh()->contract_status,
+        ]]);
     }
 
     private function version(string $token): PartnerContractVersion

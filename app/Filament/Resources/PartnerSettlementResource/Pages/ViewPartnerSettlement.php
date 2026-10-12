@@ -66,6 +66,7 @@ class ViewPartnerSettlement extends ViewRecord
                 TextEntry::make('commission_total')->label('Hoa hồng')->state(fn () => self::money($this->settlement()->commission_total)),
                 TextEntry::make('subsidy_total')->label('365home bù (khuyến mãi 365home chịu)')->state(fn () => self::money($this->settlement()->subsidy_total)),
                 TextEntry::make('platform_collected_total')->label('365home đã thu hộ')->state(fn () => self::money($this->settlement()->platform_collected_total)),
+                TextEntry::make('platform_refunded_total')->label('365home hoàn thay cho khách (trừ vào doanh thu)')->state(fn () => self::money($this->settlement()->platform_refunded_total)),
                 TextEntry::make('net')->label('Kết quả')->columnSpanFull()->weight('bold')
                     ->state(fn () => match ($this->settlement()->direction()) {
                         'partner_pays' => 'Đối tác nộp 365home ' . self::money($this->settlement()->net_amount),

@@ -36,6 +36,7 @@ class ContractSignController extends Controller
             'partner' => $version->partner,
             'canSign' => $eligible && ! $version->isPartnerConfirmed(),
             'legalDocumentsEligible' => $eligible,
+            'otpAllowed' => \App\Services\ContractSigning\ContractSigningManager::otpAllowed(),
             'framedContent' => PartnerContractRenderer::renderFramed($version->content, $version->partner, $version),
         ]);
     }
@@ -43,6 +44,10 @@ class ContractSignController extends Controller
     public function sendOtp(string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): RedirectResponse
     {
         $version = $this->findVersion($token);
+
+        if (! \App\Services\ContractSigning\ContractSigningManager::otpAllowed()) {
+            return back()->with('error', 'Hợp đồng được ký bằng chữ ký số: tải PDF về, ký rồi tải bản đã ký lên.');
+        }
 
         if (! $documents->canPartnerSign($version->partner)) {
             return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
@@ -78,6 +83,10 @@ class ContractSignController extends Controller
     {
         $version = $this->findVersion($token);
 
+        if (! \App\Services\ContractSigning\ContractSigningManager::otpAllowed()) {
+            return back()->with('error', 'Hợp đồng được ký bằng chữ ký số: tải PDF về, ký rồi tải bản đã ký lên.');
+        }
+
         if (! $documents->canPartnerSign($version->partner)) {
             return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
         }
@@ -109,7 +118,13 @@ class ContractSignController extends Controller
             'partner_signed_user_agent' => (string) $request->userAgent(),
         ]);
 
+        // Bên A đã ký trước thì hợp đồng có hiệu lực ngay khi đối tác xác nhận.
+        app(\App\Services\PartnerContractWorkflowService::class)->completeAfterPartnerSignature($version);
         app(\App\Services\PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
+
+        if ($version->fresh()->isPlatformSigned()) {
+            return back()->with('success', 'Xác nhận thành công! Hợp đồng đã được cả hai bên ký và có hiệu lực. Thông tin tài khoản sẽ được gửi về email của bạn. Cảm ơn bạn đã hợp tác.');
+        }
 
         return back()->with('success', $version->partner->fresh()->verification_status === 'approved'
             ? 'Xác nhận thành công! Hợp đồng sẽ được hoàn tất chữ ký số bởi nền tảng trong ít phút. Cảm ơn bạn đã hợp tác.'
@@ -142,6 +157,10 @@ class ContractSignController extends Controller
             $cks->submit($version, (string) file_get_contents($request->file('signed_pdf')->getRealPath()), $data['signer_name'] ?? null, (string) $request->ip(), (string) $request->userAgent());
         } catch (ValidationException $e) {
             return back()->with('error', collect($e->errors())->flatten()->first())->withInput();
+        }
+
+        if ($version->fresh()->isPlatformSigned()) {
+            return back()->with('success', 'Đã kiểm tra chữ ký số của bạn! Hợp đồng đã được cả hai bên ký và có hiệu lực. Thông tin tài khoản sẽ được gửi về email của bạn. Cảm ơn bạn đã hợp tác.');
         }
 
         return back()->with('success', $version->partner->fresh()->verification_status === 'approved'

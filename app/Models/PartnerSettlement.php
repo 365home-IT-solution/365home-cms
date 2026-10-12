@@ -34,7 +34,7 @@ class PartnerSettlement extends Model
 
     protected $fillable = [
         'code', 'partner_id', 'period_start', 'period_end', 'cycle', 'status', 'orders_count', 'revenue_total',
-        'commission_total', 'subsidy_total', 'platform_collected_total', 'net_amount', 'sent_at', 'due_at', 'reminded_at',
+        'commission_total', 'subsidy_total', 'platform_collected_total', 'platform_refunded_total', 'net_amount', 'sent_at', 'due_at', 'reminded_at',
         'paid_at', 'deducted_at', 'deducted_entry_id', 'paid_out_at', 'paid_out_reference', 'paid_out_by',
         'payos_order_code', 'payos_payment_link_id', 'payos_checkout_url', 'payos_qr_code', 'payos_bank_bin',
         'payos_account_number', 'payos_account_name', 'payos_expired_at', 'note', 'created_by', 'invoice_no', 'invoiced_at', 'invoiced_by',
@@ -48,6 +48,7 @@ class PartnerSettlement extends Model
         'commission_total'         => 'integer',
         'subsidy_total'            => 'integer',
         'platform_collected_total' => 'integer',
+        'platform_refunded_total' => 'integer',
         'net_amount'               => 'integer',
         'sent_at'                  => 'datetime',
         'due_at'                   => 'datetime',

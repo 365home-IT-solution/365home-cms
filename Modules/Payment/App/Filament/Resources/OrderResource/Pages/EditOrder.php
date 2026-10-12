@@ -765,6 +765,12 @@ class EditOrder extends EditRecord
                         ->label('Phương thức hoàn')
                         ->options(['cash' => 'Tiền mặt', 'transfer' => 'Chuyển khoản'])
                         ->required(),
+                    \Filament\Forms\Components\Select::make('refund_fault')
+                        ->label('Lỗi thuộc về')
+                        ->options(['partner' => 'Cơ sở của Bên B (trừ vào doanh thu đối tác)', 'platform' => 'Vận hành của Bên A / 365home (Bên A tự chịu, không khấu trừ)'])
+                        ->default('partner')
+                        ->native(false)
+                        ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || (auth()->user()?->belongsToPlatformPartner() ?? false)),
                     \Filament\Forms\Components\Textarea::make('refund_reason')
                         ->label('Lý do hoàn tiền / huỷ đơn')
                         ->rows(2),
@@ -783,6 +789,8 @@ class EditOrder extends EditRecord
                             $data['refund_method'],
                             $data['refund_reason'] ?? null,
                             auth()->id(),
+                            null,
+                            $data['refund_fault'] ?? null,
                         );
 
                         AuditLogger::log(

@@ -23,12 +23,14 @@ class PdfIncrementalSigner
         // File đã có chữ ký (ký chồng: bên A ký sau bên B): lấy đúng PHIÊN BẢN MỚI NHẤT của catalog/trang và thêm trường chữ ký vào AcroForm đang có,
         // không ghi đè — ghi đè sẽ làm mất chữ ký trước đó.
         $existingSignatures = preg_match_all('/\/ByteRange\s*\[/', $pdfBytes);
-        [$catalogObjNum, $catalogDict] = $existingSignatures > 0 ? $this->latestRevision($pdfBytes, $this->rootObjectNumber($pdfBytes)) : $this->findObjectByType($pdfBytes, 'Catalog');
+        // Có sẵn trường chữ ký còn trống (xem addEmptySignatureField): vẫn phải thêm vào AcroForm đang có chứ không dựng AcroForm mới đè lên.
+        $incremental = $existingSignatures > 0 || str_contains($pdfBytes, '/AcroForm');
+        [$catalogObjNum, $catalogDict] = $incremental ? $this->latestRevision($pdfBytes, $this->rootObjectNumber($pdfBytes)) : $this->findObjectByType($pdfBytes, 'Catalog');
         [$pageObjNum, $pageDict] = $this->findObjectByType($pdfBytes, 'Page');
-        if ($existingSignatures > 0) {
+        if ($incremental) {
             [$pageObjNum, $pageDict] = $this->latestRevision($pdfBytes, $pageObjNum);
         }
-        $existingAcro = $existingSignatures > 0 ? $this->existingAcroForm($pdfBytes, $catalogDict) : null;
+        $existingAcro = $incremental ? $this->existingAcroForm($pdfBytes, $catalogDict) : null;
 
         $sigObjNum = $maxObjNum + 1;
         $widgetObjNum = $maxObjNum + 2;

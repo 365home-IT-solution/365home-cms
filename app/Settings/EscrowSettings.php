@@ -18,6 +18,9 @@ class EscrowSettings extends Settings
     /** @var array<int, int> Mã tỉnh/thành (provinces.code) phải ký quỹ và tính hoa hồng ngay từ đầu, không được miễn. */
     public array $immediate_province_codes;
 
+    /** Điều 4.2 hợp đồng mẫu CT: khoản tiền đảm bảo (đồng), in vào hợp đồng và là mức ký quỹ bắt buộc của đối tác mẫu CT. */
+    public int $guarantee_vnd = 1000000;
+
     /** @var array<int, int> Nhắc đối tác nạp ký quỹ trước khi hết miễn phí bao nhiêu ngày. */
     public array $reminder_days;
 
