@@ -102,7 +102,10 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
         }
 
         return response()->json(
-            \Modules\Dashboard\App\Services\KpiService::getData($period, $user, $customStart, $customEnd, $branchCategoryIds)
+            \Modules\Dashboard\App\Services\KpiService::getData(
+                $period, $user, $customStart, $customEnd, $branchCategoryIds,
+                \Modules\Dashboard\App\Services\KpiService::partnerIdsForScope($user, $request->query('revenue_scope'), $request->query('partner_id'))
+            )
         );
     })->name('admin.kpi-stats');
 

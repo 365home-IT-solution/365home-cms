@@ -373,6 +373,7 @@ class OrderPaymentController extends Controller
             'amount' => 'required|integer|min:1',
             'method' => 'required|in:cash,transfer',
             'reason' => 'nullable|string|max:500',
+            'fault' => 'nullable|in:partner,platform',
         ]);
 
         $order = Order::where('order_code', $orderCode)->first();
@@ -388,6 +389,8 @@ class OrderPaymentController extends Controller
                 $request->input('method'),
                 $request->input('reason'),
                 $admin->id,
+                null,
+                $request->input('fault'),
             );
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

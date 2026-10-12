@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\PartnerContractVersion;
 use App\Services\PdfSigning\ContractPdfRenderer;
+use App\Services\PdfSigning\ContractSignatureFields;
 use App\Services\PdfSigning\UploadedPdfSignatureVerifier;
 use App\Support\PartnerContractRenderer;
 use Illuminate\Validation\ValidationException;
@@ -31,15 +32,19 @@ class PartnerContractCksService
         $this->assertCanSign($version);
         $fileName = "hop-dong-{$version->id}-doi-tac-can-ky.pdf";
 
+        // Nền tảng đã ký trước: bản đối tác ký tiếp CHÍNH LÀ file đã có chữ ký của nền tảng (không render lại, nếu không sẽ mất chữ ký đó) — PDF cuối có đủ 2 chữ ký.
+        $platformSigned = $version->isPlatformSigned() ? $version->getFirstMedia('signed_pdf') : null;
+        $platformPdf = $platformSigned && is_file($platformSigned->getPath()) ? (string) file_get_contents($platformSigned->getPath()) : null;
+
         $stored = $version->getFirstMedia('partner_base_pdf');
         if ($stored && is_file($stored->getPath()) && filled($version->partner_sign_base_hash)) {
             $pdf = (string) file_get_contents($stored->getPath());
-            if (hash_equals($version->partner_sign_base_hash, hash('sha256', $pdf))) {
+            if (hash_equals($version->partner_sign_base_hash, hash('sha256', $pdf)) && ($platformPdf === null || hash_equals(hash('sha256', $platformPdf), hash('sha256', $pdf)))) {
                 return ['pdf' => $pdf, 'file_name' => $fileName];
             }
         }
 
-        $pdf = ContractPdfRenderer::render(PartnerContractRenderer::renderFramed($version->content, $version->partner, $version));
+        $pdf = $platformPdf ?? ContractPdfRenderer::render(PartnerContractRenderer::renderFramed($version->content, $version->partner, $version));
         $version->addMediaFromString($pdf)->usingFileName($fileName)->toMediaCollection('partner_base_pdf', 'local');
         $version->update([
             'partner_sign_base_hash' => hash('sha256', $pdf),
@@ -70,10 +75,20 @@ class PartnerContractCksService
         $certificate = $check['certificate'];
         $this->assertTrustworthy($version, $certificate);
 
+        // Nền tảng ký SAU khi đối tác tải file: file đối tác ký không chứa chữ ký của nền tảng — phải tải lại bản mới nhất để ký.
+        if ($version->isPlatformSigned()) {
+            $platformSigned = $version->getFirstMedia('signed_pdf');
+            $platformPdf = $platformSigned && is_file($platformSigned->getPath()) ? (string) file_get_contents($platformSigned->getPath()) : null;
+            if ($platformPdf !== null && ! hash_equals(hash('sha256', $platformPdf), (string) $version->partner_sign_base_hash)) {
+                throw ValidationException::withMessages(['signed_pdf' => 'Nền tảng đã ký hợp đồng sau khi bạn tải file này. Hãy tải lại PDF mới nhất, ký rồi tải lên lại.']);
+            }
+        }
+
         $name = trim((string) $signerName) !== '' ? trim((string) $signerName) : (string) ($certificate['cert_subject'] ?? 'Đối tác');
-        $now = now();
+        $now = ContractSignatureFields::trustedSigningTime($certificate['signing_time'] ?? null, now());
         $certificate['warnings'] = ['Chưa đối chiếu chuỗi tin cậy tới CA gốc và trạng thái thu hồi chứng thư — kiểm tra thêm bằng công cụ của NEAC nếu cần.'];
 
+        $platformAlreadySigned = $version->isPlatformSigned();
         $version->addMediaFromString($signedPdf)->usingFileName("hop-dong-{$version->id}-doi-tac-da-ky.pdf")->toMediaCollection('partner_signed_pdf', 'local');
         $version->update([
             'partner_confirmed_at' => $now,
@@ -84,12 +99,19 @@ class PartnerContractCksService
             'partner_signed_ip' => $ip,
             'partner_signed_user_agent' => $userAgent,
             'partner_signature_certificate' => $certificate,
+        ] + ($platformAlreadySigned ? [] : [
             // Bản đối tác đã ký chính là bản nền tảng sẽ ký chồng lên.
             'platform_sign_base_hash' => hash('sha256', $signedPdf),
             'platform_sign_base_length' => strlen($signedPdf),
             'platform_sign_prepared_at' => $now,
-        ]);
-        $version->addMediaFromString($signedPdf)->usingFileName("hop-dong-{$version->id}-can-ky.pdf")->toMediaCollection('platform_base_pdf', 'local');
+        ]));
+        if ($platformAlreadySigned) {
+            // Nền tảng đã ký trước: file đối tác vừa ký đã có đủ 2 chữ ký — đây là bản hợp đồng đã ký cuối cùng, lưu thay bản chỉ có chữ ký nền tảng.
+            $version->addMediaFromString($signedPdf)->usingFileName("hop-dong-{$version->id}-" . $now->format('YmdHis') . '.pdf')->toMediaCollection('signed_pdf', 'local');
+            app(PartnerContractWorkflowService::class)->completeAfterPartnerSignature($version);
+        } else {
+            $version->addMediaFromString($signedPdf)->usingFileName("hop-dong-{$version->id}-can-ky.pdf")->toMediaCollection('platform_base_pdf', 'local');
+        }
 
         app(PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
 

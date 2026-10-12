@@ -9,7 +9,28 @@ use Modules\Payment\Entities\Order;
 
 class KpiService
 {
-    public static function getData(string $period, $user = null, ?string $customStart = null, ?string $customEnd = null, ?array $branchCategoryIds = null): array
+    /**
+     * Phạm vi doanh thu cho Super Admin: all (null — không thu hẹp) | own (chỉ đối tác nền tảng 365home) | partners (mọi đối tác, không gồm 365home và
+     * đối tác hệ thống) | partner (+ $partnerId: một đối tác). Người không phải Super Admin: luôn null (đã bị khoá theo đối tác của mình).
+     *
+     * @return array<int, string>|null null = không thu hẹp
+     */
+    public static function partnerIdsForScope($user, ?string $scope, ?string $partnerId = null): ?array
+    {
+        if (! $user || ! method_exists($user, 'isSuperAdmin') || ! $user->isSuperAdmin()) {
+            return null;
+        }
+
+        return match ($scope) {
+            'own' => \App\Models\Partner::query()->where('is_platform_partner', true)->pluck('id')->map(fn ($id) => (string) $id)->all(),
+            'partners' => \App\Models\Partner::query()->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->get(['id', 'is_platform_partner'])
+                ->reject(fn ($p) => $p->isSystemPartner() || $p->isPlatformPartner())->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+            'partner' => filled($partnerId) ? [(string) $partnerId] : [],
+            default => null,
+        };
+    }
+
+    public static function getData(string $period, $user = null, ?string $customStart = null, ?string $customEnd = null, ?array $branchCategoryIds = null, ?array $partnerIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
@@ -36,6 +57,11 @@ class KpiService
 
         if ($branchCategoryIds !== null) {
             $query->whereIn('category_id', $branchCategoryIds);
+        }
+
+        // Chỉ Super Admin được thu hẹp theo đối tác (của 365home / một đối tác); người khác luôn bị khoá theo đối tác của mình ở trên.
+        if ($partnerIds !== null && $user && $user->isSuperAdmin()) {
+            $query->whereIn('partner_id', $partnerIds === [] ? [''] : $partnerIds);
         }
 
         if ($period === 'custom') {

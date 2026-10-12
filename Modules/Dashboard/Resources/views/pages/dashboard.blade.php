@@ -17,23 +17,25 @@
 
     @include('dashboard::pages.dashboard._header')
 
-    {{-- Thống kê hoa hồng: Super Admin có thêm tab Các đối tác và Chi tiết đối tác; chủ đối tác có tab Chi tiết của mình. --}}
+    {{-- Super Admin: Của 365home · Tổng quan (mình + đối tác) · Theo đối tác. Chỉ doanh thu; hoa hồng chi tiết ở Quản lý › Thống kê hoa hồng. --}}
     @include('dashboard::pages.dashboard._stats-tabs')
 
-    {{-- Tổng quan giữ nguyên như cũ; chỉ ẩn bằng CSS (không gỡ khỏi DOM) khi đang xem tab thống kê để biểu đồ/script không bị mất. --}}
-    <div @if ($statsTab !== 'overview') style="display:none" @endif>
-        @include('dashboard::pages.dashboard._kpi')
-
-        @include('dashboard::pages.dashboard._room-cards')
-
-        @include('dashboard::pages.dashboard._bottom-grid')
-    </div>
-
-    @if ($statsTab === 'partners' && $this->isStatsPlatform())
-        @include('dashboard::pages.dashboard._stats-partners')
-    @elseif ($statsTab === 'detail' && $this->canViewStats())
-        @include('dashboard::pages.dashboard._stats-detail')
+    @if ($this->activeStatsTab() === 'partner')
+        @include('dashboard::pages.dashboard._stats-partner-select')
     @endif
+
+    {{-- Thẻ doanh thu đổi theo tab; các phần bên dưới (phòng, biểu đồ, hoa hồng...) giữ nguyên ở mọi tab. --}}
+    {{-- Theo đối tác, chọn "Tất cả đối tác": thẻ tóm tắt hoa hồng; chi tiết ở Quản lý › Thống kê hoa hồng. --}}
+    @if ($this->activeStatsTab() === 'partner' && blank($statsPartnerId))
+        @include('dashboard::pages.dashboard._stats-commission-card')
+    @endif
+
+    {{-- Thẻ doanh thu đổi theo tab; các phần bên dưới (phòng, biểu đồ, hoa hồng...) giữ nguyên ở mọi tab. --}}
+    @include('dashboard::pages.dashboard._kpi')
+
+    @include('dashboard::pages.dashboard._room-cards')
+
+    @include('dashboard::pages.dashboard._bottom-grid')
 
 </div>
 </div>

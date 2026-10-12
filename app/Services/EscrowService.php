@@ -79,6 +79,11 @@ class EscrowService
         if ($partner->escrow_enforced_from && $partner->escrow_enforced_from->isFuture()) {
             return self::STATE_GRACE;
         }
+        // Hợp đồng mẫu CT (Điều 4.2): khoản tiền đảm bảo nộp một lần TRƯỚC khi bắt đầu hợp tác. Chưa nộp thì chưa mở bán; đã nộp nhưng bị khấu trừ xuống dưới mức
+        // thì chỉ cảnh báo — hợp đồng không có quy định ngưng bán theo số dư hay hạn nạp bù.
+        if ($partner->hasGuarantee()) {
+            return $balance > 0 ? self::STATE_LOW : self::STATE_SUSPENDED;
+        }
         if ($balance <= 0 || $balance * 100 < $min * (int) config('escrow.suspend_below_percent')
             || ($partner->escrow_topup_due_at && $partner->escrow_topup_due_at->isPast())) {
             return self::STATE_SUSPENDED;

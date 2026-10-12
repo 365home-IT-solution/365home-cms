@@ -10,7 +10,10 @@
         return compact('label', 'value', 'hint', 'color');
     };
 
+    $income = $isPlatform ? ($stats['income'] ?? null) : null;
+
     $cards = $isPlatform ? [
+        ...($income ? [$card('Tổng thu nhập 365home', $money($income['total']), 'Doanh thu của mình ' . $money($income['own_revenue']) . ' (' . $income['own_orders'] . ' đơn) + thu nhập ròng hoa hồng ' . $money($income['commission_net_income']), '#7c3aed')] : []),
         $card('Hoa hồng thu được', $money($s['commission'] ?? 0), ($s['orders'] ?? 0) . ' đơn đã chốt · tỉ lệ thực tế ' . ($s['effective_commission_rate'] ?? 0) . '%', '#10b981'),
         $card('365home bù khuyến mãi', $money($s['platform_subsidy'] ?? 0), 'Khoản giảm giá do nền tảng chịu', '#f59e0b'),
         $card('Thu nhập ròng của nền tảng', $money($s['platform_net_income'] ?? 0), 'Hoa hồng − khoản bù', '#1f4e79'),
@@ -47,6 +50,16 @@
                 @if ($stats['partner']['fee_free_active']) · <span style="color:#10b981;font-weight:700;">đang miễn hoa hồng đến {{ \Illuminate\Support\Carbon::parse($stats['partner']['fee_free_until'])->format('d/m/Y') }}</span> @endif
             @endif
         </div>
+
+        @php
+            $pending = $stats['pending'] ?? null;
+        @endphp
+        @if ($pending && $pending['orders'] > 0)
+            <div style="border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:12px;padding:10px 14px;font-size:0.85rem;">
+                <strong>Chưa chốt:</strong> {{ $pending['orders'] }} đơn đã thanh toán · {{ $money($pending['customer_paid']) }} (đang ở / sắp tới, chưa trả phòng)
+                → hoa hồng dự kiến khoảng <strong>{{ $money($pending['expected_commission']) }}</strong>. Số này chưa nằm trong các thẻ bên dưới; hệ thống tự tính khi khách trả phòng.
+            </div>
+        @endif
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;">
             @foreach ($cards as $c)

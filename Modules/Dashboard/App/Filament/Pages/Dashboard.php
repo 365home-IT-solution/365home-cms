@@ -32,107 +32,61 @@ class Dashboard extends FilamentDashboard
     public int $commissionMonth;
     public int $commissionYear;
 
-    // ─── Thống kê hoa hồng ngay trên Dashboard (cùng service với trang Quản lý › Thống kê hoa hồng và API commission-stats) ───
-    // Super Admin: Tổng quan (như cũ) · Các đối tác · Chi tiết một đối tác. Chủ đối tác: Tổng quan (như cũ) · Chi tiết (chỉ của chính mình).
-    public string $statsTab = 'overview';
+    // ─── Góc nhìn DOANH THU (chỉ Super Admin): Của 365home · Tổng quan (mình + tất cả đối tác, như cũ) · Theo đối tác (một đối tác hoặc Tất cả đối tác) ───
+    // Chỉ hiển thị doanh thu. Phần tính hoa hồng chi tiết (bảng các đối tác, chi tiết từng đối tác) nằm ở trang Quản lý › Thống kê hoa hồng.
+    public const TAB_OWN = 'own';
+
+    public const TAB_OVERVIEW = 'overview';
+
+    public const TAB_PARTNER = 'partner';
+
+    public string $statsTab = self::TAB_OWN;
 
     public ?string $statsPartnerId = null;
 
-    public string $statsSearch = '';
-
-    public string $statsSort = 'commission';
-
-    public string $statsDirection = 'desc';
-
     public function canViewStats(): bool
-    {
-        $user = auth()->user();
-
-        if (! $user) {
-            return false;
-        }
-
-        return $user->isSuperAdmin()
-            || ($user->isPartnerOwner() && filled($user->partner_id)
-                && \App\Models\Partner::query()->whereKey($user->partner_id)->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->exists());
-    }
-
-    public function isStatsPlatform(): bool
     {
         return (bool) auth()->user()?->isSuperAdmin();
     }
 
+    public function isStatsPlatform(): bool
+    {
+        return $this->canViewStats();
+    }
+
     public function setStatsTab(string $tab): void
     {
-        $allowed = $this->canViewStats() ? ($this->isStatsPlatform() ? ['overview', 'partners', 'detail'] : ['overview', 'detail']) : ['overview'];
-        $this->statsTab = in_array($tab, $allowed, true) ? $tab : 'overview';
+        $this->statsTab = $this->canViewStats() && in_array($tab, [self::TAB_OWN, self::TAB_OVERVIEW, self::TAB_PARTNER], true) ? $tab : self::TAB_OVERVIEW;
     }
 
-    /** Super Admin bấm một dòng ở tab Các đối tác → mở chi tiết đối tác đó. */
-    public function openPartnerDetail(string $partnerId): void
+    /** Tab đang áp dụng với người xem: chủ đối tác/nhân viên luôn là Tổng quan của chính họ. */
+    public function activeStatsTab(): string
     {
-        if ($this->isStatsPlatform()) {
-            $this->statsPartnerId = $partnerId;
-            $this->statsTab = 'detail';
-        }
-    }
-
-    public function sortStatsBy(string $column): void
-    {
-        $this->statsDirection = $this->statsSort === $column && $this->statsDirection === 'desc' ? 'asc' : 'desc';
-        $this->statsSort = $column;
+        return $this->canViewStats() ? $this->statsTab : self::TAB_OVERVIEW;
     }
 
     /**
-     * Kỳ thống kê dùng CHUNG bộ lọc kỳ của phần Tổng quan (nút Hôm nay, 7 ngày, Tháng này, Tuỳ chọn... ở đầu trang): $period, $customStart, $customEnd.
+     * Thẻ tóm tắt hoa hồng ở tab Tất cả đối tác (cùng kỳ với bộ lọc của Tổng quan, cùng số liệu trang Thống kê hoa hồng).
      *
-     * @return array{0: Carbon, 1: Carbon, 2: string}
+     * @return array<string, mixed>|null
      */
-    private function statsRange(\App\Services\CommissionStatsService $service): array
-    {
-        $filter = $this->period === 'ytd' ? 'this_year' : $this->period;
-
-        return $service->range($filter, $this->customStart, $this->customEnd);
-    }
-
-    /** @return array<string, mixed>|null số liệu bảng các đối tác (chỉ Super Admin) */
-    public function statsPartnersTable(): ?array
-    {
-        if (! $this->isStatsPlatform()) {
-            return null;
-        }
-
-        $service = app(\App\Services\CommissionStatsService::class);
-        [$from, $to] = $this->statsRange($service);
-
-        return $service->partnersTable(auth()->user(), $from, $to, trim($this->statsSearch), $this->statsSort, $this->statsDirection);
-    }
-
-    /** @return array<string, mixed>|null chi tiết một đối tác: Super Admin theo statsPartnerId, chủ đối tác luôn là của mình */
-    public function statsDetail(): ?array
+    public function statsCommissionSummary(): ?array
     {
         if (! $this->canViewStats()) {
             return null;
         }
 
-        $user = auth()->user();
-        $partnerId = $this->isStatsPlatform() ? $this->statsPartnerId : $user->partner_id;
-        $partner = $partnerId ? \App\Models\Partner::query()->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->find($partnerId) : null;
-
-        if (! $partner) {
-            return null;
-        }
-
         $service = app(\App\Services\CommissionStatsService::class);
-        [$from, $to] = $this->statsRange($service);
+        [$from, $to] = $service->range($this->period, $this->customStart, $this->customEnd);
+        $data = $service->forPlatform(auth()->user(), $from, $to, null, 1);
 
-        return $service->forPartner($partner, $from, $to);
+        return ['period' => $data['period']['label'], 'summary' => $data['summary']];
     }
 
-    /** @return array<string, string> đối tác Homestay để chọn ở tab Chi tiết (Super Admin) */
+    /** @return array<string, string> đối tác Homestay để chọn ở tab Theo đối tác (không gồm đối tác nền tảng / nội bộ) */
     public function statsPartnerOptions(): array
     {
-        if (! $this->isStatsPlatform()) {
+        if (! $this->canViewStats()) {
             return [];
         }
 
@@ -177,8 +131,12 @@ class Dashboard extends FilamentDashboard
 
         [$startDate, $endDate, $prevStart, $prevEnd, $dateRange, $prevDateRange] = $this->getPeriodDates();
 
-        $currentQuery  = (clone $query)->whereBetween('created_at', [$startDate, $endDate]);
-        $previousQuery = (clone $query)->whereBetween('created_at', [$prevStart, $prevEnd]);
+        // Chỉ các thẻ doanh thu (KPI) đổi theo tab Của 365home / Tổng quan / Theo đối tác; biểu đồ và các phần bên dưới luôn giữ nguyên.
+        $kpiQuery      = $this->baseQuery(true);
+        $currentQuery  = (clone $kpiQuery)->whereBetween('created_at', [$startDate, $endDate]);
+        $previousQuery = (clone $kpiQuery)->whereBetween('created_at', [$prevStart, $prevEnd]);
+        $chartQuery    = (clone $query)->whereBetween('created_at', [$startDate, $endDate]);
+        $chartTotal    = (clone $chartQuery)->count();
 
         $total     = (clone $currentQuery)->count();
         $prevTotal = (clone $previousQuery)->count();
@@ -281,16 +239,16 @@ class Dashboard extends FilamentDashboard
             'failed'    => '#ef4444',
         ];
 
-        $byStatus = (clone $currentQuery)
+        $byStatus = (clone $chartQuery)
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')
             ->pluck('count', 'status')
             ->toArray();
 
         $sources = collect($statusLabels)
-            ->map(function ($label, $key) use ($byStatus, $statusColors, $total) {
+            ->map(function ($label, $key) use ($byStatus, $statusColors, $chartTotal) {
                 $count = $byStatus[$key] ?? 0;
-                $pct   = $total > 0 ? round(($count / $total) * 100, 1) : 0;
+                $pct   = $chartTotal > 0 ? round(($count / $chartTotal) * 100, 1) : 0;
                 return ['key' => $key, 'name' => $label, 'color' => $statusColors[$key], 'count' => $count, 'pct' => $pct];
             })
             ->filter(fn($s) => $s['count'] > 0)
@@ -727,12 +685,12 @@ class Dashboard extends FilamentDashboard
         return empty($years) ? [Carbon::now()->year] : $years;
     }
 
-    private function baseQuery(): Builder
+    private function baseQuery(bool $scoped = false): Builder
     {
         $query = Order::query()->countedInStats();
         $user  = auth()->user();
         if (! $user || $user->isSuperAdmin()) {
-            return $query;
+            return $scoped ? $this->applyStatsScope($query) : $query;
         }
         static::scopeToPartner($query, $user);
         $allCategoryIds = $user->allowedCategoryIds();
@@ -741,6 +699,31 @@ class Dashboard extends FilamentDashboard
             return $query;
         }
         return $query->whereIn('category_id', $allCategoryIds);
+    }
+
+    /** Super Admin: thu hẹp theo tab đang xem (của 365home / một đối tác). Tab Tổng quan giữ nguyên toàn bộ. */
+    private function applyStatsScope(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        if ($this->statsTab === self::TAB_OWN) {
+            $own = \App\Models\Partner::query()->where('is_platform_partner', true)->pluck('id')->all();
+
+            return $query->whereIn($table . '.partner_id', $own === [] ? [''] : $own);
+        }
+
+        if ($this->statsTab === self::TAB_PARTNER) {
+            // Theo đối tác: chọn một đối tác, hoặc "Tất cả đối tác" (mọi đối tác gộp, không gồm 365home).
+            if (filled($this->statsPartnerId)) {
+                return $query->where($table . '.partner_id', $this->statsPartnerId);
+            }
+
+            $ids = array_keys($this->statsPartnerOptions());
+
+            return $query->whereIn($table . '.partner_id', $ids === [] ? [''] : $ids);
+        }
+
+        return $query;
     }
 
     // Lọc đơn về đúng đối tác của user (user không có partner_id → không thấy gì) — không dựa vào

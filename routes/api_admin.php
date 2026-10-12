@@ -115,6 +115,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('terms/acceptances/{acceptance}', [\App\Http\Controllers\Api\Admin\TermsController::class, 'showAcceptance'])->defaults('terms_type', 'partner_homestay')->name('terms.acceptances.show');
     Route::get('partners/{partner}/terms-acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'partnerAcceptances'])->defaults('terms_type', 'partner_homestay')->name('partners.terms-acceptances');
     Route::get('partners/{partner}/contract/signed-pdf', [AdminPartnerController::class, 'downloadSignedPdf'])->name('partners.contract.signed-pdf');
+    Route::get('partners/{partner}/contract/display-pdf', [AdminPartnerController::class, 'displayPdf'])->name('partners.contract.display-pdf');
     Route::get('partners/{partner}/contract/versions',[AdminPartnerController::class, 'contractVersions'])->name('partners.contract.versions.index');
     Route::post('partners/{partner}/contract/versions', [AdminPartnerController::class, 'storeContractVersion'])->name('partners.contract.versions.store');
     Route::post('partners/{partner}/contract/renew', [AdminPartnerController::class, 'renewContract'])->name('partners.contract.renew');

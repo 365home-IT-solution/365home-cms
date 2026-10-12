@@ -32,7 +32,7 @@ class EscrowSettingsController extends Controller
         return response()->json(['data' => $this->payload(app(EscrowSettings::class))]);
     }
 
-    // PUT|PATCH /api/admin/escrow-settings — body (đều tuỳ chọn, gửi trường nào đổi trường đó): free_trial_enabled, free_trial_months, immediate_province_codes[], reminder_days[]
+    // PUT|PATCH /api/admin/escrow-settings — body (đều tuỳ chọn, gửi trường nào đổi trường đó): free_trial_enabled, free_trial_months, guarantee_vnd, immediate_province_codes[], reminder_days[]
     public function update(Request $request): JsonResponse
     {
         $this->superAdmin($request);
@@ -40,6 +40,7 @@ class EscrowSettingsController extends Controller
         $data = $request->validate([
             'free_trial_enabled'         => ['sometimes', 'boolean'],
             'free_trial_months'          => ['sometimes', 'integer', 'min:1', 'max:12'],
+            'guarantee_vnd'              => ['sometimes', 'integer', 'min:100000', 'max:100000000'],
             'immediate_province_codes'   => ['sometimes', 'array'],
             'immediate_province_codes.*' => ['integer', 'distinct', Rule::exists(Province::class, 'code')],
             'reminder_days'              => ['sometimes', 'array'],
@@ -51,7 +52,7 @@ class EscrowSettingsController extends Controller
         foreach ($data as $key => $value) {
             $settings->{$key} = match ($key) {
                 'free_trial_enabled'       => (bool) $value,
-                'free_trial_months'        => (int) $value,
+                'free_trial_months', 'guarantee_vnd' => (int) $value,
                 default                    => array_values(array_map('intval', (array) $value)),
             };
         }
@@ -79,6 +80,7 @@ class EscrowSettingsController extends Controller
         return [
             'free_trial_enabled'       => (bool) $settings->free_trial_enabled,
             'free_trial_months'        => (int) $settings->free_trial_months,
+            'guarantee_vnd'            => \App\Support\ContractTerms::guaranteeVnd(),
             'immediate_province_codes' => $immediate,
             'immediate_provinces'      => collect($immediate)->map(fn (int $code) => ['code' => $code, 'name' => $names[$code] ?? null])->values(),
             'reminder_days'            => array_map('intval', $settings->reminder_days),

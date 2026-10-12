@@ -120,6 +120,17 @@ class PartnerContractWorkflowService
         // Mã số hợp đồng TỰ SINH (001/2026/HĐHT-365) — cấp 1 lần cho đối tác, giữ nguyên khi tạo lại phiên bản.
         app(ContractCodeService::class)->assign($partner);
 
+        // Mẫu hợp đồng theo vị trí cơ sở (CT: trong Cần Thơ, có khoản tiền đảm bảo; VT+ĐL: ngoài Cần Thơ) và kỳ đối soát ghi trong chính mẫu đó: cả hai mẫu đối soát
+        // 2 lần/tháng (ngày 01 và 15). Chỉ ghi khi hợp đồng chưa có hiệu lực — sau khi ký, đổi tỉnh/thành không làm đổi luồng tiền của hợp đồng đã ký.
+        if (! $isAddendum && ! $partner->isMinihouse() && blank($partner->contract_signed_at)) {
+            $template = Partner::templateForProvince($partner->province_code);
+            $partner->forceFill([
+                'contract_template' => $template,
+                'payment_cycle' => 'biweekly',
+            ])->saveQuietly();
+            $partner->refresh();
+        }
+
         $content = PartnerContractRenderer::render($partner, $kind);
         $version = $partner->contractVersions()->create([
             'version_label' => $label,
@@ -217,19 +228,29 @@ class PartnerContractWorkflowService
         // Miễn phí tháng đầu (chỉ đối tác mới): căn cứ là điều "Ưu đãi tháng đầu" đã ghi trong hợp đồng được ký — công tắc bật/tắt sau đó không làm đổi hợp đồng đã tạo.
         // Trong thời gian miễn phí ký quỹ chưa bắt buộc: hạn áp dụng = ngày hết miễn phí (hết hạn mà chưa nạp đủ thì ngưng bán như đối tác mới ban đầu).
         $trial = app(PartnerTrialService::class);
-        $trialUntil = (! $alreadyOperating && $version && $trial->contractPromisesTrial($version)) ? $trial->grant($partner, $at, $by) : null;
+        $trialUntil = (! $alreadyOperating && $trial->grantsOnActivation($partner, $version)) ? $trial->grant($partner, $at, $by) : null;
 
         $escrow = app(EscrowService::class);
-        $min = (int) ($partner->escrow_min_amount ?: $escrow->suggestedMinAmount($partner));
-        $escrow->setMinAmount($partner, $min, $trialUntil ?? ($alreadyOperating ? now()->addDays((int) config('escrow.initial_grace_days')) : now()->subMinute()), $by);
+        if ($partner->hasNoDeposit()) {
+            // Mẫu VT+ĐL không có khoản tiền đảm bảo/ký quỹ: không đặt mức ký quỹ, không có điều kiện nạp trước khi bán.
+            $min = 0;
+        } else {
+            // Mẫu CT: khoản tiền đảm bảo cố định (Điều 4.2, mặc định 1.000.000đ) phải nộp trước khi bắt đầu hợp tác. Hợp đồng cũ: mức gợi ý như trước.
+            $min = $partner->hasGuarantee()
+                ? \App\Support\ContractTerms::guaranteeVnd()
+                : (int) ($partner->escrow_min_amount ?: $escrow->suggestedMinAmount($partner));
+            // Mẫu CT: miễn hoa hồng tháng đầu KHÔNG miễn khoản tiền đảm bảo — phải nộp trước khi mở bán. Hợp đồng cũ: được hoãn tới hết thời gian miễn phí.
+            $enforceFrom = $partner->hasGuarantee() ? now()->subMinute() : ($trialUntil ?? ($alreadyOperating ? now()->addDays((int) config('escrow.initial_grace_days')) : now()->subMinute()));
+            $escrow->setMinAmount($partner, $min, $enforceFrom, $by);
+        }
 
         $escrow->notifySuperAdmins('payment_flow_effective', 'Đối tác chuyển sang luồng thanh toán mới', ($partner->legal_name ?: $partner->name)
-            . ': hợp đồng/phụ lục đã có hiệu lực — tiền đặt phòng về thẳng đối tác (khi đã cấu hình kênh PayOS)' . ($trialUntil ? '; MIỄN PHÍ tháng đầu đến ' . $trialUntil->format('d/m/Y') . ' (không hoa hồng, chưa bắt nạp ký quỹ)' : '') . '; ký quỹ tối thiểu ' . number_format($min, 0, ',', '.') . 'đ.', $partner);
+            . ': hợp đồng/phụ lục đã có hiệu lực — tiền đặt phòng về thẳng đối tác (khi đã cấu hình kênh PayOS)' . ($trialUntil ? '; MIỄN PHÍ hoa hồng tháng đầu đến ' . $trialUntil->format('d/m/Y') . ($partner->hasGuarantee() ? ' (vẫn phải nộp khoản tiền đảm bảo trước khi mở bán)' : ' (chưa bắt nạp ký quỹ)') : '') . '; ký quỹ tối thiểu ' . number_format($min, 0, ',', '.') . 'đ.', $partner);
     }
 
     /**
-     * Nền tảng ký số hợp đồng sau khi đối tác đã xác nhận OTP. $reExport = true: xuất thêm 1 bản PDF khi đã ký rồi
-     * (không đổi trạng thái hợp đồng).
+     * Nền tảng ký số hợp đồng — KHÔNG phụ thuộc thứ tự: Bên A ký trước hay sau đối tác đều được. Hợp đồng chỉ có hiệu lực (trạng thái hoạt động, luồng tiền,
+     * tài khoản) khi CẢ HAI bên đã ký, ở thời điểm bên ký sau hoàn tất. $reExport = true: xuất thêm 1 bản PDF khi đã ký rồi (không đổi trạng thái hợp đồng).
      *
      * @return array{pdf: string, file_name: string}
      */
@@ -237,8 +258,8 @@ class PartnerContractWorkflowService
     {
         $this->documents->assertContractEligible($partner);
         $version = $partner->contractVersions()->first();
-        if (! $version || ! $version->isPartnerConfirmed()) {
-            throw ValidationException::withMessages(['contract' => 'Đối tác chưa xác nhận hợp đồng bằng OTP.']);
+        if (! $version) {
+            throw ValidationException::withMessages(['contract' => 'Đối tác chưa có hợp đồng điện tử để ký.']);
         }
         if (! $reExport && $version->isPlatformSigned()) {
             throw ValidationException::withMessages(['contract' => 'Hợp đồng đã được nền tảng ký số.']);
@@ -250,6 +271,10 @@ class PartnerContractWorkflowService
         // Tải lại: đã có file PDF ký số lưu trên server thì trả đúng file đó, KHÔNG ký lại.
         if ($reExport && ($stored = $version->getFirstMedia('signed_pdf'))) {
             return ['pdf' => file_get_contents($stored->getPath()), 'file_name' => $stored->file_name];
+        }
+
+        if (! $reExport && ! \App\Services\ContractSigning\ContractSigningManager::platformAutoAllowed()) {
+            throw ValidationException::withMessages(['contract' => 'Nền tảng ký hợp đồng bằng cách tải PDF về ký bằng chữ ký số (USB / CKS) rồi tải bản đã ký lên — không ký tự động.']);
         }
 
         if (! $reExport) {
@@ -290,7 +315,10 @@ class PartnerContractWorkflowService
         return ['pdf' => $result['pdf'], 'file_name' => $fileName];
     }
 
-    /** Hoàn tất khi Bên A đã ký (tự động hoặc USB): ghi chữ ký, chuyển hợp đồng sang hiệu lực, kích hoạt luồng tiền, lưu PDF đã ký. */
+    /**
+     * Bên A đã ký (tự động hoặc tải về ký rồi tải lên): ghi chữ ký. Đối tác đã ký rồi thì hợp đồng có hiệu lực ngay; chưa ký thì hợp đồng vẫn "chờ ký" và
+     * sẽ có hiệu lực khi đối tác ký (xem completeAfterPartnerSignature).
+     */
     private function completePlatformSigning(Partner $partner, PartnerContractVersion $version, User $actor, string $ip, string $userAgent, \DateTimeInterface $signingTime, string $provider, string $method, array $certificate): void
     {
         $signingTime = \Illuminate\Support\Carbon::instance($signingTime);
@@ -303,6 +331,48 @@ class PartnerContractWorkflowService
             'platform_signed_ip' => $ip,
             'platform_signed_user_agent' => $userAgent,
         ]);
+
+        if (! $version->fresh()->isPartnerConfirmed()) {
+            \App\Models\PartnerStatusLog::create([
+                'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $actor->id,
+                'note' => 'Bên A (nền tảng) đã ký hợp đồng trước; hợp đồng có hiệu lực khi đối tác ký.',
+            ]);
+
+            return;
+        }
+
+        $this->activateContract($partner, $version, $actor, $signingTime);
+    }
+
+    /**
+     * Đối tác ký SAU khi Bên A đã ký (OTP hoặc CKS): hoàn tất hợp đồng ở thời điểm đối tác ký. Gọi sau khi đã ghi partner_confirmed_at; không làm gì nếu Bên A
+     * chưa ký (khi đó hợp đồng hoàn tất ở lúc Bên A ký — xem completePlatformSigning).
+     */
+    public function completeAfterPartnerSignature(PartnerContractVersion $version): void
+    {
+        $version = $version->fresh();
+        if (! $version || ! $version->isPartnerConfirmed() || ! $version->isPlatformSigned()) {
+            return;
+        }
+
+        $partner = $version->partner;
+        $actor = $version->platformSignedBy
+            ?? User::role(config('filament-shield.super_admin.name'))->first();
+        if (! $actor) {
+            return;
+        }
+
+        \App\Models\PartnerStatusLog::create([
+            'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $actor->id,
+            'note' => 'Đối tác đã ký sau khi Bên A ký — hợp đồng có hiệu lực.',
+        ]);
+
+        $this->activateContract($partner, $version, $actor, \Illuminate\Support\Carbon::instance($version->partner_confirmed_at));
+    }
+
+    /** Cả hai bên đã ký: chuyển hợp đồng sang hiệu lực, tính thời hạn, kích hoạt luồng tiền (tài khoản đối tác được cấp khi trạng thái hợp đồng thành hoạt động). */
+    private function activateContract(Partner $partner, PartnerContractVersion $version, User $actor, \Illuminate\Support\Carbon $signingTime): void
+    {
         // Phụ lục không đổi ngày hiệu lực/hết hạn của hợp đồng gốc — chỉ chuyển đối tác sang luồng tiền mới (activatePaymentFlow).
         $attributes = $version->isAddendum() ? [] : ['contract_status' => 'active', 'contract_signed_at' => $signingTime];
         $isFirstContract = blank($partner->contract_signed_at);
@@ -333,6 +403,9 @@ class PartnerContractWorkflowService
      */
     public function platformResign(Partner $partner, User $actor, string $ip, string $userAgent): array
     {
+        if (! \App\Services\ContractSigning\ContractSigningManager::platformAutoAllowed()) {
+            throw ValidationException::withMessages(['contract' => 'Nền tảng ký bằng cách tải PDF về ký bằng chữ ký số rồi tải lên — không có bước ký lại tự động.']);
+        }
         $this->documents->assertContractEligible($partner);
         $version = $partner->contractVersions()->first();
         if (! $version || ! $version->isPlatformSigned()) {
@@ -384,13 +457,31 @@ class PartnerContractWorkflowService
         return ['pdf' => $result['pdf'], 'file_name' => $fileName];
     }
 
-    /** Bản hợp đồng đang chờ nền tảng ký: đối tác đã xác nhận OTP, nền tảng chưa ký. */
+    /**
+     * BẢN HIỂN THỊ PDF "như trên web": dựng từ đúng nội dung và trạng thái ký hiện tại (khung ĐẠI DIỆN BÊN A / BÊN B với tên và giờ ký lấy từ chữ ký), cùng
+     * bộ dựng với màn hình xem hợp đồng. Chỉ để xem/in — KHÔNG mang chữ ký số; bản có giá trị ký số là file PDF đã ký (signed_pdf).
+     *
+     * @return array{pdf: string, file_name: string}
+     */
+    public function displayPdf(Partner $partner): array
+    {
+        $version = $partner->contractVersions()->first();
+        if (! $version) {
+            throw ValidationException::withMessages(['contract' => 'Đối tác chưa có hợp đồng điện tử.']);
+        }
+
+        $pdf = ContractPdfRenderer::render(PartnerContractRenderer::renderFramed($version->content, $partner, $version));
+
+        return ['pdf' => $pdf, 'file_name' => "hop-dong-{$version->id}-ban-hien-thi.pdf"];
+    }
+
+    /** Bản hợp đồng đang chờ nền tảng ký: nền tảng chưa ký (đối tác đã ký hay chưa đều được). */
     private function versionAwaitingPlatform(Partner $partner): PartnerContractVersion
     {
         $this->documents->assertContractEligible($partner);
         $version = $partner->contractVersions()->first();
-        if (! $version || ! $version->isPartnerConfirmed()) {
-            throw ValidationException::withMessages(['contract' => 'Đối tác chưa xác nhận hợp đồng bằng OTP.']);
+        if (! $version) {
+            throw ValidationException::withMessages(['contract' => 'Đối tác chưa có hợp đồng điện tử để ký.']);
         }
         if ($version->isPlatformSigned()) {
             throw ValidationException::withMessages(['contract' => 'Hợp đồng đã được nền tảng ký số.']);
@@ -400,7 +491,7 @@ class PartnerContractWorkflowService
     }
 
     /**
-     * Ký bằng USB token, bước 1: PDF hợp đồng CHƯA ký để người giữ chứng thư số ký trên máy của họ. Giữ nguyên từng byte giữa các lần tải
+     * Tải về để ký bằng chữ ký số (USB token hoặc CKS bất kỳ), bước 1: PDF hợp đồng để người giữ chứng thư số ký trên máy của họ. Giữ nguyên từng byte giữa các lần tải
      * (lưu lại bản đã đưa đi ký) để bản tải lên đối chiếu được.
      *
      * @return array{pdf: string, file_name: string}
@@ -434,7 +525,7 @@ class PartnerContractWorkflowService
     }
 
     /**
-     * Ký bằng USB token, bước 2: nhận PDF đã ký, kiểm tra rồi hoàn tất như khi nền tảng ký tự động.
+     * Tải về để ký, bước 2: nhận PDF đã ký, kiểm tra rồi lưu lại (hoàn tất hợp đồng nếu đối tác đã ký) như khi nền tảng ký tự động.
      *
      * @return array{pdf: string, file_name: string, certificate: array<string, mixed>}
      */
@@ -450,7 +541,8 @@ class PartnerContractWorkflowService
             throw ValidationException::withMessages(['signed_pdf' => implode(' ', $check['errors'])]);
         }
 
-        $signingTime = now();
+        // Giờ ký lấy từ chính chữ ký (khớp hình chữ ký trong PDF), không phải giờ tải lên.
+        $signingTime = \App\Services\PdfSigning\ContractSignatureFields::trustedSigningTime($check['certificate']['signing_time'] ?? null, now());
         $this->completePlatformSigning($partner, $version, $actor, $ip, $userAgent, $signingTime, 'usb_token', 'usb', $check['certificate']);
 
         // Bản tải lên chính là bản ký — hợp đồng đã hoàn tất, lưu đúng file đó (không render lại).

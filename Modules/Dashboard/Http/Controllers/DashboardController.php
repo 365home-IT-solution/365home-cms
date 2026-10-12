@@ -47,10 +47,22 @@ class DashboardController extends Controller
             $request->user(),
             $filter === 'custom' ? $request->query('start_date') : null,
             $filter === 'custom' ? $request->query('end_date') : null,
-            $this->resolveBranchCategoryIds($request)
+            $this->resolveBranchCategoryIds($request),
+            $this->resolveRevenuePartnerIds($request)
         );
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Góc nhìn doanh thu của Super Admin cho /kpi-stats: revenue_scope = all (mặc định, mình + mọi đối tác như Tổng quan) | own (chỉ doanh thu của
+     * 365home — đối tác is_platform_partner) | partners (gộp tất cả đối tác, không gồm 365home) | partner (+ partner_id: doanh thu của một đối tác). Người không phải Super Admin: bỏ qua (luôn là đối tác của mình).
+     *
+     * @return array<int, string>|null null = không thu hẹp
+     */
+    private function resolveRevenuePartnerIds(Request $request): ?array
+    {
+        return KpiService::partnerIdsForScope($request->user(), $request->query('revenue_scope'), $request->query('partner_id'));
     }
 
     /**

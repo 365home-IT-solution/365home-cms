@@ -44,9 +44,11 @@ class SettlementService
 
         return match ($cycle) {
             'weekly' => [$today->copy()->startOfWeek()->subWeek(), $today->copy()->startOfWeek()->subDay()],
-            'biweekly' => $today->day >= 16
-                ? [$today->copy()->startOfMonth(), $today->copy()->startOfMonth()->addDays(14)]
-                : [$today->copy()->subMonthNoOverflow()->startOfMonth()->addDays(15), $today->copy()->startOfMonth()->subDay()],
+            // Hợp đồng mẫu VT+ĐL (Điều 4.2): đối soát 2 lần mỗi tháng — ngày 01: doanh thu từ ngày 15 đến hết ngày cuối tháng trước; ngày 15: doanh thu từ ngày 01
+            // đến hết ngày 14 của tháng hiện tại.
+            'biweekly' => $today->day >= 15
+                ? [$today->copy()->startOfMonth(), $today->copy()->startOfMonth()->addDays(13)]
+                : [$today->copy()->subMonthNoOverflow()->startOfMonth()->addDays(14), $today->copy()->startOfMonth()->subDay()],
             default => [$today->copy()->subMonthNoOverflow()->startOfMonth(), $today->copy()->startOfMonth()->subDay()],
         };
     }
@@ -120,11 +122,54 @@ class SettlementService
         return Order::withoutGlobalScopes()
             ->where('partner_id', $partner->id)
             ->whereNull('settlement_id')
-            ->whereNotNull('commission_finalized_at')
-            ->whereNull('subsidy_held_at')
-            // Đơn trong thời gian miễn phí: đối tác tự thu thì không hoa hồng, không bù — không có gì đối soát; đơn 365home thu hộ vẫn vào kỳ để chi lại 100%.
-            ->where(fn ($q) => $q->where('commission_waived', false)->orWhere('collected_by', OrderCommissionService::COLLECTED_PLATFORM))
-            ->where('commission_finalized_at', '<=', $end->copy()->endOfDay());
+            ->where(function ($query) use ($end) {
+                $query->where(function ($q) use ($end) {
+                    $q->whereNotNull('commission_finalized_at')
+                        ->whereNull('subsidy_held_at')
+                        // Đơn trong thời gian miễn phí: đối tác tự thu thì không hoa hồng, không bù — không có gì đối soát; đơn 365home thu hộ vẫn vào kỳ để chi lại 100%.
+                        ->where(fn ($w) => $w->where('commission_waived', false)->orWhere('collected_by', OrderCommissionService::COLLECTED_PLATFORM))
+                        ->where('commission_finalized_at', '<=', $end->copy()->endOfDay());
+                })
+                // 365home đã ứng hoàn tiền cho khách thay đối tác (tiền ở đối tác): khoản ứng được thu hồi ở kỳ đối soát gần nhất (Điều 6.1 của hợp đồng mẫu),
+                // kể cả đơn hoàn toàn bộ (không còn doanh thu nên không có hoa hồng để chốt).
+                ->orWhere(function ($q) use ($end) {
+                    $q->where('status', 'refunded')->where('refund_paid_by', 'platform')->where(fn ($f) => $f->whereNull('refund_fault')->orWhere('refund_fault', '!=', 'platform'))
+                        ->whereIn('collected_by', [OrderCommissionService::COLLECTED_PARTNER, OrderCommissionService::COLLECTED_CASH])
+                        ->where('refunded_at', '<=', $end->copy()->endOfDay());
+                });
+            });
+    }
+
+    /**
+     * Hạn nộp hoa hồng: overdue_days (mặc định 3) NGÀY LÀM VIỆC kể từ lúc gửi bảng (bỏ thứ Bảy, Chủ nhật) — đúng hợp đồng mẫu "03 ngày làm việc";
+     * đặt SETTLEMENT_OVERDUE_BUSINESS_DAYS=false để tính theo ngày dương lịch. Hết ngày cuối cùng mới tính là quá hạn.
+     */
+    public function dueAt(?Carbon $from = null): Carbon
+    {
+        $date = ($from ?? now())->copy();
+        $days = max(0, (int) config('settlement.overdue_days'));
+
+        if (! config('settlement.overdue_business_days', true)) {
+            return $date->addDays($days)->endOfDay();
+        }
+
+        while ($days > 0) {
+            $date->addDay();
+            if (! $date->isWeekend()) {
+                $days--;
+            }
+        }
+
+        return $date->endOfDay();
+    }
+
+    /** Số tiền 365home đã ứng hoàn cho khách của đơn mà tiền đang ở đối tác (đối tác phải hoàn lại 365home); 0 với mọi đơn khác. */
+    private function advancedRefund(Order $order): int
+    {
+        return $order->status === 'refunded' && $order->refund_paid_by === 'platform' && $order->refund_fault !== 'platform'
+            && in_array($order->collected_by, [OrderCommissionService::COLLECTED_PARTNER, OrderCommissionService::COLLECTED_CASH], true)
+            ? (int) $order->refund_amount
+            : 0;
     }
 
     /** Tính lại các tổng của bảng theo đơn đang thuộc bảng. */
@@ -136,6 +181,8 @@ class SettlementService
         $commission = (int) $orders->sum('commission_amount');
         $subsidy = (int) $orders->sum('platform_subsidy');
         $held = (int) $orders->sum(fn (Order $order) => $this->commission->platformCollectedAmount($order));
+        // Khoản 365home đã hoàn cho khách thay đối tác (tiền đang ở đối tác): đối tác hoàn lại cho 365home trong kỳ này.
+        $advanced = (int) $orders->sum(fn (Order $order) => $this->advancedRefund($order));
 
         $settlement->update([
             'orders_count'             => $orders->count(),
@@ -143,7 +190,8 @@ class SettlementService
             'commission_total'         => max(0, $commission),
             'subsidy_total'            => $subsidy,
             'platform_collected_total' => $held,
-            'net_amount'               => $commission - $subsidy - $held,
+            'platform_refunded_total'  => $advanced,
+            'net_amount'               => $commission - $subsidy - $held + $advanced,
         ]);
 
         return $settlement->refresh();
@@ -170,7 +218,7 @@ class SettlementService
         $settlement->update([
             'status'  => Settlement::STATUS_SENT,
             'sent_at' => now(),
-            'due_at'  => $settlement->net_amount > 0 ? now()->addDays((int) config('settlement.overdue_days'))->endOfDay() : null,
+            'due_at'  => $settlement->net_amount != 0 ? $this->dueAt() : null,
         ]);
 
         $partner = $settlement->partner;
@@ -304,7 +352,7 @@ class SettlementService
             if (! $settlement->disputes()->where('status', Dispute::STATUS_OPEN)->exists()) {
                 $settlement->update([
                     'status' => Settlement::STATUS_SENT,
-                    'due_at' => $settlement->net_amount > 0 ? now()->addDays((int) config('settlement.overdue_days'))->endOfDay() : null,
+                    'due_at' => $settlement->net_amount != 0 ? $this->dueAt() : null,
                 ]);
             }
         });
@@ -342,6 +390,16 @@ class SettlementService
 
         Settlement::query()->where('status', Settlement::STATUS_SENT)->where('net_amount', '>', 0)->where('due_at', '<', now())->get()
             ->each(function (Settlement $settlement) use (&$count) {
+                // Hợp đồng mẫu VT+ĐL không có khoản tiền đảm bảo: quá hạn không có gì để trừ — báo Super Admin một lần để xử lý theo Điều 5 (nhắc, chấm dứt).
+                if ($settlement->partner->hasNoDeposit()) {
+                    if (\Illuminate\Support\Facades\Cache::add("settlement-overdue-notified:{$settlement->id}", 1, now()->addDays(60))) {
+                        $this->escrow->notifySuperAdmins('settlement_overdue', 'Đối tác quá hạn nộp hoa hồng', ($settlement->partner->legal_name ?: $settlement->partner->name)
+                            . ": bảng {$settlement->code} quá hạn nộp {$this->money((int) $settlement->net_amount)} — hợp đồng không có ký quỹ nên không tự trừ.", $settlement->partner);
+                    }
+
+                    return;
+                }
+
                 $deducted = DB::transaction(function () use ($settlement) {
                     $locked = Settlement::query()->whereKey($settlement->id)->lockForUpdate()->first();
 
@@ -471,6 +529,7 @@ class SettlementService
             'commission_total'         => $settlement->commission_total,
             'subsidy_total'            => $settlement->subsidy_total,
             'platform_collected_total' => $settlement->platform_collected_total,
+            'platform_refunded_total'  => $settlement->platform_refunded_total,
             'net_amount'               => $settlement->net_amount,
             // Hoá đơn GTGT xuất cho phần hoa hồng của kỳ; tiền ký quỹ không phải doanh thu nên không nằm trong hoá đơn.
             'invoice_amount'           => $settlement->commission_total,

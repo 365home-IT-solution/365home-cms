@@ -165,6 +165,7 @@
                                 @endif
                             </div>
                         @elseif ($canSign)
+                            @if ($otpAllowed)
                             <h2>Xác nhận ký hợp đồng</h2>
                             <ol class="steps">
                                 <li><b>1</b><span>Đọc toàn văn hợp đồng.</span></li>
@@ -194,6 +195,15 @@
 
                                 <button type="submit" class="btn-primary">Xác nhận ký hợp đồng</button>
                             </form>
+
+                            @else
+                            <h2>Ký hợp đồng bằng chữ ký số</h2>
+                            <ol class="steps">
+                                <li><b>1</b><span>Đọc toàn văn hợp đồng.</span></li>
+                                <li><b>2</b><span>Tải PDF hợp đồng về và ký bằng chữ ký số của bạn (USB token, SmartCA, MISA eSign...).</span></li>
+                                <li><b>3</b><span>Tải file PDF đã ký lên bên dưới để hệ thống kiểm tra và ghi nhận.</span></li>
+                            </ol>
+                            @endif
 
                             <div class="cks-box">
                                 <h2 style="font-size:.95rem;margin:0 0 4px;">Hoặc ký bằng chữ ký số (CKS)</h2>

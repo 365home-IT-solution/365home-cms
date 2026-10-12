@@ -1,5 +1,6 @@
 {{-- KPI --}}
-<div class="ta-kpi-grid">
+@php($kpiScope = $this->activeStatsTab() === "own" ? "own" : ($this->activeStatsTab() === "partner" ? (filled($statsPartnerId) ? "partner" : "partners") : "all"))
+<div class="ta-kpi-grid" data-revenue-scope="{{ $kpiScope }}" data-partner-id="{{ $kpiScope === 'partner' ? $statsPartnerId : '' }}">
     <div class="ta-kpi">
         <div class="ta-kpi-label">Tổng đơn đặt phòng</div>
         <div class="ta-kpi-value" id="ta-kpi-total">{{ number_format($total) }}</div>

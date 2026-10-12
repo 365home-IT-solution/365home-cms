@@ -29,7 +29,11 @@ class OrderRefundService
     /**
      * @throws \RuntimeException nếu đơn không ở trạng thái 'paid'/'deposit' (chưa thu tiền thật)
      */
-    public function refund(Order $order, int $amount, string $method, ?string $reason, ?string $refundedBy, ?string $note = null): void
+    /**
+     * @param  string|null  $fault  partner = lỗi cơ sở của Bên B (trừ vào doanh thu Bên B), platform = lỗi vận hành của Bên A (Bên A tự chịu, không khấu trừ — Điều 6.1);
+     *                              chỉ Super Admin / nhân viên đối tác nền tảng được đánh dấu platform; để trống = tính như lỗi Bên B.
+     */
+    public function refund(Order $order, int $amount, string $method, ?string $reason, ?string $refundedBy, ?string $note = null, ?string $fault = null): void
     {
         if (! in_array($order->status, ['paid', 'deposit'], true)) {
             throw new \RuntimeException('Chỉ áp dụng cho đơn đã thanh toán (đủ hoặc đặt cọc).');
@@ -39,7 +43,11 @@ class OrderRefundService
         $paidByPlatform = $this->refundedByPlatformForPartner($order, $actor);
         $this->guardAgainstOpenClaim($order, $actor, $amount, $paidByPlatform);
 
+        $actorMay = $actor && ($actor->isSuperAdmin() || $actor->belongsToPlatformPartner());
+        $fault = $fault === 'platform' ? ($actorMay ? 'platform' : 'partner') : ($fault === 'partner' ? 'partner' : null);
+
         $order->update([
+            'refund_fault'   => $fault,
             'status'         => 'refunded',
             'refund_amount'  => $amount,
             'refund_method'  => $method,
@@ -52,13 +60,19 @@ class OrderRefundService
         // Đóng yêu cầu hoàn tiền đang mở của đơn (nếu có) — đối tác tự hoàn hay 365home hoàn thay.
         app(RefundClaimService::class)->closeForRefund($order, $paidByPlatform, $actor, $method, $amount, $note ?? $reason);
         try {
+            app(RefundFrequencyMonitor::class)->check(app(OrderCommissionService::class)->partnerOf($order));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+        try {
             app(OrderCommissionService::class)->flagRebookAfterRefund($order->fresh());
         } catch (\Throwable $e) {
             report($e);
         }
 
         // 365home hoàn tiền cho khách THAY đối tác (tiền đang nằm ở đối tác) → đề xuất trừ ký quỹ khoản đã ứng.
-        if ($paidByPlatform && $amount > 0) {
+        // Hợp đồng theo hai mẫu chuẩn (CT, VT+ĐL) thu hồi khoản này ở kỳ đối soát gần nhất (Điều 6.1) — không đề xuất trừ ký quỹ. Hợp đồng cũ giữ cách trừ ký quỹ.
+        if ($paidByPlatform && $amount > 0 && blank(app(OrderCommissionService::class)->partnerOf($order)?->contract_template)) {
             $this->proposeEscrowDeduction($order, $amount, $reason, $actor);
         }
 

@@ -408,7 +408,7 @@ class PartnerOnboardingService
             'partner_signed_by'    => $version->partner_signed_by_name,
             // Cách ký đối tác có thể chọn khi còn chờ ký: otp (mã gửi email) hoặc cks (chữ ký số của đối tác: GET /api/partner-contracts/{token}/pdf rồi
             // POST .../confirm-cks). Sau khi ký: partner_sign_method cho biết đã ký theo cách nào, partner_certificate là chứng thư khi ký CKS.
-            'sign_methods'         => $signingActive ? ['otp', 'cks'] : [],
+            'sign_methods'         => $signingActive ? (\App\Services\ContractSigning\ContractSigningManager::otpAllowed() ? ['otp', 'cks'] : ['cks']) : [],
             'partner_sign_method'  => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
             'partner_certificate'  => $version->isPartnerSignedByCks() ? [
                 'subject'      => $version->partner_signature_certificate['cert_subject'] ?? null,
@@ -588,7 +588,7 @@ class PartnerOnboardingService
         $mailSent = $this->mailPartner(
             $partner,
             'Hồ sơ đã được duyệt — vui lòng ký hợp đồng hợp tác 365 Home',
-            "<p>Giấy tờ pháp lý của bạn đã được 365 Home duyệt. Vui lòng mở liên kết để xem và ký xác nhận hợp đồng hợp tác (xác thực bằng mã OTP gửi về email này):</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
+            "<p>Giấy tờ pháp lý của bạn đã được 365 Home duyệt. Vui lòng mở liên kết để xem hợp đồng, tải PDF về ký bằng chữ ký số (CKS) rồi tải bản đã ký lên:</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
         );
         $this->log($partner, 'Đã tạo hợp đồng và gửi link ký cho đối tác' . ($mailSent ? '.' : ' — gửi email thất bại, đối tác vẫn ký được trên trang đăng ký hợp tác.'));
 
@@ -599,6 +599,24 @@ class PartnerOnboardingService
     public function notifyPartnerSigned(Partner $partner): void
     {
         if (blank($partner->onboarding_token)) {
+            return;
+        }
+        // Bên A đã ký TRƯỚC: đối tác ký xong là hợp đồng có hiệu lực (completeAfterPartnerSignature) — chỉ báo nội bộ, không còn bước chờ nền tảng ký.
+        if ($this->latestContract($partner)?->isPlatformSigned()) {
+            try {
+                app(AdminNotificationService::class)->notify(
+                    User::role(config('filament-shield.super_admin.name'))->get(),
+                    'Hợp đồng đã đủ chữ ký hai bên',
+                    ($partner->legal_name ?: $partner->name) . ' (' . $partner->phone . ') đã ký sau khi Bên A ký — hợp đồng có hiệu lực và tài khoản được cấp tự động.',
+                    $this->adminNotificationData($partner, 'partner_contract_signed'),
+                    'heroicon-o-check-badge',
+                    'success',
+                    $this->adminPartnerUrl($partner),
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
             return;
         }
         // Đối tác ký TRƯỚC khi duyệt: ký xong thì hồ sơ tự gửi cho 365 Home duyệt (submit() lo phần thông báo).

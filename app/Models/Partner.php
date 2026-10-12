@@ -66,6 +66,7 @@ class Partner extends Model implements HasMedia
         'wise_account',
         'swift_code',
         'payment_cycle',
+        'contract_template',
 
         // Xác minh & vận hành
         'verification_status',
@@ -256,6 +257,39 @@ class Partner extends Model implements HasMedia
     public function isMinihouse(): bool
     {
         return $this->partner_type === self::TYPE_MINIHOUSE;
+    }
+
+    /** Mẫu hợp đồng chuẩn của nền tảng: đối tác trong Thành phố Cần Thơ (CT) và ngoài Cần Thơ (VT+ĐL) — xem App\Support\PartnerContractTemplateText. */
+    public const TEMPLATE_CT = 'ct';
+
+    public const TEMPLATE_VT_DL = 'vt_dl';
+
+    /** Mẫu theo tỉnh/thành của cơ sở kinh doanh: nằm trong danh sách tỉnh dùng mẫu CT (mặc định Cần Thơ, mã 92; có khoản tiền đảm bảo) → CT; còn lại → VT+ĐL. */
+    public static function templateForProvince(int|string|null $provinceCode): string
+    {
+        $codes = app(\App\Services\PartnerTrialService::class)->immediateProvinceCodes();
+
+        return $provinceCode !== null && $provinceCode !== '' && in_array((int) $provinceCode, $codes, true) ? self::TEMPLATE_CT : self::TEMPLATE_VT_DL;
+    }
+
+    /** Mẫu đang áp dụng: đã ghi theo hợp đồng thì dùng giá trị đó, chưa ghi (đối tác mới chưa tạo hợp đồng) thì suy từ tỉnh/thành. */
+    public function contractTemplate(): string
+    {
+        return in_array($this->contract_template, [self::TEMPLATE_CT, self::TEMPLATE_VT_DL], true)
+            ? $this->contract_template
+            : self::templateForProvince($this->province_code);
+    }
+
+    /** Hợp đồng theo mẫu CT (Điều 4.2): Bên B nộp khoản tiền đảm bảo trước khi hợp tác. Luồng tiền giống mẫu VT+ĐL (tiền khách về thẳng Bên B, đối soát ngày 01 và 15). */
+    public function hasGuarantee(): bool
+    {
+        return $this->contract_template === self::TEMPLATE_CT;
+    }
+
+    /** Hợp đồng theo mẫu VT+ĐL: không có khoản tiền đảm bảo/ký quỹ. */
+    public function hasNoDeposit(): bool
+    {
+        return $this->contract_template === self::TEMPLATE_VT_DL;
     }
 
     /** Luồng tiền mới (về thẳng đối tác + ký quỹ + đối soát) đã có hiệu lực chưa? Chưa thì 365home vẫn thu hộ. */

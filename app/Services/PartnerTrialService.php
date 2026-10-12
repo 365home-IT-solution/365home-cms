@@ -14,15 +14,16 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * MIỄN PHÍ THÁNG ĐẦU cho đối tác Homestay MỚI ở ngoài các tỉnh bắt buộc ký quỹ ngay (mặc định chỉ Thành phố Cần Thơ).
+ * MIỄN PHÍ HOA HỒNG THÁNG ĐẦU cho đối tác Homestay MỚI (mọi địa bàn, kể cả Thành phố Cần Thơ).
  *
  * Trong thời gian miễn phí (kể từ lúc hợp đồng có hiệu lực, mặc định 1 tháng): đối tác ký hợp đồng bình thường, đăng ký và bán phòng; KHÔNG hoa hồng, KHÔNG
- * bắt nạp ký quỹ, KHÔNG đối soát hoa hồng (đơn do 365home thu hộ vẫn được chi lại 100%); khoản giảm do 365home phát hành trừ vào doanh thu của đối tác,
- * 365home không bù. Hết thời gian: ký quỹ và hoa hồng chạy như đối tác mới ban đầu (chưa nạp đủ thì ngưng bán). Trước hạn 7 ngày (cấu hình) hệ thống nhắc nạp.
+ * đối soát hoa hồng (đơn do 365home thu hộ vẫn được chi lại 100%); khoản giảm do 365home phát hành trừ vào doanh thu của đối tác, 365home không bù.
+ * KÝ QUỸ KHÔNG ĐƯỢC MIỄN: đối tác theo mẫu CT (trong Cần Thơ) vẫn phải nộp khoản tiền đảm bảo (Điều 4.2) trước khi mở bán; mẫu VT+ĐL không có ký quỹ.
+ * Hết thời gian miễn phí hoa hồng chạy như bình thường. Đối tác hợp đồng cũ (chưa có mẫu CT/VT+ĐL) giữ cách cũ: miễn cả ký quỹ nếu hợp đồng có điều "Ưu đãi tháng đầu".
  *
- * Đây là chính sách có công tắc (App\Settings\EscrowSettings::$free_trial_enabled, mặc định TẮT). Căn cứ pháp lý là NỘI DUNG HỢP ĐỒNG: chỉ hợp đồng được tạo lúc công
- * tắc bật và đối tác đủ điều kiện mới có điều "Ưu đãi tháng đầu" (CLAUSE_MARKER); khi ký số hệ thống chỉ cấp miễn phí cho hợp đồng có điều đó — bật/tắt công tắc
- * sau này không làm đổi hợp đồng đã tạo. Đối tác đang hoạt động (chuyển sang bằng phụ lục) và đối tác Cần Thơ không bao giờ được miễn.
+ * Đây là chính sách có công tắc (App\Settings\EscrowSettings::$free_trial_enabled) và KHÔNG nằm trong văn bản hợp đồng: hai mẫu hợp đồng chuẩn được giữ nguyên văn,
+ * không có điều ưu đãi. Với hợp đồng theo mẫu, đối tác đủ điều kiện (mới, chưa từng được miễn) được cấp ngay khi hợp đồng có hiệu lực nếu công tắc đang bật.
+ * Đối tác đang hoạt động (chuyển sang bằng phụ lục) không bao giờ được miễn.
  */
 class PartnerTrialService
 {
@@ -81,16 +82,24 @@ class PartnerTrialService
             return 'Hồ sơ chưa có tỉnh/thành phố của cơ sở kinh doanh.';
         }
 
-        $immediate = $this->immediateProvinceCodes();
-
-        if (in_array((int) $partner->province_code, $immediate, true)) {
-            return 'Cơ sở kinh doanh thuộc tỉnh/thành phải ký quỹ ngay.';
-        }
-        if ($this->hasBranchIn($partner, $immediate)) {
-            return 'Có chi nhánh thuộc tỉnh/thành phải ký quỹ ngay.';
-        }
-
         return $this->alreadyUsed($partner) ? 'Mã số thuế, CCCD người đại diện hoặc số điện thoại này đã từng được miễn phí tháng đầu.' : null;
+    }
+
+    /**
+     * Có cấp miễn phí hoa hồng khi hợp đồng này có hiệu lực không? Hợp đồng theo mẫu CT/VT+ĐL: căn cứ là chính sách (công tắc + đối tác đủ điều kiện), vì
+     * hai mẫu không có điều ưu đãi. Hợp đồng cũ: căn cứ là điều "Ưu đãi tháng đầu" đã ghi trong hợp đồng được ký.
+     */
+    public function grantsOnActivation(Partner $partner, ?PartnerContractVersion $version): bool
+    {
+        if (! $this->enabled() || $version === null || $version->isAddendum()) {
+            return false;
+        }
+
+        if (filled($partner->contract_template)) {
+            return $this->ineligibleReason($partner) === null;
+        }
+
+        return $this->contractPromisesTrial($version);
     }
 
     /** Hợp đồng lần đầu của đối tác này có được ghi điều "Ưu đãi tháng đầu" không (dùng khi dựng nội dung hợp đồng). */
@@ -175,6 +184,8 @@ class PartnerTrialService
             'province_code'              => $partner->province_code,
             'province_name'              => $province?->name,
             'in_immediate_province'      => $partner->province_code !== null && in_array((int) $partner->province_code, $this->immediateProvinceCodes(), true),
+            // Miễn hoa hồng tháng đầu KHÔNG miễn khoản tiền đảm bảo của mẫu CT: đối tác vẫn phải nộp trước khi mở bán.
+            'deposit_required'           => filled($partner->contract_template) ? $partner->hasGuarantee() : ($partner->province_code !== null && in_array((int) $partner->province_code, $this->immediateProvinceCodes(), true)),
             'contract_has_free_clause'   => $latest ? $this->contractPromisesTrial($latest) : false,
             'fee_free_until'             => $partner->fee_free_until?->toIso8601String(),
             'fee_free_active'            => $partner->isInFeeFreePeriod(),
@@ -191,7 +202,7 @@ class PartnerTrialService
 
         PartnerStatusLog::create([
             'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $by->id,
-            'note' => 'Miễn phí tháng đầu: không hoa hồng, không bắt nạp ký quỹ đến ' . $until->format('d/m/Y H:i') . '.',
+            'note' => 'Miễn phí tháng đầu: không hoa hồng đến ' . $until->format('d/m/Y H:i') . ($partner->hasGuarantee() ? '; khoản tiền đảm bảo vẫn phải nộp trước khi mở bán.' : '; chưa bắt nạp ký quỹ.'),
         ]);
 
         return $until;
@@ -229,6 +240,11 @@ class PartnerTrialService
      */
     public function revokeIfNowInImmediateProvince(): int
     {
+        // Miễn phí hoa hồng nay áp dụng cho cả đối tác Cần Thơ (chỉ ký quỹ không được miễn) → phát sinh chi nhánh ở tỉnh phải ký quỹ ngay không còn làm dừng miễn phí.
+        if ($this->enabled()) {
+            return 0;
+        }
+
         $codes = $this->immediateProvinceCodes();
         $count = 0;
 

@@ -4,7 +4,10 @@
 // đổi qua .env khi chủ dự án chốt.
 return [
     // Số ngày đối tác phải nộp hoa hồng kể từ khi bảng đối soát được gửi; quá hạn ⇒ tự trừ ký quỹ.
-    'overdue_days' => (int) env('SETTLEMENT_OVERDUE_DAYS', 5),
+    'overdue_days' => (int) env('SETTLEMENT_OVERDUE_DAYS', 3),
+
+    // true = overdue_days tính theo NGÀY LÀM VIỆC (bỏ thứ Bảy, Chủ nhật) — đúng điều khoản "03 ngày làm việc" của hợp đồng mẫu.
+    'overdue_business_days' => (bool) env('SETTLEMENT_OVERDUE_BUSINESS_DAYS', true),
 
     // Nhắc đối tác trước hạn nộp bao nhiêu ngày.
     'remind_before_days' => (int) env('SETTLEMENT_REMIND_BEFORE_DAYS', 1),
