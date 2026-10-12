@@ -4,41 +4,48 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\AppError;
 use App\Models\Customer;
 use App\Models\User;
-use App\Services\AdminNotificationService;
+use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
- * POST /api/app-error-reports — app (khách lẫn admin) tự báo lỗi gặp phải (API trả lỗi, crash) để
- * Super Admin biết ngay qua thông báo admin (type 'app_error', xem App\Services\AdminNotificationService).
+ * POST /api/app-error-reports — app (khách lẫn admin) tự báo lỗi gặp phải (API trả lỗi, crash).
+ * Lỗi lưu vào bảng RIÊNG `app_errors` (App\Models\AppError), Super Admin đọc qua
+ * GET /api/admin/app-errors (App\Http\Controllers\Api\Admin\AppErrorController) — KHÔNG ghi vào bảng
+ * `notifications` nữa, để lỗi app không làm loãng thông báo nghiệp vụ (đơn, tin nhắn, check-in...).
  *
  * Công khai vì khách vãng lai cũng gặp lỗi; có Bearer token thì ghi nhận đúng người gửi theo token
  * (KHÔNG tin field 'user' trong body — chỉ dùng làm thông tin tham khảo khi không có token).
  *
- * Quy ước với app: luôn trả 202 khi body hợp lệ, kể cả khi gửi thông báo thất bại — app coi 5xx là
- * "giữ lại, 30 giây sau gửi lại" nên lỗi phía thông báo mà trả 5xx sẽ làm cùng 1 lỗi bị báo lặp.
+ * Quy ước với app: luôn trả 202 khi body hợp lệ, kể cả khi lưu/push thất bại — app coi 5xx là
+ * "giữ lại, 30 giây sau gửi lại" nên lỗi phía BE mà trả 5xx sẽ làm cùng 1 lỗi bị báo lặp.
  *
- * Chống dội thông báo (app đã tự gộp theo từng máy, nhưng 1 lỗi server thì MỌI máy cùng báo):
- *   - Cùng 1 lỗi (api: method + endpoint + status; crash: area + message) chỉ thông báo 1 lần mỗi
- *     NOTIFY_INTERVAL giây trên toàn hệ thống.
- *   - Tối đa MAX_NOTIFICATIONS_PER_HOUR thông báo/giờ cho mọi lỗi cộng lại — endpoint công khai nên
- *     ai cũng có thể bịa lỗi khác nhau liên tục để làm ngập chuông thông báo của admin.
- * Bản ghi nào cũng được ghi log đầy đủ, kể cả khi không thông báo.
+ * Gộp và báo (app đã tự gộp theo từng máy, nhưng 1 lỗi server thì MỌI máy cùng báo):
+ *   - Cùng 1 lỗi (api: method + endpoint + status; crash: area + message) chỉ có 1 dòng, báo lại thì
+ *     cộng dồn số lần và cập nhật thông tin lần gần nhất.
+ *   - Push tới Super Admin CHỈ khi lỗi xuất hiện lần đầu, hoặc xuất hiện lại sau khi đã đánh dấu xử
+ *     lý — không push cho lỗi đang mở bị báo lặp.
+ *   - Endpoint công khai nên ai cũng có thể bịa lỗi khác nhau liên tục: tối đa
+ *     MAX_NEW_ERRORS_PER_HOUR lỗi MỚI được lưu mỗi giờ và MAX_PUSHES_PER_HOUR push mỗi giờ.
+ * Bản ghi nào cũng được ghi log đầy đủ, kể cả khi không lưu/không push.
  */
 class AppErrorReportController extends Controller
 {
-    private const NOTIFY_INTERVAL = 600;
+    private const MAX_NEW_ERRORS_PER_HOUR = 200;
 
-    private const MAX_NOTIFICATIONS_PER_HOUR = 30;
+    private const MAX_PUSHES_PER_HOUR = 30;
 
-    public function __construct(private AdminNotificationService $notifications) {}
+    // Trần cho 'count' app tự khai, để 1 request không đẩy tổng số lần lên con số vô nghĩa.
+    private const MAX_COUNT_PER_REPORT = 100000;
+
+    public function __construct(private FcmService $fcm) {}
 
     public function store(Request $request): JsonResponse
     {
@@ -77,7 +84,7 @@ class AppErrorReportController extends Controller
             Log::warning('App error report', ['report' => $report, 'app' => $app, 'reporter' => $reporter, 'ip' => $request->ip()]);
 
             try {
-                $this->notifyAdmins($report, $app, $reporter);
+                $this->record($report, $app, $reporter);
             } catch (\Throwable $e) {
                 report($e);
             }
@@ -122,7 +129,7 @@ class AppErrorReportController extends Controller
             'status'   => $report['status'] ?? null,
             'message'  => $this->limit($report['message'] ?? null, 500),
             'detail'   => $this->limit($report['detail'] ?? null, 4000),
-            'count'    => (int) ($report['count'] ?? 1),
+            'count'    => min((int) ($report['count'] ?? 1), self::MAX_COUNT_PER_REPORT),
             'first_at' => $report['first_at'] ?? null,
             'last_at'  => $report['last_at'] ?? null,
         ];
@@ -133,46 +140,78 @@ class AppErrorReportController extends Controller
         return $value === null ? null : Str::limit($value, $max);
     }
 
-    private function notifyAdmins(array $report, array $app, array $reporter): void
+    private function record(array $report, array $app, array $reporter): void
     {
-        $fingerprint = $report['kind'] === 'api'
+        $fingerprint = sha1($report['kind'] === 'api'
             ? implode('|', ['api', $report['method'], $report['endpoint'] ?? $report['url'], $report['status']])
-            : implode('|', [$report['kind'], $report['area'], $report['message']]);
+            : implode('|', [$report['kind'], $report['area'], $report['message']]));
 
-        if (! Cache::add('app-error-notify:' . sha1($fingerprint), true, self::NOTIFY_INTERVAL)) {
-            return;
+        $error = AppError::where('fingerprint', $fingerprint)->first();
+
+        if (! $error) {
+            if (! RateLimiter::attempt('app-error-new', self::MAX_NEW_ERRORS_PER_HOUR, fn () => true, 3600)) {
+                return;
+            }
+
+            // createOrFirst: 2 máy báo cùng 1 lỗi mới cùng lúc thì máy sau lấy lại dòng của máy trước thay vì vấp unique.
+            $error = AppError::createOrFirst(['fingerprint' => $fingerprint], [
+                'kind'          => $report['kind'],
+                // Lỗi API phân mục theo endpoint đã gọi, lỗi khác theo màn hình đang mở.
+                'module'        => AppError::moduleFor($report['kind'] === 'api' ? ($report['endpoint'] ?? $report['url']) : $report['route']),
+                'method'        => $report['method'],
+                'endpoint'      => $report['endpoint'],
+                'status'        => $report['status'],
+                'first_seen_at' => now(),
+            ]);
         }
 
-        if (! RateLimiter::attempt('app-error-notify', self::MAX_NOTIFICATIONS_PER_HOUR, fn () => true, 3600)) {
+        // Lỗi mới, hoặc lỗi đã đánh dấu xử lý mà nay xuất hiện lại → cần báo; lỗi đang mở báo lại thì chỉ cộng số lần.
+        $shouldPush = $error->wasRecentlyCreated || $error->resolved_at !== null;
+
+        $error->increment('occurrences', $report['count'], [
+            'area'         => $report['area'],
+            'route'        => $report['route'],
+            'url'          => $report['url'],
+            'message'      => $report['message'],
+            'detail'       => $report['detail'],
+            'reporter'     => $reporter['label'],
+            'app'          => $app ? json_encode($app) : null,
+            'last_seen_at' => now(),
+            'resolved_at'  => null,
+        ]);
+
+        if ($shouldPush) {
+            $this->pushToSuperAdmins($error, $report, $app, $reporter);
+        }
+    }
+
+    private function pushToSuperAdmins(AppError $error, array $report, array $app, array $reporter): void
+    {
+        if (! RateLimiter::attempt('app-error-notify', self::MAX_PUSHES_PER_HOUR, fn () => true, 3600)) {
             return;
         }
-
-        $isApi   = $report['kind'] === 'api';
-        $summary = $isApi
-            ? trim(($report['method'] ?? '') . ' ' . ($report['endpoint'] ?? $report['url'] ?? '')) . ' → ' . ($report['status'] ?? 'không phản hồi')
-            : Str::limit((string) $report['message'], 120);
 
         $lines = array_filter([
-            $isApi ? $report['message'] : null,
+            $error->isApi() ? $report['message'] : null,
             $report['route'] ? 'Màn hình: ' . $report['route'] : null,
             'Người gặp: ' . $reporter['label'] . ($report['count'] > 1 ? " — {$report['count']} lần" : ''),
             'App: ' . trim(($app['platform'] ?? '?') . ' ' . ($app['os_version'] ?? '') . ' · v' . ($app['version'] ?? '?') . ' · ' . ($app['channel'] ?? '?')),
         ]);
 
-        $this->notifications->notify(
+        $this->fcm->sendToUsers(
             User::role(config('filament-shield.super_admin.name'))->get(),
-            ($isApi ? 'App báo lỗi API: ' : 'App bị crash: ') . $summary,
+            $error->title(),
             implode("\n", $lines),
             [
-                'type'     => 'app_error',
-                'kind'     => $report['kind'],
-                'area'     => $report['area'],
-                'route'    => $report['route'],
-                'endpoint' => $report['endpoint'],
-                'status'   => $report['status'],
+                'type'         => 'app_error',
+                'app_error_id' => $error->getKey(),
+                'kind'         => $report['kind'],
+                'module'       => $error->module,
+                'area'         => $report['area'],
+                'route'        => $report['route'],
+                'endpoint'     => $report['endpoint'],
+                'status'       => $report['status'],
             ],
-            'heroicon-o-bug-ant',
-            'danger',
         );
     }
 }

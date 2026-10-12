@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AppErrorController as AdminAppErrorController;
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
@@ -261,6 +262,26 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')-
     Route::delete('/', [AdminNotificationController::class, 'destroyMany'])->name('destroyMany');
     Route::get('/{id}', [AdminNotificationController::class, 'show'])->name('show');
     Route::delete('/{id}', [AdminNotificationController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| App Errors — Lỗi app tự báo (POST /api/app-error-reports → bảng `app_errors`), CHỈ super_admin.
+| Tách riêng khỏi Admin Notifications ở trên để không làm loãng thông báo nghiệp vụ — xem docblock
+| App\Http\Controllers\Api\Admin\AppErrorController.
+| GET    /api/admin/app-errors              → ?status=open|resolved|all&module=&kind=&per_page= — kèm open_count
+| GET    /api/admin/app-errors/modules      → các mục nghiệp vụ (orders, payments...) kèm số lỗi, để lọc/nhóm
+| GET    /api/admin/app-errors/{id}         → chi tiết, kèm detail (stack trace / body response lỗi)
+| POST   /api/admin/app-errors/{id}/resolve → đánh dấu đã xử lý (app báo lại thì tự mở lại)
+| DELETE /api/admin/app-errors/{id}         → xóa hẳn
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/app-errors')->name('api.admin.app-errors.')->group(function () {
+    Route::get('/', [AdminAppErrorController::class, 'index'])->name('index');
+    Route::get('/modules', [AdminAppErrorController::class, 'modules'])->name('modules');
+    Route::get('/{id}', [AdminAppErrorController::class, 'show'])->whereNumber('id')->name('show');
+    Route::post('/{id}/resolve', [AdminAppErrorController::class, 'resolve'])->whereNumber('id')->name('resolve');
+    Route::delete('/{id}', [AdminAppErrorController::class, 'destroy'])->whereNumber('id')->name('destroy');
 });
 
 /*
