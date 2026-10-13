@@ -21,8 +21,11 @@
     <main class="flex-1 min-w-0 bg-white">
         @if ($post)
             <article class="bg-white overflow-hidden">
-                <h1 class="md:text-2xl text-xl font-bold uppercase text-primary">
-                    {{ $post->title }}</h1>
+                {{-- H1 bỏ hậu tố "| 365Home" (thuộc về title tag, xem
+                     BladeThemeV1Controller::brandedSeoTitle()) và không ép viết hoa toàn bộ — tiêu
+                     đề dài viết thường dễ đọc hơn. --}}
+                <h1 class="md:text-2xl text-xl font-bold text-primary">
+                    {{ trim(preg_replace('/\s*[|–—-]\s*365\s*home\s*$/iu', '', $post->title)) ?: $post->title }}</h1>
 
                 @php
                     $featuredMedia = $post->getFirstMedia('Ảnh chính');

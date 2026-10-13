@@ -75,8 +75,7 @@ class BladeThemeV1Controller extends Controller
         $pageTitle = $page->title ?? '';
         $pageSeoTitle = trim((string) ($page->seo_title ?? ''));
         if ($pageSeoTitle === '' || $pageSeoTitle === trim($pageTitle)) {
-            $core = trim((string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', trim($pageTitle)));
-            $pageSeoTitle = trim(($core !== '' ? $core : trim($pageTitle)) . ' | 365Home');
+            $pageSeoTitle = $this->brandedSeoTitle($pageTitle);
         }
 
         $seoData = [
@@ -264,6 +263,38 @@ class BladeThemeV1Controller extends Controller
         }
     }
 
+    // Title tag dựng từ tiêu đề hiển thị (H1) + hậu tố "| 365Home". Tiêu đề hiện có tự gắn sẵn
+    // "365Home" ở ĐẦU (nhiều dạng phân cách: |, –, -, hoặc không có) hoặc ở CUỐI ("... | 365Home")
+    // — bỏ cả 2 trước khi thêm hậu tố, tránh lặp thương hiệu kiểu "365Home | X | 365Home" hay
+    // "X | 365Home | 365Home" (vừa xấu vừa tốn ký tự hiển thị trên SERP). Chỉ bỏ ở cuối khi có dấu
+    // phân cách đứng trước, để tiêu đề kết thúc tự nhiên bằng tên thương hiệu ("Nội quy 365 Home")
+    // không bị cắt mất chữ.
+    private function brandedSeoTitle(?string $title): string
+    {
+        $title = trim((string) $title);
+        $core = (string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', $title);
+        $core = trim((string) preg_replace('/\s*[|–—-]\s*365\s*home\s*$/iu', '', $core));
+
+        return trim(($core !== '' ? $core : $title) . ' | 365Home');
+    }
+
+    // Cắt $text về tối đa $limit ký tự tại ranh giới từ (không cắt giữa chữ), thêm "…" khi có cắt.
+    private function truncateAtWord(string $text, int $limit): string
+    {
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        $cut = mb_substr($text, 0, $limit);
+        // Ký tự ngay sau điểm cắt không phải khoảng trắng nghĩa là đang đứng giữa 1 từ.
+        if (! preg_match('/^\s/u', mb_substr($text, $limit, 1))) {
+            $lastSpace = mb_strrpos($cut, ' ');
+            $cut = $lastSpace ? mb_substr($cut, 0, $lastSpace) : $cut;
+        }
+
+        return rtrim($cut, " ,;:-–—") . '…';
+    }
+
     public function postDetail($slug)
     {
         $post = Post::with(['user', 'categories'])->where('slug', $slug)->first();
@@ -299,17 +330,25 @@ class BladeThemeV1Controller extends Controller
         $postTitle = $post->title ?? '';
         $seoTitle = trim((string) ($post->seo_title ?? ''));
         if ($seoTitle === '' || $seoTitle === trim($postTitle)) {
-            // Toàn bộ title hiện có đều đã tự mở đầu bằng "365Home" (dưới nhiều dạng phân cách
-            // khác nhau: |, –, -, hoặc không có) — bỏ tiền tố này trước khi thêm hậu tố, tránh
-            // lặp thương hiệu 2 lần kiểu "365Home | X | 365Home" (vừa xấu vừa tốn ký tự hiển thị
-            // trên SERP). Title không mở đầu bằng "365Home" thì giữ nguyên, chỉ thêm hậu tố.
-            $core = trim((string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', trim($postTitle)));
-            $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
+            $seoTitle = $this->brandedSeoTitle($postTitle);
+        }
+
+        // "Mô tả SEO" của nhiều bài cũ được tự điền từ "Tóm tắt" bằng mb_substr cứng 160 ký tự
+        // (PostForm::summaryField() trước khi sửa) nên kết thúc giữa chữ, kiểu "...365Home với
+        // vouche". Nhận diện đúng trường hợp đó — mô tả là ĐOẠN ĐẦU của tóm tắt và tóm tắt còn
+        // dài hơn — rồi lùi về ranh giới từ gần nhất + dấu "…"; mô tả do biên tập tự viết (không
+        // trùng đoạn đầu tóm tắt) giữ nguyên từng ký tự. Bỏ trống thì lấy luôn từ tóm tắt.
+        $seoDescription = trim((string) ($post->seo_description ?? ''));
+        $summaryText = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string) ($post->summary ?? '')))));
+        if ($seoDescription === '') {
+            $seoDescription = $this->truncateAtWord($summaryText, 160);
+        } elseif (mb_strlen($summaryText) > mb_strlen($seoDescription) && str_starts_with($summaryText, $seoDescription)) {
+            $seoDescription = $this->truncateAtWord($summaryText, mb_strlen($seoDescription));
         }
 
         $seoData = [
             'seo_title'              => $seoTitle,
-            'seo_description'        => $post->seo_description ?? '',
+            'seo_description'        => $seoDescription,
             'seo_keywords'           => $post->seo_keywords ?? '',
             'og_image'               => $seoOgImage,
             'og_image_width'         => $seoOgImageWidth,
@@ -691,24 +730,43 @@ class BladeThemeV1Controller extends Controller
         if ($seoDescription === '') {
             $seoDescription = html_entity_decode(strip_tags($product->description ?? ''));
         }
+
+        // Tên phòng dùng trong title/mô tả: tên lưu trong DB chỉ là 1 từ viết hoa toàn bộ ("NEON",
+        // "WHISKY BAR") — đứng riêng không nói lên đây là phòng gì. Đổi về dạng "Phòng Neon"; tên
+        // đã có sẵn chữ "phòng"/"room" hoặc không viết hoa toàn bộ ("Sister's Room") thì giữ nguyên.
+        $roomName = trim($product->name);
+        if ($roomName === mb_strtoupper($roomName)) {
+            $roomName = mb_convert_case($roomName, MB_CASE_TITLE, 'UTF-8');
+        }
+        $roomDisplayName = preg_match('/ph[oò]ng|room/iu', $roomName) ? $roomName : 'Phòng ' . $roomName;
         if ($seoDescription === '') {
             // Chưa nhập "Mô tả ngắn"/"Mô tả đầy đủ" cho phòng này — dựng câu tối thiểu kèm TÊN
             // CHI NHÁNH (không chỉ tên phòng) để các phòng cùng chi nhánh không vô tình ra description
             // giống hệt nhau khi cả loạt phòng đều bỏ trống mô tả (đã xảy ra thật, xem SQL backfill
             // đi kèm cho các phòng cũ đã lỡ nhập sẵn 1 đoạn mô tả chi nhánh y hệt nhau).
+            // Câu đủ dài (~150 ký tự) gồm tên phòng, loại hình, địa chỉ chi nhánh, khu vực — câu
+            // cũ chỉ 41–83 ký tự, quá ngắn để Google dùng làm snippet.
             $seoDescription = $loc && $loc['branch_name']
-                ? $product->name . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365 Home. Đặt phòng theo giờ/ngày.'
-                : $product->name . ' - Phòng tại 365 Home, đặt phòng theo giờ/ngày.';
+                ? $roomDisplayName . ' tại ' . $loc['branch_name'] . ' – ' . mb_strtolower($loc['type_name']) . ' 365Home ở ' . $loc['province_name'] . '. Xem ảnh thật, tiện nghi và đặt phòng theo giờ, theo ngày trực tuyến.'
+                : $roomDisplayName . ' – phòng tại 365Home. Xem ảnh thật, tiện nghi và đặt phòng theo giờ, theo ngày trực tuyến.';
         } elseif (! \Illuminate\Support\Str::contains(mb_strtolower($seoDescription), mb_strtolower(trim($product->name)))) {
             // Mô tả đã nhập nhưng không nhắc tới tên phòng — thường là 1 đoạn mô tả chung của chi
             // nhánh được dán y hệt cho cả loạt phòng (vd "Khu vực bếp dùng chung: ..." ở 4 phòng
             // chi nhánh 515 Đ. 30 Tháng 4), Semrush báo "duplicate meta descriptions". Đặt tên phòng
             // (+ chi nhánh) lên đầu để mỗi phòng luôn có description riêng mà không cần sửa tay.
             $seoDescription = ($loc && $loc['branch_name']
-                ? trim($product->name) . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365 Home. '
-                : trim($product->name) . ' - 365 Home. ') . trim($seoDescription);
+                ? trim($product->name) . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365Home. '
+                : trim($product->name) . ' - 365Home. ') . trim($seoDescription);
         }
-        $seoDescription = \Illuminate\Support\Str::limit(trim($seoDescription), 300, '...');
+        $seoDescription = trim((string) preg_replace('/\s+/u', ' ', $seoDescription));
+        // "Mô tả ngắn" nhập tay thường chỉ 1 câu về phong cách phòng (~80 ký tự) — nối thêm loại
+        // hình + địa chỉ chi nhánh để đủ độ dài snippet và có từ khoá địa phương.
+        if ($loc && $loc['branch_name'] && mb_strlen($seoDescription) < 110) {
+            $seoDescription = rtrim($seoDescription, " .") . '. ' . $loc['type_name'] . ' 365Home tại '
+                . trim((string) preg_replace('/\s+/u', ' ', $loc['branch_name'])) . ' – đặt phòng theo giờ, theo ngày.';
+        }
+        // 160 ký tự, cắt theo từ — Google cắt snippet quanh mốc này, 300 ký tự cũ luôn bị cắt cụt.
+        $seoDescription = $this->truncateAtWord($seoDescription, 160);
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
                             ? $product->getFirstMedia('Ảnh bìa')->getUrl()
                             : null;
@@ -736,7 +794,11 @@ class BladeThemeV1Controller extends Controller
             : collect();
 
         $seoData = [
-            'seo_title'          => $product->name . ' - Đặt phòng tại 365 HOME',
+            // "Phòng Neon – Homestay 252 Xuân Thủy, An Bình, Cần Thơ | 365Home": có loại hình + địa
+            // chỉ chi nhánh (từ khoá địa phương) thay cho "NEON - Đặt phòng tại 365 HOME" trước đây.
+            'seo_title'          => $loc && $loc['branch_name']
+                ? $roomDisplayName . ' – ' . $loc['type_name'] . ' ' . trim((string) preg_replace('/\s+/u', ' ', $loc['branch_name'])) . ' | 365Home'
+                : $roomDisplayName . ' – Đặt phòng tại 365Home',
             'seo_description'    => $seoDescription,
             'seo_keywords'       => $seoKeywords,
             'og_image'           => $seoOgImage,
