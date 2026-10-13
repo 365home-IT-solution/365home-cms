@@ -279,7 +279,7 @@ class OrderCalendarWidget extends CalendarWidget
 
         $user = auth()->user();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allCategoryIds = $user->allowedCategoryIds();
 
             // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.

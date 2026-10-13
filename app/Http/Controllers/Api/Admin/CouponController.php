@@ -401,7 +401,7 @@ class CouponController extends Controller
     {
         $query = Coupon::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

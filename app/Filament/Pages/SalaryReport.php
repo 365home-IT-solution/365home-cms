@@ -222,7 +222,7 @@ class SalaryReport extends Page implements HasTable
     {
         $user = auth()->user();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             return $user->partner_id;
         }
 
@@ -233,7 +233,7 @@ class SalaryReport extends Page implements HasTable
     {
         $user = auth()->user();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             return $user->partner_id;
         }
 

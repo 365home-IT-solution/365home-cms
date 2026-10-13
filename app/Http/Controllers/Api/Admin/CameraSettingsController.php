@@ -181,7 +181,7 @@ class CameraSettingsController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             return $user->partner_id;
         }
 

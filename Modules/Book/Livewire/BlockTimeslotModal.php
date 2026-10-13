@@ -75,7 +75,7 @@ class BlockTimeslotModal extends Component
             ->where('category_type', 'product')
             ->orderBy('name');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $query->whereIn('id', $user->rootProductCategoryIds());
         }
 
@@ -90,7 +90,7 @@ class BlockTimeslotModal extends Component
         $user  = auth()->user();
         $query = Product::where('is_activated', true)->with('categories.parent');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $categoryIds = $user->allowedCategoryIds();
             if (! empty($categoryIds)) {
                 $allowedIds = Categorizable::where('categorizable_type', Product::class)

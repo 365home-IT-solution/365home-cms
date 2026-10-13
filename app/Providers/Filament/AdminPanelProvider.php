@@ -116,7 +116,7 @@ class AdminPanelProvider extends PanelProvider
             // dùng bởi BelongsToPartner để không lọc partner_id trên các trang client. Đăng ký persistent
             // (isPersistent: true) để Livewire replay đúng middleware này trên các request /livewire/update
             // phát sinh từ panel admin (giống cách Filament tự làm với SetUpPanel).
-            ->middleware([MarkAdminPanelContext::class], isPersistent: true)
+            ->middleware([MarkAdminPanelContext::class, \App\Http\Middleware\ApplyActivePartner::class], isPersistent: true)
             ->authGuard('web')
             ->authMiddleware([
                 Authenticate::class,

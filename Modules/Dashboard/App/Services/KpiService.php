@@ -44,7 +44,7 @@ class KpiService
         }
 
         $query = Order::query()->countedInStats();
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             // BelongsToPartner chỉ tự lọc partner_id khi chạy TRONG Filament panel
             // (AdminPanelContext::isActive() — xem app/Models/Concerns/BelongsToPartner.php).
             // Route API token (Sanctum, KHÔNG qua panel) không có global scope này nên PHẢI lọc

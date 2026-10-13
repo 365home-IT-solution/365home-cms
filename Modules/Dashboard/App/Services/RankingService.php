@@ -59,7 +59,7 @@ class RankingService
     {
         $branchesQuery = Category::whereNull('parent_id')->where('category_type', 'product')->orderBy('name');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             if (empty($user->partner_id)) {
                 return ['branches' => []];
             }
@@ -72,7 +72,7 @@ class RankingService
 
         $branches = $branchesQuery->get();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
             // allowedCategoryIds chỉ thu hẹp thêm (nhân viên chỉ được giao 1 vài chi nhánh cụ
             // thể) — không áp dụng khi rỗng, vì đã lọc theo partner_id ở trên rồi.
@@ -137,7 +137,7 @@ class RankingService
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             if (empty($user->partner_id)) {
                 return ['customers' => []];
             }

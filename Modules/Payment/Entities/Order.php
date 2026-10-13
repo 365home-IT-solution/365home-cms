@@ -220,7 +220,7 @@ class Order extends Model implements Eventable
             // tác dụng với danh sách đơn hàng (cùng bug đã xác nhận ở BelongsToBranch). Dùng thẳng
             // session (không qua effectiveBranchIds()) để tránh đúng rủi ro taxonomy nêu trên khi bộ
             // lọc đang thực sự áp dụng.
-            if ($user->isSuperAdmin()) {
+            if ($user->seesAllPartners()) {
                 $selectedBranchIds = session('active_branch_ids');
 
                 if (empty($selectedBranchIds)) {

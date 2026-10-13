@@ -163,7 +163,7 @@ class RoomPromotionController extends Controller
     private function visiblePromotion(User $user, int $promotionId): ?Promotion
     {
         $query = Promotion::where('id', $promotionId);
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

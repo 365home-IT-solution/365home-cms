@@ -90,7 +90,7 @@ class RoomTypeController extends Controller
 
             /** @var User $user */
             $user = $request->user();
-            if (! $user->isSuperAdmin()) {
+            if (! $user->seesAllPartners()) {
                 // Product không có global scope partner ngoài Filament panel — lọc tường minh, giống
                 // RoomController::index(). allowedCategoryIds() rỗng = không giới hạn chi nhánh cụ thể.
                 $productsQuery->where('partner_id', $user->partner_id);

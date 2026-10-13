@@ -71,7 +71,7 @@ class OrderController extends Controller
             'customer:id,fullname,phone',
         ]);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             // Tài khoản không thuộc đối tác nào (partner_id null, không phải super_admin) không có
             // dữ liệu hợp lệ để xem — trả rỗng thay vì lộ toàn bộ đơn (WHERE partner_id = NULL sẽ
             // không khớp dòng nào nên về mặt kết quả tương đương, nhưng viết tường minh cho rõ ý).
@@ -978,7 +978,7 @@ class OrderController extends Controller
         $query = Order::with(['items', 'services', 'guestCccds'])
             ->whereIn('order_code', $data['order_codes']);
 
-        if (! $admin->isSuperAdmin()) {
+        if (! $admin->seesAllPartners()) {
             $query->where('partner_id', $admin->partner_id);
         }
 

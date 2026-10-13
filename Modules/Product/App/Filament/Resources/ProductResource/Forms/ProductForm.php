@@ -52,7 +52,7 @@ class ProductForm
                         $query->where('category_type', 'product');
 
                         $user = auth()->user();
-                        if ($user && ! $user->isSuperAdmin()) {
+                        if ($user && ! $user->seesAllPartners()) {
                             // Mặc định thấy toàn bộ chi nhánh của đối tác mình (đã lọc theo
                             // partner_id); nếu được gán quyền chi nhánh cụ thể thì thu hẹp thêm.
                             $query->where('partner_id', $user->partner_id);

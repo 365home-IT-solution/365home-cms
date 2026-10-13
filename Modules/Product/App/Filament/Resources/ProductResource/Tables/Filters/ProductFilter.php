@@ -21,7 +21,7 @@ class ProductFilter
                     $user  = auth()->user();
                     $query = Category::where('category_type', 'product');
 
-                    if ($user && ! $user->isSuperAdmin()) {
+                    if ($user && ! $user->seesAllPartners()) {
                         // Category không có global scope partner_id riêng — mặc định chỉ thấy
                         // chi nhánh của đối tác mình.
                         $query->where('partner_id', $user->partner_id);

@@ -290,7 +290,7 @@ class PromotionController extends Controller
     {
         $query = Promotion::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

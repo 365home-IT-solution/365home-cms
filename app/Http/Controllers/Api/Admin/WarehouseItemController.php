@@ -58,7 +58,7 @@ class WarehouseItemController extends Controller
             ->where('sku', $data['code'])
             ->where('status', true);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $branchIds = $user->rootProductCategoryIds();
@@ -94,7 +94,7 @@ class WarehouseItemController extends Controller
 
         $query = WarehouseItem::query()->with(['category:id,name', 'unit:id,name']);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             // Thu hẹp thêm theo chi nhánh được gán (User::rootProductCategoryIds() —

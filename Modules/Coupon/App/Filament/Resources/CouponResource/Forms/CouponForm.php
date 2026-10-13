@@ -216,7 +216,7 @@ class CouponForm
         $user  = auth()->user();
         $query = Product::where('is_activated', true)->orderBy('name');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allowedIds = $user->allowedCategoryIds();
             if (! empty($allowedIds)) {
                 $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));

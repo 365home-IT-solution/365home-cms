@@ -47,7 +47,7 @@ class RoomController extends Controller
 
         $query = Product::query()->where('is_activated', true);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             // Thu hẹp thêm về đúng chi nhánh admin được gán (rỗng = không bị giới hạn chi nhánh cụ
@@ -207,7 +207,7 @@ class RoomController extends Controller
                 ->whereNotNull('checkin_date')
                 ->whereHas('order', function ($q) use ($request, $user) {
                     $q->where('order_code', $request->query('order_code'));
-                    if (! $user->isSuperAdmin()) {
+                    if (! $user->seesAllPartners()) {
                         $q->where('partner_id', $user->partner_id);
                     }
                 })
@@ -307,7 +307,7 @@ class RoomController extends Controller
             ->where('is_activated', true)
             ->where('styles', 1);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

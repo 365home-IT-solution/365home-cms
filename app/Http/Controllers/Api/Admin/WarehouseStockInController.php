@@ -33,7 +33,7 @@ class WarehouseStockInController extends Controller
 
         $query = WarehouseStockIn::query()->with(['creator:id,fullname,email'])->withCount('items');
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $branchIds = $user->rootProductCategoryIds();

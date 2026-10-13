@@ -113,7 +113,7 @@ class ProductController extends Controller
 
         $query = Product::query()->with(['categories:id,name,slug,parent_id', 'roomType:id,name']);
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             // Thu hẹp thêm về đúng chi nhánh admin được gán (allowedCategoryIds() rỗng = chủ đối
@@ -824,7 +824,7 @@ class ProductController extends Controller
         $update = collect($data)->only(['full_booking_discount', 'bulk_discount_rules', 'room_config'])->toArray();
 
         $query = Product::query()->whereIn('id', $data['room_ids']);
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
         }
 
@@ -1028,7 +1028,7 @@ class ProductController extends Controller
     {
         $query = Product::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

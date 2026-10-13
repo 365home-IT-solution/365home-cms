@@ -47,6 +47,20 @@
                 </button>
             </div>
 
+            @if ($this->isSuperAdmin())
+                <div class="p-3 border-b border-gray-100 dark:border-white/10">
+                    <select
+                        wire:model.live="partnerId"
+                        class="block w-full rounded-lg border-0 bg-white py-1.5 text-sm text-gray-950 shadow-sm ring-1 ring-gray-950/10 focus:ring-2 focus:ring-primary-600 dark:bg-white/5 dark:text-white dark:ring-white/20"
+                    >
+                        <option value="">Tất cả đối tác</option>
+                        @foreach ($this->partners() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
+
             <div class="max-h-72 overflow-y-auto p-2 space-y-1">
                 @forelse ($this->branches() as $branch)
                     <label class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer">

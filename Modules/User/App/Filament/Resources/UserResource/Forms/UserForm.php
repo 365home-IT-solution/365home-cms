@@ -751,7 +751,7 @@ class UserForm
     {
         $user = auth()->user();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             return $user->partner_id;
         }
 

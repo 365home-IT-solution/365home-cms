@@ -145,7 +145,7 @@ class Employee extends Model implements HasMedia
     // super_admin bỏ qua bộ lọc này, xem được toàn bộ nhân viên của mọi đối tác.
     public function scopeVisibleTo($query, User $user)
     {
-        if ($user->isSuperAdmin()) {
+        if ($user->seesAllPartners()) {
             return $query;
         }
 
