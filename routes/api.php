@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\MiniGameController;
 use App\Http\Controllers\Api\MinihouseRoomController;
 use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
@@ -202,6 +203,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     // GET /api/v1/popups → danh sách ảnh popup đang cấu hình (ảnh + url điều hướng), đúng thứ tự
     // sắp xếp trên admin — dùng cho cả app và website. Quản lý ở Admin > Quản lý API > Popup.
     Route::get('popups', [PopupController::class, 'index'])->name('popups.index')->middleware('throttle:public-api');
+
+    // GET /api/v1/mini-games → danh sách mini game đang bật. Chơi thì phải đăng nhập: /api/mini-games/{code}
+    // (nhóm route "Mini game" bên dưới) — xem Api\MiniGameController.
+    Route::get('mini-games', [MiniGameController::class, 'index'])->name('mini-games.index')->middleware('throttle:public-api');
 
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
@@ -554,5 +559,23 @@ Route::middleware(['auth:sanctum', 'customer.active'])->prefix('checkin')->name(
 Route::middleware(['auth:sanctum', 'customer.active'])->prefix('wishlist')->name('api.wishlist.')->group(function () {
     Route::get('/',            [WishlistController::class, 'index'])->name('index');
     Route::post('{id}/toggle', [WishlistController::class, 'toggle'])->name('toggle');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Mini game (ván chơi lưu theo từng khách đăng nhập, không cần đơn hàng)
+| GET  /api/mini-games/{code}          → Ván hiện tại, chưa có thì tự trộn ván đầu
+| POST /api/mini-games/{code}/shuffle  → Trộn lại bộ bài
+| POST /api/mini-games/{code}/pick     → Chọn 1 lá úp (position)
+| POST /api/mini-games/{code}/mark     → Đánh dấu lá đã rút trúng (card_id)
+| POST /api/mini-games/{code}/unmark   → Bỏ đánh dấu 1 lá (card_id) hoặc tất cả
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('mini-games/{code}')->name('api.mini-games.')->group(function () {
+    Route::get('/',        [MiniGameController::class, 'show'])->name('show');
+    Route::post('shuffle', [MiniGameController::class, 'shuffle'])->name('shuffle');
+    Route::post('pick',    [MiniGameController::class, 'pick'])->name('pick');
+    Route::post('mark',    [MiniGameController::class, 'mark'])->name('mark');
+    Route::post('unmark',  [MiniGameController::class, 'unmark'])->name('unmark');
 });
 
