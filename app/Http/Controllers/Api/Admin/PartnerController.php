@@ -396,7 +396,7 @@ class PartnerController extends Controller
     public function settleLegacyOrders(Request $request, Partner $partner, \App\Services\LegacyOrderBackfillService $backfill): JsonResponse
     {
         $this->superAdmin($request);
-        abort_unless(\App\Services\LegacyOrderBackfillService::isEligiblePartner($partner), 403, 'Chỉ áp dụng cho đối tác Về Nhà.');
+        abort_unless(\App\Services\LegacyOrderBackfillService::isEligiblePartner($partner), 403, 'Chỉ áp dụng cho đối tác được cho phép (Về Nhà, Pinus).');
 
         $data = $request->validate([
             'from'  => ['required', 'date_format:Y-m-d'],

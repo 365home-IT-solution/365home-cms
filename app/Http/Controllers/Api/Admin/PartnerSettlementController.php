@@ -58,13 +58,24 @@ class PartnerSettlementController extends Controller
     public function store(Request $request, Partner $partner): JsonResponse
     {
         $this->authorizeSuperAdmin($request, $partner);
-        $data = $request->validate(['period_start' => ['required', 'date'], 'period_end' => ['required', 'date', 'after_or_equal:period_start']]);
+        $data = $request->validate([
+            'period_start'   => ['required', 'date'],
+            'period_end'     => ['required', 'date', 'after_or_equal:period_start'],
+            // true (mặc định) = chỉ lấy đơn chốt TRONG kỳ; false = gom cả đơn của kỳ trước chưa đối soát (như lệnh tự động).
+            'only_in_period' => ['nullable', 'boolean'],
+        ]);
 
-        $settlement = $this->settlements->generate($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay(), $request->user());
+        $settlement = $this->settlements->generate(
+            $partner,
+            Carbon::parse($data['period_start'])->startOfDay(),
+            Carbon::parse($data['period_end'])->startOfDay(),
+            $request->user(),
+            (bool) ($data['only_in_period'] ?? true),
+        );
 
         return $settlement
             ? response()->json(['message' => 'Đã sinh bảng đối soát.', 'data' => $this->settlements->toArray($settlement, withOrders: true)], 201)
-            : response()->json(['message' => 'Kỳ này không có đơn nào cần đối soát hoặc đã có bảng đối soát.'], 422);
+            : response()->json(['message' => $this->settlements->whyNoSettlement($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay())], 422);
     }
 
     // POST …/settlements/{id}/send — Super Admin gửi bảng nháp cho đối tác.

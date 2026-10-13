@@ -28,13 +28,18 @@ class ListPartnerSettlements extends ListRecords
                         ->options(fn () => Partner::query()->where('partner_type', Partner::TYPE_HOMESTAY)->where('is_platform_partner', false)->orderBy('name')->pluck('name', 'id')),
                     Forms\Components\DatePicker::make('period_start')->label('Từ ngày')->required()->native(false)->default(now()->subMonth()->startOfMonth()),
                     Forms\Components\DatePicker::make('period_end')->label('Đến ngày')->required()->native(false)->afterOrEqual('period_start')->default(now()->subMonth()->endOfMonth()),
+                    Forms\Components\Toggle::make('only_in_period')->label('Chỉ lấy đơn trong kỳ (bỏ qua đơn của kỳ trước chưa đối soát)')->default(true),
                 ])
                 ->action(function (array $data) {
-                    $settlement = app(SettlementService::class)->generate(Partner::findOrFail($data['partner_id']), Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay(), auth()->user());
+                    $partner = Partner::findOrFail($data['partner_id']);
+                    $start = Carbon::parse($data['period_start'])->startOfDay();
+                    $end = Carbon::parse($data['period_end'])->startOfDay();
+                    $service = app(SettlementService::class);
+                    $settlement = $service->generate($partner, $start, $end, auth()->user(), (bool) ($data['only_in_period'] ?? true));
 
                     $settlement
                         ? Notification::make()->success()->title("Đã sinh bảng đối soát {$settlement->code}.")->send()
-                        : Notification::make()->warning()->title('Kỳ này không có đơn nào cần đối soát hoặc đã có bảng đối soát.')->send();
+                        : Notification::make()->warning()->title('Chưa sinh được bảng đối soát')->body($service->whyNoSettlement($partner, $start, $end))->persistent()->send();
                 }),
         ];
     }

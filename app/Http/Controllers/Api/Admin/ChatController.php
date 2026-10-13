@@ -94,7 +94,7 @@ class ChatController extends Controller
         /** @var \App\Models\User $user */
         $user = $request->user();
 
-        if ($user->isSuperAdmin()) {
+        if ($user->seesAllPartners()) {
             return $requested;
         }
 
@@ -121,7 +121,7 @@ class ChatController extends Controller
         $user        = $request->user();
         $categoryIds = $this->resolveCategoryFilter($request);
 
-        if ($user->isSuperAdmin() && $categoryIds === null) {
+        if ($user->seesAllPartners() && $categoryIds === null) {
             return null;
         }
 
