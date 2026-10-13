@@ -248,8 +248,6 @@ class MiniGameController extends Controller
     {
         return [
             'id'        => $card->id,
-            'title'     => $card->title,
-            'subtitle'  => $card->subtitle,
             'image_url' => $card->image_url,
             'is_marked' => in_array($card->id, $marked, true),
         ];

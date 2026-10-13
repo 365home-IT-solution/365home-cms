@@ -12,8 +12,6 @@ class MiniGameCard extends Model
 {
     protected $fillable = [
         'mini_game_id',
-        'title',
-        'subtitle',
         'image',
         'is_active',
         'sort_order',
