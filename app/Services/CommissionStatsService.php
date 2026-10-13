@@ -149,7 +149,8 @@ class CommissionStatsService
         $expr = "COALESCE({$o}.checked_out_at, (SELECT MAX(oi.checkout_date) FROM {$i} oi WHERE oi.order_id = {$o}.id), {$o}.created_at)";
 
         $own = Order::withoutGlobalScopes()->where('exclude_from_stats', false)->where('status', 'paid')
-            ->whereIn('partner_id', Partner::query()->where('is_platform_partner', true)->select('id'))
+            // 365home = đối tác nền tảng + đơn chưa gắn đối tác nào (phòng không có đối tác mặc định thuộc 365home).
+            ->where(fn ($q) => $q->whereIn('partner_id', Partner::query()->where('is_platform_partner', true)->select('id'))->orWhereNull('partner_id'))
             ->whereRaw("({$expr}) between ? and ?", [$from, $to]);
 
         $revenue = (int) (clone $own)->selectRaw('COALESCE(SUM(COALESCE(amount, full_amount)), 0) as t')->value('t');

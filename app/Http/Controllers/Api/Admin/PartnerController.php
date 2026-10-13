@@ -328,6 +328,7 @@ class PartnerController extends Controller
     public function displayPdf(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
     {
         abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        abort_unless(config('contract_signing.allow_display_pdf', false), 404, 'Bản hiển thị PDF đang tắt (CONTRACT_ALLOW_DISPLAY_PDF).');
         $this->partnerAccess($request, $partner);
         $result = $workflow->displayPdf($partner);
 

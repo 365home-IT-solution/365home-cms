@@ -709,7 +709,8 @@ class Dashboard extends FilamentDashboard
         if ($this->statsTab === self::TAB_OWN) {
             $own = \App\Models\Partner::query()->where('is_platform_partner', true)->pluck('id')->all();
 
-            return $query->whereIn($table . '.partner_id', $own === [] ? [''] : $own);
+            // Gồm cả đơn chưa gắn đối tác (phòng không có đối tác mặc định thuộc 365home).
+            return $query->where(fn ($q) => $q->whereIn($table . '.partner_id', $own === [] ? [''] : $own)->orWhereNull($table . '.partner_id'));
         }
 
         if ($this->statsTab === self::TAB_PARTNER) {

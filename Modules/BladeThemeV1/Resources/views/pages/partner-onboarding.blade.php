@@ -494,8 +494,8 @@
                     <template x-if="status && status.stage === 'contract_sent'">
                         <div class="space-y-5">
                             <h2 class="text-lg font-bold text-gray-900">Ký hợp đồng hợp tác</h2>
-                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng, tải PDF về ký bằng chữ ký số (CKS) của bạn rồi tải bản đã ký lên.</p>
-                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng, tải PDF về ký bằng chữ ký số (CKS) của bạn rồi tải bản đã ký lên. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
+                            <p class="text-sm text-gray-600" x-show="!signFirst || status.steps.documents_approved">Giấy tờ của bạn đã được duyệt. Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn.</p>
+                            <p class="text-sm text-gray-600" x-show="signFirst && !status.steps.documents_approved">Vui lòng đọc hợp đồng và chọn cách ký: mã OTP gửi về email, hoặc chữ ký số (CKS) của bạn. Sau khi bạn ký, hồ sơ được gửi cho 365 HOME duyệt giấy tờ. <strong>Hợp đồng chỉ có hiệu lực sau khi 365 HOME ký xác nhận.</strong></p>
                             <template x-if="contract && contract.content">
                                 <div class="max-h-96 overflow-y-auto rounded-lg border border-gray-200 p-4 text-sm text-gray-800" x-html="contract.content"></div>
                             </template>
@@ -511,7 +511,7 @@
                                         <span class="block text-sm text-gray-600">Dùng chữ ký số USB token hoặc chữ ký số từ xa của doanh nghiệp/người đại diện.</span></span>
                                 </label>
                             </div>
-                            <div x-show="signMethod === 'otp'" class="space-y-5">
+                            <div x-show="signMethod === 'otp' && signMethods.includes('otp')" class="space-y-5">
                             <div class="flex flex-wrap items-end gap-3">
                                 <button type="button" :disabled="loading || otpCooldown > 0" class="rounded-lg border border-gray-900 px-4 py-2.5 font-semibold disabled:opacity-60" @click="sendOtp()"
                                     x-text="otpCooldown > 0 ? ('Gửi lại mã sau ' + otpCooldown + 's') : 'Gửi mã OTP về email'"></button>
@@ -537,10 +537,10 @@
                                 <button type="button" :disabled="loading || !sign.agree || sign.otp.length !== 6 || !sign.signer_name" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" @click="confirmSign()">Ký xác nhận</button>
                             </div>
                             </div>
-                            <div x-show="signMethod === 'cks'" class="space-y-4">
+                            <div x-show="signMethod === 'cks' || !signMethods.includes('otp')" class="space-y-4">
                                 <ol class="list-decimal pl-5 text-sm text-gray-700 space-y-1">
                                     <li>Tải file PDF hợp đồng về máy.</li>
-                                    <li>Ký file bằng phần mềm chữ ký số của bạn (Adobe Acrobat, Foxit hoặc phần mềm của nhà cung cấp chữ ký số). Không chỉnh sửa nội dung.</li>
+                                    <li>Ký file bằng phần mềm chữ ký số của bạn (Adobe Acrobat, Foxit hoặc phần mềm của nhà cung cấp chữ ký số). Chọn trang cuối và đặt hình chữ ký vào ô ĐẠI DIỆN BÊN B (nếu không chọn, công cụ thường đặt ở góc dưới trái trang 1). Không chỉnh sửa nội dung.</li>
                                     <li>Chọn file đã ký và tải lên bên dưới.</li>
                                 </ol>
                                 <p class="text-sm text-gray-600">Chứng thư số phải đứng tên đúng doanh nghiệp (mã số thuế) hoặc người đại diện (số CCCD) mà bạn đã khai ở bước thông tin ký hợp đồng.</p>
@@ -722,7 +722,7 @@
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },
                 // Cách ký của đối tác: 'otp' (mã gửi email) hoặc 'cks' (chữ ký số của đối tác — tải PDF, ký, tải lên)
-                signMethod: 'cks',
+                signMethod: 'otp',
                 cks: { signer_name: '', agree: false, file: null },
                 infoFields: [
                     { key: 'legal_name', label: 'Tên pháp lý (công ty / hộ kinh doanh)', required: true, full: true },
