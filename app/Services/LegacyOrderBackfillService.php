@@ -27,13 +27,24 @@ class LegacyOrderBackfillService
         private SettlementService $settlements,
     ) {}
 
-    /** Công cụ làm riêng cho đối tác Về Nhà (ký hợp đồng offline) — không dùng cho đối tác khác. */
+    /** Các đối tác được phép dùng công cụ (khớp theo tên/tên pháp lý): chưa ký hợp đồng online nên cần đưa đơn cũ vào đối soát. */
+    public const ELIGIBLE_NAME_KEYWORDS = ['về nhà', 'pinus'];
+
     public static function isEligiblePartner(Partner $partner): bool
     {
-        return $partner->partner_type === Partner::TYPE_HOMESTAY
-            && ! $partner->isPlatformPartner()
-            && ! $partner->isSystemPartner()
-            && mb_stripos((string) $partner->name . ' ' . (string) $partner->legal_name, 'về nhà') !== false;
+        if ($partner->partner_type !== Partner::TYPE_HOMESTAY || $partner->isPlatformPartner() || $partner->isSystemPartner()) {
+            return false;
+        }
+
+        $name = (string) $partner->name . ' ' . (string) $partner->legal_name;
+
+        foreach (self::ELIGIBLE_NAME_KEYWORDS as $keyword) {
+            if (mb_stripos($name, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Báo cáo dạng văn bản để hiện trong thông báo CMS. */
@@ -65,7 +76,7 @@ class LegacyOrderBackfillService
      * @param  bool  $apply  false = chạy thử: tính đủ số liệu rồi hoàn tác toàn bộ, không ghi gì.
      * @return array{orders: array<string, int>, totals: array<string, int>, held: array<int, string>, skipped_no_partner: int, settlements: array<int, array<string, mixed>>}
      */
-    public function run(Partner $partner, Carbon $from, ?Carbon $to, ?float $rate, ?User $by, bool $apply): array
+    public function run(Partner $partner, Carbon $from, ?Carbon $to, ?float $rate, ?User $by, bool $apply, bool $generateSheets = false): array
     {
         if ($partner->partner_type !== Partner::TYPE_HOMESTAY || $partner->isPlatformPartner() || $partner->isSystemPartner()) {
             throw new \InvalidArgumentException('Chỉ áp dụng cho đối tác Homestay thường (không phải MiniHouse/nền tảng/hệ thống).');
@@ -94,7 +105,7 @@ class LegacyOrderBackfillService
                     : $partner->setAttribute('payment_flow_effective_at', now());
             }
 
-            $report = $this->process($partner, $from, $to, $rate, $by);
+            $report = $this->process($partner, $from, $to, $rate, $by, $generateSheets);
 
             $apply ? DB::commit() : DB::rollBack();
         } catch (\Throwable $e) {
@@ -108,7 +119,7 @@ class LegacyOrderBackfillService
         return $report;
     }
 
-    private function process(Partner $partner, Carbon $from, ?Carbon $to, ?float $rate, ?User $by): array
+    private function process(Partner $partner, Carbon $from, ?Carbon $to, ?float $rate, ?User $by, bool $generateSheets): array
     {
         $branchIds = Category::withoutGlobalScopes()->where('partner_id', $partner->id)->pluck('id');
 
@@ -169,7 +180,8 @@ class LegacyOrderBackfillService
             'orders'      => $orders,
             'totals'      => $totals,
             'held'        => $held,
-            'settlements' => $this->generateDraftSettlements($partner, $from, $by),
+            // Mặc định CHỈ thêm đơn (chụp + chốt hoa hồng); việc sinh bảng đối soát là bước riêng (Sinh bảng đối soát).
+            'settlements' => $generateSheets ? $this->generateDraftSettlements($partner, $from, $by) : [],
         ];
     }
 

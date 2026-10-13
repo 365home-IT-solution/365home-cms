@@ -81,15 +81,54 @@ class SettlementService
         return $created;
     }
 
-    /** Sinh bảng đối soát 1 kỳ cho 1 đối tác. null = không có đơn nào hoặc kỳ này đã có bảng. */
-    public function generate(Partner $partner, Carbon $start, Carbon $end, ?User $by = null): ?Settlement
+    /**
+     * Lý do cụ thể vì sao generate() trả null — để người dùng biết phải làm gì thay vì chỉ thấy "không có đơn".
+     */
+    public function whyNoSettlement(Partner $partner, Carbon $start, Carbon $end): string
+    {
+        $existing = Settlement::query()->where('partner_id', $partner->id)
+            ->whereDate('period_start', $start)->whereDate('period_end', $end)->first();
+
+        if ($existing) {
+            return "Kỳ này đã có bảng đối soát {$existing->code} (" . (Settlement::STATUSES[$existing->status] ?? $existing->status) . ') — xem trong danh sách bảng, không sinh lại.';
+        }
+
+        $notSnapshotted = Order::withoutGlobalScopes()->where('partner_id', $partner->id)
+            ->whereNull('collected_by')->whereNull('settlement_id')->whereIn('status', ['paid', 'deposit', 'refunded'])->count();
+
+        if (! $partner->usesDirectPayment() || $notSnapshotted > 0) {
+            return ($notSnapshotted > 0 ? "Có {$notSnapshotted} đơn chưa được chụp hoa hồng" : 'Đối tác chưa bật luồng đối soát')
+                . ' — cần đưa đơn cũ vào đối soát trước rồi mới sinh bảng.';
+        }
+
+        $awaiting = Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNull('settlement_id')
+            ->whereNotNull('collected_by')->whereNull('commission_finalized_at')->count();
+
+        $outside = Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNull('settlement_id')
+            ->whereNotNull('commission_finalized_at')->whereNull('subsidy_held_at');
+
+        if ((clone $outside)->exists()) {
+            $range = (clone $outside)->selectRaw('count(*) c, min(commission_finalized_at) a, max(commission_finalized_at) b')->first();
+
+            return "Có {$range->c} đơn đã chốt chưa đối soát nhưng nằm ngoài kỳ này (chốt từ "
+                . Carbon::parse($range->a)->format('d/m/Y') . ' đến ' . Carbon::parse($range->b)->format('d/m/Y')
+                . ') — chọn kỳ khác hoặc tắt "Chỉ lấy đơn trong kỳ".';
+        }
+
+        return $awaiting > 0
+            ? "Có {$awaiting} đơn chưa trả phòng nên chưa chốt hoa hồng — sẽ vào kỳ sau khi hoàn thành."
+            : 'Không còn đơn nào cần đối soát: các đơn đã chốt đều nằm trong bảng đối soát khác.';
+    }
+
+    /** Sinh bảng đối soát 1 kỳ cho 1 đối tác. null = không có đơn nào hoặc kỳ này đã có bảng (xem whyNoSettlement). */
+    public function generate(Partner $partner, Carbon $start, Carbon $end, ?User $by = null, bool $onlyInPeriod = false): ?Settlement
     {
         if (Settlement::query()->where('partner_id', $partner->id)->whereDate('period_start', $start)->whereDate('period_end', $end)->exists()) {
             return null;
         }
 
-        return DB::transaction(function () use ($partner, $start, $end, $by) {
-            $orders = $this->unsettledOrders($partner, $end)->lockForUpdate()->get();
+        return DB::transaction(function () use ($partner, $start, $end, $by, $onlyInPeriod) {
+            $orders = $this->unsettledOrders($partner, $end, $onlyInPeriod ? $start : null)->lockForUpdate()->get();
 
             if ($orders->isEmpty()) {
                 return null;
@@ -116,26 +155,32 @@ class SettlementService
         });
     }
 
-    /** Đơn đã chốt hoa hồng, chưa vào kỳ nào, không bị giữ khoản bù, chốt trước hết ngày $end. */
-    private function unsettledOrders(Partner $partner, Carbon $end)
+    /**
+     * Đơn đã chốt hoa hồng, chưa vào kỳ nào, không bị giữ khoản bù, chốt trước hết ngày $end.
+     * $from = null (mặc định, lệnh tự động): KHÔNG có cận dưới — đơn của kỳ trước chốt trễ/chưa kịp vào bảng được chuyển sang kỳ này để không bị sót.
+     * $from != null (sinh thủ công chọn "chỉ lấy đơn trong kỳ"): chỉ lấy đơn chốt từ đầu ngày $from; đơn trước đó giữ nguyên chưa đối soát.
+     */
+    private function unsettledOrders(Partner $partner, Carbon $end, ?Carbon $from = null)
     {
         return Order::withoutGlobalScopes()
             ->where('partner_id', $partner->id)
             ->whereNull('settlement_id')
-            ->where(function ($query) use ($end) {
-                $query->where(function ($q) use ($end) {
+            ->where(function ($query) use ($end, $from) {
+                $query->where(function ($q) use ($end, $from) {
                     $q->whereNotNull('commission_finalized_at')
                         ->whereNull('subsidy_held_at')
                         // Đơn trong thời gian miễn phí: đối tác tự thu thì không hoa hồng, không bù — không có gì đối soát; đơn 365home thu hộ vẫn vào kỳ để chi lại 100%.
                         ->where(fn ($w) => $w->where('commission_waived', false)->orWhere('collected_by', OrderCommissionService::COLLECTED_PLATFORM))
-                        ->where('commission_finalized_at', '<=', $end->copy()->endOfDay());
+                        ->where('commission_finalized_at', '<=', $end->copy()->endOfDay())
+                        ->when($from, fn ($w) => $w->where('commission_finalized_at', '>=', $from->copy()->startOfDay()));
                 })
                 // 365home đã ứng hoàn tiền cho khách thay đối tác (tiền ở đối tác): khoản ứng được thu hồi ở kỳ đối soát gần nhất (Điều 6.1 của hợp đồng mẫu),
                 // kể cả đơn hoàn toàn bộ (không còn doanh thu nên không có hoa hồng để chốt).
-                ->orWhere(function ($q) use ($end) {
+                ->orWhere(function ($q) use ($end, $from) {
                     $q->where('status', 'refunded')->where('refund_paid_by', 'platform')->where(fn ($f) => $f->whereNull('refund_fault')->orWhere('refund_fault', '!=', 'platform'))
                         ->whereIn('collected_by', [OrderCommissionService::COLLECTED_PARTNER, OrderCommissionService::COLLECTED_CASH])
-                        ->where('refunded_at', '<=', $end->copy()->endOfDay());
+                        ->where('refunded_at', '<=', $end->copy()->endOfDay())
+                        ->when($from, fn ($w) => $w->where('refunded_at', '>=', $from->copy()->startOfDay()));
                 });
             });
     }

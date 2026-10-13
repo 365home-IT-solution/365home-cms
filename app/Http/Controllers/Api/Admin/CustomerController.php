@@ -199,7 +199,7 @@ class CustomerController extends Controller
     {
         $query = Customer::query();
 
-        if ($user->isSuperAdmin()) {
+        if ($user->seesAllPartners()) {
             return $query;
         }
 
