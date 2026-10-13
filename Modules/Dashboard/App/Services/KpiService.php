@@ -9,6 +9,9 @@ use Modules\Payment\Entities\Order;
 
 class KpiService
 {
+    /** Dấu trong danh sách partner_id nghĩa là "gồm cả đơn chưa gắn đối tác (partner_id NULL)". */
+    public const NULL_PARTNER = '__NULL__';
+
     /**
      * Phạm vi doanh thu cho Super Admin: all (null — không thu hẹp) | own (chỉ đối tác nền tảng 365home) | partners (mọi đối tác, không gồm 365home và
      * đối tác hệ thống) | partner (+ $partnerId: một đối tác). Người không phải Super Admin: luôn null (đã bị khoá theo đối tác của mình).
@@ -22,7 +25,11 @@ class KpiService
         }
 
         return match ($scope) {
-            'own' => \App\Models\Partner::query()->where('is_platform_partner', true)->pluck('id')->map(fn ($id) => (string) $id)->all(),
+            // 365home = đối tác nền tảng + đơn KHÔNG gắn đối tác nào (phòng chưa có đối tác mặc định thuộc 365home): NULL_PARTNER là dấu "gồm partner_id rỗng".
+            'own' => array_merge(
+                \App\Models\Partner::query()->where('is_platform_partner', true)->pluck('id')->map(fn ($id) => (string) $id)->all(),
+                [self::NULL_PARTNER]
+            ),
             'partners' => \App\Models\Partner::query()->where('partner_type', \App\Models\Partner::TYPE_HOMESTAY)->get(['id', 'is_platform_partner'])
                 ->reject(fn ($p) => $p->isSystemPartner() || $p->isPlatformPartner())->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
             'partner' => filled($partnerId) ? [(string) $partnerId] : [],
@@ -61,7 +68,14 @@ class KpiService
 
         // Chỉ Super Admin được thu hẹp theo đối tác (của 365home / một đối tác); người khác luôn bị khoá theo đối tác của mình ở trên.
         if ($partnerIds !== null && $user && $user->isSuperAdmin()) {
-            $query->whereIn('partner_id', $partnerIds === [] ? [''] : $partnerIds);
+            $includeNull = in_array(self::NULL_PARTNER, $partnerIds, true);
+            $ids = array_values(array_diff($partnerIds, [self::NULL_PARTNER]));
+            $query->where(function ($q) use ($ids, $includeNull) {
+                $q->whereIn('partner_id', $ids === [] ? [''] : $ids);
+                if ($includeNull) {
+                    $q->orWhereNull('partner_id');
+                }
+            });
         }
 
         if ($period === 'custom') {

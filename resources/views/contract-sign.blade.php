@@ -200,7 +200,7 @@
                             <h2>Ký hợp đồng bằng chữ ký số</h2>
                             <ol class="steps">
                                 <li><b>1</b><span>Đọc toàn văn hợp đồng.</span></li>
-                                <li><b>2</b><span>Tải PDF hợp đồng về và ký bằng chữ ký số của bạn (USB token, SmartCA, MISA eSign...).</span></li>
+                                <li><b>2</b><span>Tải PDF hợp đồng về và ký bằng chữ ký số của bạn (USB token, SmartCA, MISA eSign...). Khi ký, chọn <b>trang cuối</b> và đặt hình chữ ký vào ô <b>ĐẠI DIỆN BÊN B</b>; nếu không chọn, công cụ ký thường đặt hình ở góc dưới trái trang 1.</span></li>
                                 <li><b>3</b><span>Tải file PDF đã ký lên bên dưới để hệ thống kiểm tra và ghi nhận.</span></li>
                             </ol>
                             @endif

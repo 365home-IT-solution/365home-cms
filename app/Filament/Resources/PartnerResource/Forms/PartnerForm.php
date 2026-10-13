@@ -850,7 +850,7 @@ class PartnerForm
                                             ->visible(fn (?Partner $record) => self::latestVersion($record) && ! self::latestVersion($record)?->isPlatformSigned())
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->modalHeading('Tải lên PDF hợp đồng đã ký bằng chữ ký số (USB token / CKS)')
-                                            ->modalDescription('Chọn đúng file đã tải từ nút "Tải PDF về để ký (USB / CKS)" sau khi ký bằng chữ ký số của công ty (USB token hoặc CKS từ xa). Hệ thống kiểm tra chữ ký và nội dung hợp đồng rồi lưu lại bản đã ký; hợp đồng có hiệu lực khi cả hai bên đã ký, không phụ thuộc bên nào ký trước.')
+                                            ->modalDescription('Chọn đúng file đã tải từ nút "Tải PDF về để ký (USB / CKS)" sau khi ký bằng chữ ký số của công ty (USB token hoặc CKS từ xa). Hệ thống kiểm tra chữ ký và nội dung hợp đồng rồi lưu lại bản đã ký; hợp đồng có hiệu lực khi cả hai bên đã ký, không phụ thuộc bên nào ký trước. Khi ký, chọn trang cuối và đặt hình chữ ký vào ô ĐẠI DIỆN BÊN A (công cụ ký thường mặc định ở góc dưới trái trang 1).')
                                             ->modalSubmitActionLabel('Kiểm tra & hoàn tất')
                                             ->form([
                                                 Forms\Components\FileUpload::make('signed_pdf')->label('File PDF đã ký')->acceptedFileTypes(['application/pdf'])
@@ -894,7 +894,7 @@ class PartnerForm
                                             ->label('Tải bản hiển thị PDF (như trên web)')
                                             ->icon('heroicon-o-document-text')
                                             ->color('gray')
-                                            ->visible(fn (?Partner $record) => (bool) self::latestVersion($record))
+                                            ->visible(fn (?Partner $record) => (bool) config('contract_signing.allow_display_pdf', false) && (bool) self::latestVersion($record))
                                             ->tooltip('Bản để xem/in, giống màn hình xem hợp đồng; không mang chữ ký số. Bản có giá trị ký số là "Tải lại PDF đã ký".')
                                             ->action(fn (?Partner $record) => self::downloadDisplayPdf($record)),
 

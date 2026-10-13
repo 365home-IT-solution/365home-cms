@@ -373,13 +373,14 @@ class PartnerContractRenderer
             $name = e($signerName ?? '—');
 
             return $labelHtml . <<<HTML
-                <div style="border:1px solid #2563eb;padding:8px;font-size:10pt;line-height:1.4;color:#2563eb;">
+                <div style="border:1px solid #2563eb;padding:8px;min-height:84pt;font-size:10pt;line-height:1.4;color:#2563eb;">
                     ĐÃ KÝ SỐ BỞI: {$name}<br>THỜI GIAN: {$signedAt}
                 </div>
             HTML;
         }
 
-        return $labelHtml;
+        // Chưa ký: ô trống có khung nét đứt (cùng kích thước ô đã ký) — vùng để đặt hình chữ ký số khi ký.
+        return $labelHtml . '<div style="border:1px dashed #9ca3af;min-height:100pt;"></div>';
     }
 
     // Dùng riêng cho phía Đối tác — xác nhận qua OTP, KHÔNG phải chữ ký số PKI nên không dùng wording "ĐÃ KÝ SỐ".
@@ -392,12 +393,13 @@ class PartnerContractRenderer
             $name = e($signerName ?? '—');
 
             return $labelHtml . <<<HTML
-                <div style="border:1px solid #0369a1;padding:8px;font-size:10pt;line-height:1.4;color:#0369a1;">
+                <div style="border:1px solid #0369a1;padding:8px;min-height:84pt;font-size:10pt;line-height:1.4;color:#0369a1;">
                     ĐÃ XÁC NHẬN QUA OTP BỞI: {$name}<br>THỜI GIAN: {$confirmedAt}
                 </div>
             HTML;
         }
 
-        return $labelHtml;
+        // Chưa ký: ô trống có khung nét đứt (cùng kích thước ô đã ký) — vùng để đặt hình chữ ký số khi ký.
+        return $labelHtml . '<div style="border:1px dashed #9ca3af;min-height:100pt;"></div>';
     }
 }

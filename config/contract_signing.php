@@ -10,9 +10,12 @@ return [
     // Cho phép ký bằng nhà cung cấp "local" (khoá tự sinh, KHÔNG có giá trị pháp lý). null = chỉ cho phép khi APP_ENV không phải production.
     'allow_local' => env('CONTRACT_SIGNING_ALLOW_LOCAL'),
 
-    // Cách ký hợp đồng Homestay: CHỈ tải file về ký (USB token / CKS / SmartCA / MISA...) rồi tải lên — cho cả nền tảng và đối tác.
-    // Hai cách cũ chỉ bật lại khi cần (mặc định tắt): xác nhận OTP của đối tác và nền tảng ký tự động qua nhà cung cấp từ xa.
-    'allow_otp_confirm' => (bool) env('CONTRACT_ALLOW_OTP', false),
+    // Cách ký hợp đồng Homestay. NỀN TẢNG: chỉ tải file về ký bằng chữ ký số (USB / SmartCA / MISA...) rồi tải lên; ký tự động tắt mặc định
+    // (bật bằng CONTRACT_ALLOW_AUTO_SIGN). ĐỐI TÁC chọn được: chữ ký số (CKS) hoặc xác nhận bằng mã OTP email (CONTRACT_ALLOW_OTP, mặc định bật;
+    // đặt false để bắt buộc CKS).
+    'allow_otp_confirm' => (bool) env('CONTRACT_ALLOW_OTP', true),
+    // Bản PDF "hiển thị như trên web" (không mang chữ ký số): mặc định ẩn để không nhầm với bản đã ký. Bật bằng CONTRACT_ALLOW_DISPLAY_PDF=true.
+    'allow_display_pdf' => (bool) env('CONTRACT_ALLOW_DISPLAY_PDF', false),
     'allow_platform_auto_sign' => (bool) env('CONTRACT_ALLOW_AUTO_SIGN', false),
 
     // Đối tác ký bằng chữ ký số của chính họ (CKS USB / từ xa) thay cho OTP email — xem App\Services\PartnerContractCksService.
