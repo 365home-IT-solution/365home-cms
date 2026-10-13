@@ -378,7 +378,7 @@ class CategoryController extends Controller
     {
         $query = Category::query()->where('category_type', 'product');
 
-        if ($user->isSuperAdmin()) {
+        if ($user->seesAllPartners()) {
             return $query;
         }
 
