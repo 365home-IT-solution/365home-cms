@@ -39,7 +39,7 @@ class WarehouseStockCheckController extends Controller
         $query = WarehouseStockCheck::query()->with(['creator:id,fullname,email'])->withCount('items')
             ->withSum('items', 'difference');
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $branchIds = $user->rootProductCategoryIds();

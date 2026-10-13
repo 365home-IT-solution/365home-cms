@@ -809,6 +809,23 @@ class PartnerForm
                                             ->modalDescription('Phụ lục sửa điều thanh toán (tiền đặt phòng về thẳng đối tác, đối soát hoa hồng theo kỳ) và thêm điều Ký quỹ. Link ký được gửi qua email đối tác, ký bằng OTP như hợp đồng. Chỉ khi phụ lục có hiệu lực (nền tảng ký số) đối tác mới chuyển sang luồng tiền mới; trước đó 365home vẫn thu hộ.')
                                             ->action(fn (?Partner $record) => self::createAddendum($record)),
 
+                                        // Riêng đối tác Về Nhà (ký hợp đồng offline): đưa các đơn tạo trước khi bật luồng đối soát vào đối soát,
+                                        // sinh bảng NHÁP theo kỳ. Mặc định chỉ xem trước (không ghi) — bật "Ghi thật" để áp dụng.
+                                        Forms\Components\Actions\Action::make('settleLegacyOrders')
+                                            ->label('Đưa đơn cũ vào đối soát')
+                                            ->icon('heroicon-o-arrow-path')
+                                            ->color('warning')
+                                            ->visible(fn (?Partner $record) => $record && auth()->user()?->isSuperAdmin() && \App\Services\LegacyOrderBackfillService::isEligiblePartner($record))
+                                            ->modalHeading('Đưa đơn cũ vào đối soát')
+                                            ->modalSubmitActionLabel('Thực hiện')
+                                            ->form([
+                                                Forms\Components\DatePicker::make('from')->label('Tính từ ngày tạo đơn')->required(),
+                                                Forms\Components\DatePicker::make('to')->label('Đến ngày tạo đơn')->afterOrEqual('from'),
+                                                Forms\Components\TextInput::make('rate')->label('Tỉ lệ hoa hồng (%)')->numeric()->minValue(0)->maxValue(100),
+                                                Forms\Components\Toggle::make('apply')->label('Ghi thật (tắt = chỉ xem trước)')->default(false),
+                                            ])
+                                            ->action(fn (?Partner $record, array $data) => self::settleLegacyOrders($record, $data)),
+
                                         // Đối tác ký bằng chữ ký số (CKS) của họ thay cho OTP — admin thao tác hộ khi đối tác gửi file đã ký.
                                         Forms\Components\Actions\Action::make('downloadPartnerPdfToSign')
                                             ->label('Tải PDF để đối tác ký CKS')
@@ -1111,6 +1128,35 @@ class PartnerForm
                 : 'Đã tạo hợp đồng — chưa gửi được email, xem "Xem toàn văn hợp đồng" để lấy link gửi thủ công')
             ->success()
             ->send();
+    }
+
+    private static function settleLegacyOrders(?Partner $record, array $data): void
+    {
+        if (! $record || ! \App\Services\LegacyOrderBackfillService::isEligiblePartner($record)) {
+            return;
+        }
+
+        $apply = (bool) ($data['apply'] ?? false);
+
+        try {
+            $report = app(\App\Services\LegacyOrderBackfillService::class)->run(
+                $record,
+                \Illuminate\Support\Carbon::parse((string) $data['from'])->startOfDay(),
+                filled($data['to'] ?? null) ? \Illuminate\Support\Carbon::parse((string) $data['to'])->endOfDay() : null,
+                filled($data['rate'] ?? null) ? (float) $data['rate'] : null,
+                auth()->user(),
+                $apply,
+            );
+        } catch (\InvalidArgumentException $e) {
+            Notification::make()->title('Chưa thể thực hiện')->body($e->getMessage())->danger()->persistent()->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title($apply ? 'Đã đưa đơn cũ vào đối soát — các bảng đang ở trạng thái nháp' : 'Xem trước (chưa ghi gì)')
+            ->body(nl2br(e(\App\Services\LegacyOrderBackfillService::describe($report))))
+            ->success()->persistent()->send();
     }
 
     private static function createAddendum(?Partner $record): void

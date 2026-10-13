@@ -45,7 +45,7 @@ trait BelongsToBranch
             // chụp: chọn đúng 1 chi nhánh nhưng danh sách vẫn hiện đủ mọi chi nhánh). Dùng THẲNG
             // session (không qua effectiveBranchIds()/rootProductCategoryIds()) khi đang lọc, để
             // không dính đúng rủi ro taxonomy nêu trên.
-            if ($user->isSuperAdmin()) {
+            if ($user->seesAllPartners()) {
                 $selectedBranchIds = session('active_branch_ids');
 
                 if (empty($selectedBranchIds)) {

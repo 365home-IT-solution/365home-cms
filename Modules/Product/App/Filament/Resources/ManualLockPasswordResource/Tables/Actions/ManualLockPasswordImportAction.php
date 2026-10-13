@@ -72,7 +72,7 @@ class ManualLockPasswordImportAction
                                 $query = Category::query()
                                     ->where('category_type', 'product')
                                     ->orderBy('name');
-                                if ($user && ! $user->isSuperAdmin()) {
+                                if ($user && ! $user->seesAllPartners()) {
                                     $query->where('partner_id', $user->partner_id);
 
                                     $ids = $user->allowedCategoryIds();

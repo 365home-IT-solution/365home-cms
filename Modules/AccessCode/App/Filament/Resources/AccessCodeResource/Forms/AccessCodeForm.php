@@ -50,7 +50,7 @@ class AccessCodeForm
                                         $query->where('category_type', 'product');
 
                                         $user = auth()->user();
-                                        if ($user && ! $user->isSuperAdmin()) {
+                                        if ($user && ! $user->seesAllPartners()) {
                                             // Category không có global scope partner_id riêng —
                                             // mặc định chỉ thấy chi nhánh của đối tác mình;
                                             // allowedBranchIds() chỉ thu hẹp thêm nếu có.

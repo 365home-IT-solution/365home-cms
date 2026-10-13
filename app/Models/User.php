@@ -107,14 +107,16 @@ public function getFilamentAvatarUrl(): ?string
         // 'approved' — chặn CẢ 'pending' (chưa được duyệt lần nào, trạng thái MẶC ĐỊNH lúc mới
         // tạo đối tác) chứ không chỉ 'rejected'/'suspended'. Trước đây chỉ chặn 2 trạng thái xấu,
         // vô tình để lọt đối tác CHƯA TỪNG được duyệt vẫn đăng nhập được bình thường.
-        if ($this->partner_id) {
+        $realPartnerId = $this->getRawOriginal('partner_id');
+
+        if ($realPartnerId) {
             // withTrashed() CỐ Ý — Partner dùng Soft Delete, "xoá" đối tác không xoá bản ghi thật,
             // chỉ gán deleted_at. Quan hệ $this->partner() mặc định LOẠI TRỪ bản ghi đã xoá nên nếu
             // dùng thẳng $this->partner ở đây, giá trị sẽ luôn null với đối tác đã xoá — vô tình
             // "chặn đúng" nhờ null-safe operator (null !== 'approved') nhưng không tường minh, dễ vỡ
             // âm thầm nếu sau này có ai đổi cách load quan hệ. Viết rõ ràng: đối tác đã xoá (trashed)
             // PHẢI chặn đăng nhập ngay, tách biệt với lý do verification_status khác 'approved'.
-            $partner = \App\Models\Partner::withTrashed()->find($this->partner_id);
+            $partner = \App\Models\Partner::withTrashed()->find($realPartnerId);
 
             if (! $partner || $partner->trashed() || $partner->verification_status !== 'approved') {
                 return false;
@@ -127,6 +129,38 @@ public function getFilamentAvatarUrl(): ?string
     public function isSuperAdmin(): bool
     {
         return $this->hasRole(config('filament-shield.super_admin.name'));
+    }
+
+    // Đối tác super_admin đang chọn làm việc trong request hiện tại (nút "Chuyển đổi đối tác" ở
+    // CMS, header X-Partner-Id ở API) — chỉ nằm trong bộ nhớ của request, KHÔNG ghi xuống DB.
+    protected ?string $actingPartnerId = null;
+
+    public function actAsPartner(?string $partnerId): void
+    {
+        $this->actingPartnerId = $this->isSuperAdmin() ? $partnerId : null;
+        $this->unsetRelation('partner');
+    }
+
+    public function actingPartnerId(): ?string
+    {
+        return $this->actingPartnerId;
+    }
+
+    // super_admin CHƯA chọn đối tác nào = thấy dữ liệu mọi đối tác (như cũ). Đã chọn đối tác thì
+    // mọi chỗ đang lọc theo partner_id của user sẽ lọc theo đúng đối tác đó (xem
+    // getPartnerIdAttribute) — các nơi cần "bypass đối tác" dùng hàm này thay cho isSuperAdmin().
+    public function seesAllPartners(): bool
+    {
+        return $this->isSuperAdmin() && $this->actingPartnerId === null;
+    }
+
+    // Với super_admin đang chọn đối tác, partner_id trả về đối tác đó để toàn bộ logic lọc/gán
+    // theo $user->partner_id (BelongsToPartner, rootProductCategoryIds, API...) tự chạy đúng phạm
+    // vi. Giá trị trong DB không đổi và không bị coi là dirty — dùng getRawOriginal('partner_id')
+    // khi cần giá trị thật (vd canAccessPanel).
+    public function getPartnerIdAttribute($value)
+    {
+        return $this->actingPartnerId ?? $value;
     }
 
     /**
@@ -280,7 +314,7 @@ public function getFilamentAvatarUrl(): ?string
     {
         $query = \Modules\Category\Entities\Category::whereNull('parent_id')->where('category_type', 'product');
 
-        if ($this->isSuperAdmin()) {
+        if ($this->seesAllPartners()) {
             return $query->pluck('id')->toArray();
         }
 

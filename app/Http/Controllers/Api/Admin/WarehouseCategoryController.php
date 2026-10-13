@@ -30,7 +30,7 @@ class WarehouseCategoryController extends Controller
 
         $query = WarehouseCategory::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
         }
 

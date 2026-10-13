@@ -127,7 +127,7 @@ class ChatController extends Controller
 
         $query = Order::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             empty($user->partner_id)
                 ? $query->whereRaw('1 = 0')
                 : $query->where('partner_id', $user->partner_id);

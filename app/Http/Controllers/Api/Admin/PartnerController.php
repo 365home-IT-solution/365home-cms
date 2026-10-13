@@ -391,6 +391,37 @@ class PartnerController extends Controller
     // Cùng cột partners.bank_* với tab Tài chính của Super Admin nên hai bên tự đồng bộ.
     // POST /api/admin/{minihouse/}partners/{partner}/resend-credentials — nút Filament "Gửi lại tài khoản đăng nhập": tạo tài khoản (nếu chưa có)
     // hoặc đặt mật khẩu mới cho tài khoản chủ đối tác rồi gửi email. Cùng điều kiện hiển thị với nút Filament.
+    // POST /api/admin/partners/{partner}/legacy-orders/settle — riêng đối tác Về Nhà (ký hợp đồng offline): đưa đơn tạo trước khi bật luồng đối soát
+    // vào đối soát, sinh bảng NHÁP theo kỳ. apply=false (mặc định) chỉ xem trước, không ghi gì.
+    public function settleLegacyOrders(Request $request, Partner $partner, \App\Services\LegacyOrderBackfillService $backfill): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless(\App\Services\LegacyOrderBackfillService::isEligiblePartner($partner), 403, 'Chỉ áp dụng cho đối tác Về Nhà.');
+
+        $data = $request->validate([
+            'from'  => ['required', 'date_format:Y-m-d'],
+            'to'    => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'rate'  => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'apply' => ['nullable', 'boolean'],
+        ]);
+        $apply = (bool) ($data['apply'] ?? false);
+
+        try {
+            $report = $backfill->run(
+                $partner,
+                \Illuminate\Support\Carbon::parse($data['from'])->startOfDay(),
+                filled($data['to'] ?? null) ? \Illuminate\Support\Carbon::parse($data['to'])->endOfDay() : null,
+                isset($data['rate']) ? (float) $data['rate'] : null,
+                $request->user(),
+                $apply,
+            );
+        } catch (\InvalidArgumentException $e) {
+            abort(422, $e->getMessage());
+        }
+
+        return response()->json(['applied' => $apply, 'data' => $report]);
+    }
+
     public function resendCredentials(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
     {
         $this->superAdmin($request);

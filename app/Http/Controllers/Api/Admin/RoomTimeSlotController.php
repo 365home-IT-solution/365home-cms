@@ -92,7 +92,7 @@ class RoomTimeSlotController extends Controller
     {
         $query = Product::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds();

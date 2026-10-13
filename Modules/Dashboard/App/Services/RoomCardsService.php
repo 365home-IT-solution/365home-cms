@@ -49,7 +49,7 @@ class RoomCardsService
 
         $productQuery = Product::with(['categories.parent'])->where('is_activated', true);
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
             $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
             if (! empty($allowedCategoryIds)) {

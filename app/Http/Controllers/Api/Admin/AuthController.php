@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Partner;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Http\JsonResponse;
@@ -72,9 +73,16 @@ class AuthController extends Controller
             'fullname'       => $user->fullname,
             'email'          => $user->email,
             'roles'          => $user->roles()->pluck('name'),
-            'partner_id'     => $user->partner_id,
-            'partner_name'   => $user->partner?->name,
+            // partner_id THẬT của tài khoản (null với super_admin) — không lẫn với đối tác super_admin
+            // đang chọn qua header X-Partner-Id, xem "active_partner" bên dưới.
+            'partner_id'     => $user->getRawOriginal('partner_id'),
+            'partner_name'   => $user->getRawOriginal('partner_id')
+                ? Partner::withTrashed()->whereKey($user->getRawOriginal('partner_id'))->value('name')
+                : null,
             'is_super_admin' => $user->isSuperAdmin(),
+            'active_partner' => $user->actingPartnerId()
+                ? ['id' => $user->actingPartnerId(), 'name' => Partner::withTrashed()->whereKey($user->actingPartnerId())->value('name')]
+                : null,
             'access'         => $this->panelAccess($user),
             'categories'     => $this->branchCategories($user),
             // Gói dịch vụ: trạng thái, hạn, cờ khoá và danh sách tính năng tài khoản được dùng.

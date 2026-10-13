@@ -78,7 +78,7 @@ class ManualLockPasswordTtlockIssuer
     {
         $query = Category::query()->where('category_type', 'product')->orderBy('name');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allowedIds = $user->allowedCategoryIds();
 
             if (! empty($allowedIds)) {

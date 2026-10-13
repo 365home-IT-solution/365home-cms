@@ -59,7 +59,7 @@ class ManualLockPassword extends Model
      */
     public function scopeVisibleTo(Builder $query, \App\Models\User $user): Builder
     {
-        if ($user->isSuperAdmin()) {
+        if ($user->seesAllPartners()) {
             return $query;
         }
 

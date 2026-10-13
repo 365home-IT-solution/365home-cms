@@ -179,7 +179,7 @@ class CccdDeclarationController extends Controller
         return CccdDeclaration::query()->whereHas('order', function (Builder $q) use ($user) {
             $q->whereIn('status', CccdDeclaration::CONFIRMED_ORDER_STATUSES);
 
-            if (! $user->isSuperAdmin()) {
+            if (! $user->seesAllPartners()) {
                 $q->where('partner_id', $user->partner_id);
             }
         });

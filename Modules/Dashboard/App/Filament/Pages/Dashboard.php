@@ -194,7 +194,7 @@ class Dashboard extends FilamentDashboard
         if ($canViewVoucherUsage) {
             $voucherUsageQuery = \Modules\Promotion\App\Models\CouponUsage::query();
             $vUser             = auth()->user();
-            if ($vUser && ! $vUser->isSuperAdmin()) {
+            if ($vUser && ! $vUser->seesAllPartners()) {
                 $vCategoryIds = $vUser->allowedCategoryIds() ?? [];
                 if (! empty($vCategoryIds)) {
                     $voucherUsageQuery->whereIn('category_id', $vCategoryIds);
@@ -306,7 +306,7 @@ class Dashboard extends FilamentDashboard
         $branchesQuery   = \Modules\Category\Entities\Category::whereNull('parent_id')
             ->where('category_type', 'product')
             ->orderBy('name');
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
             if (! empty($allowedIds)) {
                 $branchesQuery->whereIn('id', $allowedIds)
@@ -536,7 +536,7 @@ class Dashboard extends FilamentDashboard
         // Super admin: bỏ đối tác đã tắt "Tính vào thống kê hệ thống" (query thô, không dùng được scope countedInStats()).
         \App\Support\PlatformStats::apply($inner, 'o.partner_id', $user);
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             // Đây là raw query builder (DB::table), KHÔNG đi qua Eloquent nên global scope
             // BelongsToPartner của Order không tự áp dụng — phải lọc partner_id thủ công ở đây.
             $inner->where('o.partner_id', $user->partner_id);
@@ -597,7 +597,7 @@ class Dashboard extends FilamentDashboard
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod']);
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             // PHẢI lọc partner_id tường minh: global scope BelongsToPartner của Order chỉ chạy
             // trong Filament panel (AdminPanelContext), còn hàm này được gọi lại từ API token
             // (RankingService — GET /api/admin/dashboard/rankings), nơi scope đó KHÔNG áp dụng —
@@ -662,7 +662,7 @@ class Dashboard extends FilamentDashboard
             ->distinct()
             ->orderByRaw('YEAR(created_at) DESC');
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             // PHẢI lọc partner_id tường minh: global scope BelongsToPartner của Order chỉ chạy
             // trong Filament panel (AdminPanelContext), còn hàm này được gọi lại từ API token
             // (RankingService — GET /api/admin/dashboard/rankings), nơi scope đó KHÔNG áp dụng —

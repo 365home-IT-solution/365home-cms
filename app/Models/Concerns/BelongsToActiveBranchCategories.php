@@ -33,7 +33,7 @@ trait BelongsToActiveBranchCategories
             // đã xác nhận thực tế — xem giải thích chi tiết ở BelongsToBranch, cùng khung điều kiện).
             // Dùng thẳng session để tránh rủi ro effectiveBranchIds()/rootProductCategoryIds() thiếu
             // taxonomy khi bộ lọc đang thực sự áp dụng.
-            if ($user->isSuperAdmin()) {
+            if ($user->seesAllPartners()) {
                 $selectedBranchIds = session('active_branch_ids');
 
                 if (empty($selectedBranchIds)) {

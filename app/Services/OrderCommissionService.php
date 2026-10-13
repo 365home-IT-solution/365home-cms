@@ -294,7 +294,8 @@ class OrderCommissionService
         return $remainderByCash && $order->deposit_paid_amount ? min($retained, (int) $order->deposit_paid_amount) : $retained;
     }
 
-    public function finalize(Order $order): void
+    /** $quiet = true: không báo Super Admin khi giữ khoản bù (dùng khi chốt hàng loạt đơn cũ — xem LegacyOrderBackfillService). */
+    public function finalize(Order $order, bool $quiet = false): void
     {
         if (! $this->isFinalizable($order)) {
             return;
@@ -328,7 +329,7 @@ class OrderCommissionService
 
         if ($subsidy > 0 && ($reason = $this->suspicionOf($order, $partner))) {
             $order->forceFill(['subsidy_held_at' => now(), 'subsidy_held_reason' => $reason])->saveQuietly();
-            app(EscrowService::class)->notifySuperAdmins(
+            ! $quiet && app(EscrowService::class)->notifySuperAdmins(
                 'order_subsidy_held',
                 'Giữ khoản 365home bù của đơn nghi ngờ',
                 "Đơn #{$order->order_code} của " . ($partner->legal_name ?: $partner->name) . ": {$reason}. Đơn chưa vào kỳ đối soát cho tới khi bạn xem xét.",

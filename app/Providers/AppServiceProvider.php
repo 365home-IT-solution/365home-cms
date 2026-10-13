@@ -105,8 +105,10 @@ class AppServiceProvider extends ServiceProvider
                 $user = auth()->user();
 
                 // Chỉ hiện nút chuyển đổi chi nhánh khi có từ 2 chi nhánh trở lên để chọn — 1 chi
-                // nhánh thì không có gì để chuyển đổi.
-                if (! $user instanceof \App\Models\User || count($user->rootProductCategoryIds()) <= 1) {
+                // nhánh thì không có gì để chuyển đổi. super_admin luôn thấy nút (còn dùng để chọn
+                // đối tác — nếu ẩn khi đối tác đang chọn chỉ có 1 chi nhánh thì không quay lại được).
+                if (! $user instanceof \App\Models\User
+                    || (! $user->isSuperAdmin() && count($user->rootProductCategoryIds()) <= 1)) {
                     return '';
                 }
 

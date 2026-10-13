@@ -38,7 +38,7 @@ class WarehouseStockReturnController extends Controller
             ->with(['room:id,name', 'employee:id,name', 'creator:id,fullname,email'])
             ->withCount('items');
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $branchIds = $user->rootProductCategoryIds();

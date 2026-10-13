@@ -48,7 +48,7 @@ class CameraController extends Controller
 
         $query->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id)
                 ->whereIn('branch_id', $user->effectiveBranchIds());
         }
@@ -90,7 +90,7 @@ class CameraController extends Controller
 
         $query->whereHas('partner', fn ($query) => $query->where('partner_type', Partner::TYPE_HOMESTAY));
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id)
                 ->whereIn('branch_id', $user->effectiveBranchIds());
         }

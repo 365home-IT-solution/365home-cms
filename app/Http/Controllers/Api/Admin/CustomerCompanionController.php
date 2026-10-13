@@ -341,7 +341,7 @@ class CustomerCompanionController extends Controller
         $user = $request->user();
         $query = Customer::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $rootIds = $user->rootProductCategoryIds();
             $query->where(function ($q) use ($rootIds) {
                 $q->doesntHave('categories')

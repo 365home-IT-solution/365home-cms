@@ -120,6 +120,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('partners/{partner}/contract/renew', [AdminPartnerController::class, 'renewContract'])->name('partners.contract.renew');
     Route::post('partners/{partner}/contract/terminate', [AdminPartnerController::class, 'terminateContract'])->name('partners.contract.terminate');
     Route::post('partners/{partner}/resend-credentials', [AdminPartnerController::class, 'resendCredentials'])->name('partners.resend-credentials');
+    Route::post('partners/{partner}/legacy-orders/settle', [AdminPartnerController::class, 'settleLegacyOrders'])->name('partners.legacy-orders.settle');
     Route::post('partners/{partner}/suspend', [AdminPartnerController::class, 'suspend'])->name('partners.suspend');
     Route::post('partners/{partner}/reactivate', [AdminPartnerController::class, 'reactivate'])->name('partners.reactivate');
     Route::get('partners/{partner}/status-logs', [AdminPartnerController::class, 'statusLogs'])->name('partners.status-logs');

@@ -24,7 +24,7 @@ class WarehouseUnitController extends Controller
 
         $query = WarehouseUnit::query();
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
         }
 

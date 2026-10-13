@@ -49,7 +49,7 @@ class ManageCamera extends Page
 
         // Tài khoản thường: KHÔNG có lựa chọn nào khác ngoài đối tác của chính mình — gán sẵn +
         // nạp luôn form, không cần bước "chọn đối tác" nào cả.
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $this->partnerId = $user->partner_id;
             $this->fillFormForPartner();
         }

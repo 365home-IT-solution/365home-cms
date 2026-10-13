@@ -30,7 +30,7 @@ class BranchController extends Controller
             ->whereNull('parent_id')
             ->where('category_type', 'product');
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
         }
 

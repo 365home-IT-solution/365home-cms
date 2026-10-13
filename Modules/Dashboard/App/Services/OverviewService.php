@@ -453,7 +453,7 @@ class OverviewService
     {
         $query = Order::query()->countedInStats();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             $allowedCategoryIds = $user->allowedCategoryIds();
             if (empty($allowedCategoryIds)) {
                 return $query->whereRaw('1 = 0');
@@ -480,7 +480,7 @@ class OverviewService
         // (doanh thu theo phòng, công suất, xếp hạng...) — mọi thống kê theo product đều đi qua hàm này.
         \App\Support\PlatformStats::apply($query, $query->qualifyColumn('partner_id'), $user);
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             if (empty($user->partner_id)) {
                 return [];
             }

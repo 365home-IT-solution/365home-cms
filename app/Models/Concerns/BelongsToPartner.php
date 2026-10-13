@@ -43,7 +43,7 @@ trait BelongsToPartner
             // instanceof, kết quả còn tệ hơn: $user->partner_id trên Customer trả về null, khiến câu
             // WHERE partner_id = NULL không khớp dòng nào → khách hàng thấy TRỐNG TRƠN (wishlist,
             // sản phẩm...) một cách âm thầm, không báo lỗi.
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            if (! $user instanceof User || $user->seesAllPartners()) {
                 return;
             }
 

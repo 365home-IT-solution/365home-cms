@@ -24,7 +24,7 @@ class ListCategory extends ListRecords
                 ->mutateFormDataUsing(function (array $data): array {
                     $user = auth()->user();
 
-                    if ($user && ! $user->isSuperAdmin()) {
+                    if ($user && ! $user->seesAllPartners()) {
                         $data['partner_id'] = $user->partner_id;
                     }
 

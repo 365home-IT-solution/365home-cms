@@ -45,7 +45,7 @@ class WarehouseStockOutController extends Controller
             // hiệu ngay trên danh sách, không phải mở từng phiếu ra mới biết.
             ->withExists('returnItems');
 
-        if (! $user->isSuperAdmin()) {
+        if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
             $branchIds = $user->rootProductCategoryIds();

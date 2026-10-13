@@ -24,7 +24,7 @@ class ReportScope
     {
         $query = Order::query()->countedInStats();
 
-        if ($user && ! $user->isSuperAdmin()) {
+        if ($user && ! $user->seesAllPartners()) {
             if (empty($user->partner_id)) {
                 return $query->whereRaw('1 = 0');
             }
