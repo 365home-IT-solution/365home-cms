@@ -6,6 +6,8 @@ use App\Http\View\Composers\ProductColorComposer;
 use App\Services\ContractSigning\ContractSigningManager;
 use App\Services\ContractSigning\Contracts\DigitalSignatureProvider;
 use App\Settings\MailSettings;
+use App\Support\MemoizedModuleRepository;
+use Nwidart\Modules\Contracts\RepositoryInterface as ModuleRepositoryInterface;
 use Filament\Tables\Table;
 use Filament\Support\Facades\FilamentView;
 use Filament\View\PanelsRenderHook;
@@ -37,6 +39,14 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production')) {
             config(['app.debug' => false]);
         }
+
+        // Thay repository của nwidart/laravel-modules bằng bản nhớ kết quả quét Modules/ trong 1
+        // request, xem App\Support\MemoizedModuleRepository. Đăng ký ở register() (chạy sau
+        // LaravelModulesServiceProvider::register() nhưng trước mọi boot()) nên đè được binding
+        // gốc trước khi có nơi nào resolve nó.
+        $this->app->singleton(ModuleRepositoryInterface::class, function ($app) {
+            return new MemoizedModuleRepository($app, $app['config']->get('modules.paths.modules'));
+        });
 
         KnowledgeBasePanel::configureUsing(
             fn(KnowledgeBasePanel $panel) => $panel
