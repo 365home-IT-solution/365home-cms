@@ -14,6 +14,7 @@ class MiniGame extends Model
         'code',
         'name',
         'description',
+        'long_description',
         'thumbnail',
         'is_active',
         'sort_order',

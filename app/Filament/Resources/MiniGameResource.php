@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\MiniGameResource\Pages;
 use App\Filament\Resources\MiniGameResource\RelationManagers\CardsRelationManager;
+use AmidEsfahani\FilamentTinyEditor\TinyEditor;
 use App\Models\MiniGame;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
@@ -59,9 +60,17 @@ class MiniGameResource extends Resource
                 ]),
 
                 Textarea::make('description')
-                    ->label('Mô tả')
+                    ->label('Mô tả ngắn')
                     ->rows(2)
                     ->maxLength(500)
+                    ->columnSpanFull(),
+
+                TinyEditor::make('long_description')
+                    ->label('Mô tả chi tiết & hướng dẫn chơi')
+                    ->helperText('Hiển thị ở màn game trên app.')
+                    ->id('mini_game_long_description')
+                    ->nullable()
+                    ->profile('custom-full')
                     ->columnSpanFull(),
 
                 FileUpload::make('thumbnail')

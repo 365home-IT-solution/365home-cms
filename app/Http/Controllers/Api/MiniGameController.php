@@ -29,10 +29,12 @@ class MiniGameController extends Controller
             ->orderBy('sort_order')
             ->get()
             ->map(fn (MiniGame $game) => [
-                'code'        => $game->code,
-                'name'        => $game->name,
-                'description' => $game->description,
-                'thumbnail'   => $game->thumbnail ? Storage::disk('public')->url($game->thumbnail) : null,
+                'code'             => $game->code,
+                'name'             => $game->name,
+                'description'      => $game->description,
+                // HTML soạn ở admin (mô tả chi tiết + hướng dẫn chơi)
+                'long_description' => $game->long_description,
+                'thumbnail'        =>$game->thumbnail ? Storage::disk('public')->url($game->thumbnail) : null,
             ])
             ->values();
 
