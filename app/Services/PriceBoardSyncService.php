@@ -251,6 +251,19 @@ class PriceBoardSyncService
         return $item->fresh('timeSlots');
     }
 
+    /** Gọi SAU mỗi lần sửa giá trực tiếp ngoài trang "Hệ thống giá" (API admin sửa khung giờ/áp
+     *  bảng giá mẫu...) — làm đúng như SettingBook::save(): cập nhật "Bảng giá mặc định" theo giá
+     *  vừa lưu + ghi lịch sử nếu giá đổi. Bỏ bước này thì job `price-boards:sync-due` chạy nửa đêm sẽ
+     *  ghi đè giá phòng về ảnh chụp CŨ của bảng mặc định, coi như mất thay đổi. $before = kết quả
+     *  snapshotPricing($product) chụp TRƯỚC khi sửa. */
+    public function afterManualPriceEdit(Product $product, array $before): void
+    {
+        $fresh = $product->fresh();
+
+        $this->seedDefaultBoard($fresh);
+        $this->logPriceChange($this->defaultBoard()->id, $fresh, $before, $this->snapshotPricing($fresh));
+    }
+
     /** Áp giá đang hiệu lực cho $product tại $date (mặc định hôm nay): tìm bảng đặt tên (không phải
      *  mặc định) đang active và có khoảng ngày phủ $date; nếu không có, khôi phục về bảng mặc định. */
     public function applyForProduct(Product $product, ?Carbon $date = null): void

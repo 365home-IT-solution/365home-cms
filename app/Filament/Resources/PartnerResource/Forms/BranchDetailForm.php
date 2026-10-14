@@ -257,6 +257,7 @@ class BranchDetailForm
                         ]);
 
                         $product->categories()->attach($branch->id);
+                        app(\App\Services\BranchServiceSync::class)->syncRoom($product);
 
                         Notification::make()->title('Đã thêm phòng mới')->success()->send();
                     }),

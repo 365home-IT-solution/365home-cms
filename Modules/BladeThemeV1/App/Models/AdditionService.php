@@ -27,6 +27,18 @@ class AdditionService extends Model
         'is_active' => 'boolean',
     ];
 
+    /** Chi nhánh (category gốc) áp dụng dịch vụ này — nguồn gốc thật; products() bên dưới chỉ là
+     *  dữ liệu dẫn xuất do App\Services\BranchServiceSync ghi lại từ đây. */
+    public function branches()
+    {
+        return $this->belongsToMany(
+            \Modules\Category\Entities\Category::class,
+            'additional_service_branches',
+            'additional_service_id',
+            'category_id'
+        );
+    }
+
     public function products()
     {
         return $this->belongsToMany(

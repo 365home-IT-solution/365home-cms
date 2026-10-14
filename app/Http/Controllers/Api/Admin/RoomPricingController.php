@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\PriceBoardSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -70,7 +71,7 @@ class RoomPricingController extends Controller
      *    ProductController::updateBookingSettings() — 'room_config' merge NÔNG với giá trị hiện có
      *    (không ghi đè toàn bộ), giữ nguyên 'blocked_ranges' nếu có.
      */
-    public function update(Request $request, string $id): JsonResponse
+    public function update(Request $request, string $id, PriceBoardSyncService $priceBoards): JsonResponse
     {
         $room = $this->visibleRoom($request->user(), $id);
 
@@ -110,6 +111,12 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'Cần nhập ít nhất time_slots, price hoặc 1 field điều kiện giảm giá.'], 422);
         }
 
+        if ($hasTimeSlots && $error = RoomTimeSlotController::foreignTimeSlotError($room, array_column($data['time_slots'], 'timeslot_id'))) {
+            return response()->json(['message' => $error], 422);
+        }
+
+        $before = $priceBoards->snapshotPricing($room);
+
         DB::transaction(function () use ($room, $data, $hasTimeSlots, $hasPrice, $hasDiscount) {
             if ($hasTimeSlots) {
                 foreach ($data['time_slots'] as $row) {
@@ -142,6 +149,8 @@ class RoomPricingController extends Controller
             }
         });
 
+        $priceBoards->afterManualPriceEdit($room, $before);
+
         $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
 
         return response()->json($this->toItem($room->fresh(['roomTimeSlots' => fn ($q) => $q->whereNull('date')])));
@@ -153,7 +162,7 @@ class RoomPricingController extends Controller
      * phòng styles=1. Không đụng tới full_booking_discount/room_config (xoá riêng nếu cần bằng
      * POST .../pricing với field đó = null).
      */
-    public function deleteBulkDiscountRules(Request $request, string $id): JsonResponse
+    public function deleteBulkDiscountRules(Request $request, string $id, PriceBoardSyncService $priceBoards): JsonResponse
     {
         $room = $this->visibleRoom($request->user(), $id);
 
@@ -165,7 +174,9 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'bulk_discount_rules chỉ áp dụng cho phòng theo khung giờ (styles=1).'], 422);
         }
 
+        $before = $priceBoards->snapshotPricing($room);
         $room->update(['bulk_discount_rules' => null]);
+        $priceBoards->afterManualPriceEdit($room, $before);
 
         return response()->json(['message' => 'Đã xoá giảm giá theo số khung giờ.']);
     }
@@ -176,7 +187,7 @@ class RoomPricingController extends Controller
      * (xem mapBulkDiscountRules(), vị trí 1-based tại lần GET/POST gần nhất — gọi lại GET trước nếu
      * đã lâu chưa xem, tránh xoá nhầm rule khác do mảng đã bị ghi đè ở nơi khác).
      */
-    public function deleteBulkDiscountRule(Request $request, string $id, int $ruleId): JsonResponse
+    public function deleteBulkDiscountRule(Request $request, string $id, int $ruleId, PriceBoardSyncService $priceBoards): JsonResponse
     {
         $room = $this->visibleRoom($request->user(), $id);
 
@@ -197,7 +208,9 @@ class RoomPricingController extends Controller
         unset($rules[$ruleId - 1]);
         $rules = array_values($rules);
 
+        $before = $priceBoards->snapshotPricing($room);
         $room->update(['bulk_discount_rules' => empty($rules) ? null : $rules]);
+        $priceBoards->afterManualPriceEdit($room, $before);
 
         return response()->json(['message' => 'Đã xoá giảm giá theo số khung giờ.']);
     }
@@ -211,7 +224,7 @@ class RoomPricingController extends Controller
      * đãi/coupon đang gán cho khung giờ này của phòng (promotion_room_time_slot,
      * coupon_room_time_slot) — tránh mồ côi dữ liệu vì 2 bảng đó không có ràng buộc FK cascade.
      */
-    public function deleteTimeSlot(Request $request, string $id, int $roomTimeSlotId): JsonResponse
+    public function deleteTimeSlot(Request $request, string $id, int $roomTimeSlotId, PriceBoardSyncService $priceBoards): JsonResponse
     {
         $room = $this->visibleRoom($request->user(), $id);
 
@@ -232,11 +245,16 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'Phòng chưa gán khung giờ này.'], 404);
         }
 
+        $before = $priceBoards->snapshotPricing($room);
+
         DB::transaction(function () use ($roomTimeSlot) {
             $roomTimeSlot->promotions()->detach();
             $roomTimeSlot->coupons()->detach();
             $roomTimeSlot->delete();
         });
+
+        // Không cập nhật bảng mặc định thì job đêm sẽ TẠO LẠI khung giờ vừa gỡ từ ảnh chụp cũ.
+        $priceBoards->afterManualPriceEdit($room, $before);
 
         return response()->json(['message' => 'Đã xoá khung giờ, giá và ưu đãi gán cho khung giờ này.']);
     }

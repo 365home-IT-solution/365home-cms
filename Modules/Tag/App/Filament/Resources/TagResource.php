@@ -56,9 +56,13 @@ class TagResource extends Resource
         $query = parent::getEloquentQuery();
         $user  = auth()->user();
 
-        if (! $user || $user->isSuperAdmin()) {
+        if (! $user || $user->seesAllPartners()) {
             return $query;
         }
+
+        // tags.partner_id: NULL = tiện ích mẫu hệ thống, có giá trị = tiện ích đối tác tự thêm — đối
+        // tác không thấy tiện ích riêng của đối tác khác.
+        $query->usableBy($user->partner_id);
 
         $allowedCategoryIds = $user->allowedCategoryIds();
 
@@ -74,8 +78,9 @@ class TagResource extends Resource
             ->distinct()
             ->pluck('categorizable_id');
 
+        // Tiện ích riêng của chính đối tác luôn hiện (kể cả chưa gắn phòng nào), để quản lý được.
         if ($productIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
+            return $query->where('partner_id', $user->partner_id);
         }
 
         // Tìm tag_id được gắn với các product đó
@@ -85,11 +90,17 @@ class TagResource extends Resource
             ->distinct()
             ->pluck('tag_id');
 
-        if ($tagIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
-        }
+        return $query->where(fn (Builder $q) => $q->whereIn('id', $tagIds)->orWhere('partner_id', $user->partner_id));
+    }
 
-        return $query->whereIn('id', $tagIds);
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return parent::canEdit($record) && \Modules\Tag\App\Filament\Resources\TagResource\Tables\Actions\TagAction::editable($record);
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return parent::canDelete($record) && \Modules\Tag\App\Filament\Resources\TagResource\Tables\Actions\TagAction::editable($record);
     }
 
     public static function form(Form $form): Form

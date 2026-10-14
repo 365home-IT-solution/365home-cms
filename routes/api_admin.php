@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
 use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\PriceTemplateController as AdminPriceTemplateController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
 use App\Http\Controllers\Api\Admin\RatingController as AdminRatingController;
@@ -792,26 +793,43 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers/{custo
 
 /*
 |--------------------------------------------------------------------------
-| Services — Danh sách dịch vụ bổ sung (additional_services) theo đối tác, dùng để admin lấy đúng
-| service_id khi tạo/sửa đơn (POST /api/admin/orders, services[].service_id) — xem
-| BuildsRoomBooking::buildServices() (dùng $room->additionalServices(), KHÔNG phải room_services).
-| GET /api/admin/services → ?is_active=&search=
+| Services — Dịch vụ đi kèm (additional_services) theo đối tác, GẮN THEO CHI NHÁNH (branch_ids[]):
+| phòng tự có mọi dịch vụ của chi nhánh nó thuộc về — xem ServiceController/BranchServiceSync.
+| service_id dùng khi tạo/sửa đơn (POST /api/admin/orders, services[].service_id) không đổi.
+| GET    /api/admin/services      → ?is_active=&all=&search=&branch_id=&room_id=
+| GET    /api/admin/services/{id} → chi tiết
+| POST   /api/admin/services      → tạo (name, price, branch_ids[], is_active, image)
+| PUT|POST /api/admin/services/{id} → sửa (POST khi gửi kèm ảnh) — branch_ids thay toàn bộ
+| DELETE /api/admin/services/{id} → xoá — chặn nếu đã có trong đơn (tắt is_active thay vì xoá)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/services')->name('api.admin.services.')->group(function () {
     Route::get('/', [AdminServiceController::class, 'index'])->name('index');
+    Route::post('/', [AdminServiceController::class, 'store'])->name('store');
+    Route::get('/{id}', [AdminServiceController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [AdminServiceController::class, 'update'])->name('update')->whereNumber('id');
+    Route::post('/{id}', [AdminServiceController::class, 'update'])->name('update.post')->whereNumber('id');
+    Route::delete('/{id}', [AdminServiceController::class, 'destroy'])->name('destroy')->whereNumber('id');
 });
 
 /*
 |--------------------------------------------------------------------------
 | Tags — Danh sách TIỆN ÍCH phòng (bảng `tags`, field "tags" trong ProductForm — label hiển thị
 | "Tiện ích", KHÔNG phải RoomAmenity). Dùng để admin chọn tag_id khi tạo/sửa phòng
-| (POST/PUT /api/admin/products, tags[]).
-| GET /api/admin/tags → ?search=
+| (POST/PUT /api/admin/products, tags[]). partner_id NULL = tiện ích mẫu hệ thống (chỉ chọn);
+| đối tác tự thêm tiện ích riêng — xem TagController.
+| GET    /api/admin/tags      → ?search=&type=&scope=system|mine
+| POST   /api/admin/tags      → thêm tiện ích riêng (name, image)
+| PUT|POST /api/admin/tags/{id} → sửa (chỉ tiện ích riêng; POST khi gửi kèm ảnh)
+| DELETE /api/admin/tags/{id} → xoá (chỉ tiện ích riêng) — gỡ khỏi mọi phòng đang gắn
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('api.admin.tags.')->group(function () {
     Route::get('/', [AdminTagController::class, 'index'])->name('index');
+    Route::post('/', [AdminTagController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminTagController::class, 'update'])->name('update')->whereNumber('id');
+    Route::post('/{id}', [AdminTagController::class, 'update'])->name('update.post')->whereNumber('id');
+    Route::delete('/{id}', [AdminTagController::class, 'destroy'])->name('destroy')->whereNumber('id');
 });
 
 /*
@@ -819,10 +837,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 | Time Slots — Danh sách khung giờ dùng chung (bảng `time_slots`), đã chia sẵn 4 nhóm
 | Ngày/Chiều/Đêm/Qua đêm — xem TimeSlotController. Dùng làm dữ liệu nền để gán khung giờ cho
 | từng phòng (POST /api/admin/products/{id}/time-slots).
-| GET /api/admin/time-slots → ?type=&include_date_type=&key=&label=
-| POST /api/admin/time-slots → tạo khung giờ mới (start_time/end_time/over_night/label/type)
-| PUT|PATCH /api/admin/time-slots/{id} → sửa — LƯU Ý dùng chung cho mọi phòng đang gán khung giờ này
-| DELETE /api/admin/time-slots/{id} → xoá — chặn nếu còn phòng nào đang gán khung giờ này
+| partner_id NULL = khung giờ mẫu hệ thống (đối tác chỉ chọn, không sửa/xoá); đối tác tự tạo khung
+| giờ riêng. Mỗi item có is_system/editable.
+| GET /api/admin/time-slots → ?type=&include_date_type=&key=&label=&scope=system|mine
+| POST /api/admin/time-slots → tạo khung giờ riêng (start_time/end_time/over_night/label/type) — trùng
+|                              giờ với khung giờ đã có → 422 kèm 'existing'
+| PUT|PATCH /api/admin/time-slots/{id} → sửa (chỉ khung giờ riêng) — ảnh hưởng mọi phòng đang gán
+| DELETE /api/admin/time-slots/{id} → xoá (chỉ khung giờ riêng) — chặn nếu còn phòng/bảng giá mẫu dùng
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
@@ -831,6 +852,30 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
     Route::put('/{id}', [AdminTimeSlotController::class, 'update'])->name('update');
     Route::patch('/{id}', [AdminTimeSlotController::class, 'update'])->name('update.patch');
     Route::delete('/{id}', [AdminTimeSlotController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Price Templates — BẢNG GIÁ MẪU (price_templates): bộ khung giờ + giá có sẵn để chọn rồi áp xuống
+| phòng. partner_id NULL = mẫu hệ thống; đối tác sửa mẫu hệ thống → tự tách bản riêng (response có
+| forked_from_id). KHÁC price_boards (bảng giá theo lịch, quản lý ở Filament). Xem
+| PriceTemplateController.
+| GET    /api/admin/price-templates            → ?scope=system|mine&search=&is_active=
+| GET    /api/admin/price-templates/{id}       → chi tiết (kèm slots[])
+| POST   /api/admin/price-templates            → tạo (name, note, is_active, sort_order, slots[])
+| PUT|PATCH /api/admin/price-templates/{id}    → sửa (slots gửi lên = thay toàn bộ)
+| DELETE /api/admin/price-templates/{id}       → xoá (chỉ mẫu riêng)
+| POST   /api/admin/price-templates/{id}/apply → áp xuống phòng (room_ids[], mode=replace|merge)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates')->name('api.admin.price-templates.')->group(function () {
+    Route::get('/', [AdminPriceTemplateController::class, 'index'])->name('index');
+    Route::post('/', [AdminPriceTemplateController::class, 'store'])->name('store');
+    Route::get('/{id}', [AdminPriceTemplateController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update')->whereNumber('id');
+    Route::patch('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update.patch')->whereNumber('id');
+    Route::delete('/{id}', [AdminPriceTemplateController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    Route::post('/{id}/apply', [AdminPriceTemplateController::class, 'apply'])->name('apply')->whereNumber('id');
 });
 
 /*

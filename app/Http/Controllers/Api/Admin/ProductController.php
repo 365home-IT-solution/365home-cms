@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\Concerns\GeneratesUniqueSlug;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AdminNotificationService;
+use App\Services\BranchServiceSync;
 use App\Services\TelegramService;
 use App\Services\RoomEmergencyAccessService;
 use Carbon\Carbon;
@@ -33,11 +34,15 @@ use Spatie\Tags\Tag;
  * tiện ích, dịch vụ bổ sung, ảnh...
  *
  * Field trong request khớp với Modules\Product\App\Filament\Resources\ProductResource\Forms\ProductForm:
- *  - categories (chi nhánh/khu vực áp dụng), tags (tiện ích — Spatie Tag, KHÔNG phải RoomAmenity),
- *    additional_services (dịch vụ bổ sung), name/slug/wifi/home_code/address/latitude/longitude/
+ *  - categories (chi nhánh/khu vực áp dụng), tags (tiện ích — Spatie Tag, KHÔNG phải RoomAmenity;
+ *    chỉ nhận tiện ích mẫu hệ thống hoặc tiện ích riêng của đối tác sở hữu phòng),
+ *    name/slug/wifi/home_code/address/latitude/longitude/
  *    hotline/styles/room_type_id (Danh mục phòng — xem RoomTypeController, nullable), short_description/
  *    description, setting_video_room{url,ratio,title}, image_main (collection "Ảnh bìa"),
  *    gallery[] (collection "Thư viện").
+ *  - Dịch vụ bổ sung KHÔNG còn chọn theo từng phòng — phòng tự kế thừa dịch vụ của chi nhánh nó
+ *    thuộc về (gán ở /api/admin/services, branch_ids[]; xem App\Services\BranchServiceSync). Gửi
+ *    additional_services lên đây bị bỏ qua; response vẫn trả additional_services = dịch vụ kế thừa.
  *
  * Phạm vi hiển thị/sửa: super_admin xem & sửa mọi phòng; user thường chỉ xem/sửa phòng thuộc đúng
  * đối tác mình (products.partner_id) — global scope BelongsToPartner KHÔNG áp dụng ngoài Filament
@@ -310,11 +315,8 @@ class ProductController extends Controller
             return response()->json(['message' => 'Bắt buộc chọn đối tác sở hữu (partner_id) khi tạo phòng.'], 422);
         }
 
-        if (! empty($data['additional_services'])) {
-            $serviceError = $this->validateServiceIds($partnerId, $data['additional_services']);
-            if ($serviceError) {
-                return response()->json(['message' => $serviceError], 422);
-            }
+        if (! empty($data['tags']) && $tagError = $this->validateTagIds($partnerId, $data['tags'])) {
+            return response()->json(['message' => $tagError], 422);
         }
 
         $product = DB::transaction(function () use ($data, $partnerId) {
@@ -337,10 +339,11 @@ class ProductController extends Controller
 
             $product->categories()->sync($data['categories']);
             $product->tags()->sync($data['tags'] ?? []);
-            $product->additionalServices()->sync($data['additional_services'] ?? []);
 
             return $product;
         });
+
+        app(BranchServiceSync::class)->syncRoom($product);
 
         $this->handleImages($request, $product);
 
@@ -376,11 +379,8 @@ class ProductController extends Controller
             }
         }
 
-        if (array_key_exists('additional_services', $data)) {
-            $serviceError = $this->validateServiceIds($product->partner_id, $data['additional_services']);
-            if ($serviceError) {
-                return response()->json(['message' => $serviceError], 422);
-            }
+        if (! empty($data['tags']) && $tagError = $this->validateTagIds($product->partner_id, $data['tags'])) {
+            return response()->json(['message' => $tagError], 422);
         }
 
         // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:8' đã đủ chặn), update()
@@ -413,10 +413,11 @@ class ProductController extends Controller
             if (array_key_exists('tags', $data)) {
                 $product->tags()->sync($data['tags']);
             }
-            if (array_key_exists('additional_services', $data)) {
-                $product->additionalServices()->sync($data['additional_services']);
-            }
         });
+
+        if (array_key_exists('categories', $data)) {
+            app(BranchServiceSync::class)->syncRoom($product);
+        }
 
         $this->handleImages($request, $product);
 
@@ -959,8 +960,6 @@ class ProductController extends Controller
             'categories.*'        => 'integer|exists:categories,id',
             'tags'                => 'nullable|array',
             'tags.*'              => 'integer|exists:tags,id',
-            'additional_services' => 'nullable|array',
-            'additional_services.*' => 'integer|exists:additional_services,id',
 
             'image_main'          => ($isUpdate ? 'sometimes|' : 'required|') . self::IMAGE_RULE,
             'gallery'             => 'nullable|array|max:8',
@@ -989,16 +988,15 @@ class ProductController extends Controller
         return null;
     }
 
-    // Dịch vụ bổ sung gán cho phòng phải thuộc đúng đối tác của phòng (khớp modifyQueryUsing của
-    // additionalServices trong ProductForm).
-    private function validateServiceIds(?string $partnerId, array $serviceIds): ?string
+    // Tiện ích gán cho phòng: mẫu hệ thống (partner_id NULL) hoặc tiện ích riêng của đúng đối tác
+    // sở hữu phòng — không gán được tiện ích riêng của đối tác khác.
+    private function validateTagIds(?string $partnerId, array $tagIds): ?string
     {
-        $validCount = AdditionService::whereIn('id', $serviceIds)
-            ->where('partner_id', $partnerId)
-            ->count();
+        $tagIds     = array_values(array_unique(array_map('intval', $tagIds)));
+        $validCount = \App\Models\Tag::usableBy($partnerId)->whereIn('id', $tagIds)->count();
 
-        if ($validCount !== count($serviceIds)) {
-            return 'Một hoặc nhiều dịch vụ bổ sung không thuộc đối tác của phòng này.';
+        if ($validCount !== count($tagIds)) {
+            return 'Một hoặc nhiều tiện ích không thuộc đối tác của phòng này.';
         }
 
         return null;

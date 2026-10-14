@@ -113,7 +113,7 @@ trait HasRoomPricingFormFields
 
                             Select::make('timeslot_id')
                                 ->label('Khung giờ')
-                                ->options(TimeSlot::all()->pluck('label', 'id'))
+                                ->options(TimeSlot::forCurrentAdmin()->pluck('label', 'id'))
                                 ->preload()
                                 ->searchable()
                                 ->createOptionForm([
@@ -131,7 +131,11 @@ trait HasRoomPricingFormFields
                                         ->helperText('Định dạng HH:MM (VD: 10:40)')
                                         ->rules(['regex:/^\d{1,2}:\d{2}$/']),
                                 ])
-                                ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
+                                // Đối tác tạo = khung giờ riêng của đối tác; super_admin không chọn đối tác tạo = mẫu hệ thống.
+                                ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, [
+                                    'type'       => 'time',
+                                    'partner_id' => auth()->user()?->seesAllPartners() === false ? auth()->user()->partner_id : null,
+                                ]))->id)
                                 ->required()
                                 ->live()
                                 ->afterStateUpdated(function ($state, Set $set, Get $get) use ($baselinePriceResolver) {

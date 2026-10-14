@@ -18,7 +18,7 @@ use Filament\Forms\Set;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Modules\BladeThemeV1\App\Models\AdditionService;
+use App\Services\BranchServiceSync;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Filament\Resources\ProductResource;
 
@@ -30,8 +30,14 @@ class CreateProduct extends CreateRecord
     {
         return [
             self::createCategoryAction(),
-            self::createAdditionServiceAction(),
         ];
+    }
+
+    // Dịch vụ bổ sung không còn chọn theo từng phòng — phòng kế thừa dịch vụ của chi nhánh. Ô
+    // categories được Filament sync SAU khi tạo bản ghi nên phải đồng bộ ở đây.
+    protected function afterCreate(): void
+    {
+        app(BranchServiceSync::class)->syncRoom($this->record);
     }
 
     private static function createCategoryAction(): Action
@@ -141,62 +147,6 @@ class CreateProduct extends CreateRecord
                     'status'        => $data['status'] ?? true,
                     'image'         => $data['image'] ?? null,
                 ]);
-            })
-            ->closeModalByClickingAway(true);
-    }
-
-    private static function createAdditionServiceAction(): Action
-    {
-        return Action::make('createAdditionService')
-            ->label('Thêm dịch vụ bổ sung')
-            ->icon('heroicon-o-plus-circle')
-            ->color('success')
-            ->modalHeading('Tạo dịch vụ bổ sung mới')
-            ->modalSubmitActionLabel('Tạo dịch vụ')
-            ->modalCancelActionLabel('Hủy')
-            ->form([
-                FileUpload::make('image')
-                    ->label('Ảnh dịch vụ')
-                    ->image()
-                    ->directory('addition-services')
-                    ->imageEditor()
-                    ->imageEditorAspectRatios([null, '16:9', '4:3', '1:1'])
-                    ->imageCropAspectRatio('1:1')
-                    ->imageResizeMode('cover')
-                    ->imageResizeTargetWidth('800')
-                    ->imageResizeTargetHeight('800')
-                    ->columnSpanFull(),
-
-                TextInput::make('name')
-                    ->label('Tên dịch vụ')
-                    ->required()
-                    ->maxLength(255),
-
-                TextInput::make('price')
-                    ->label('Đơn giá')
-                    ->numeric()
-                    ->prefix('₫')
-                    ->required()
-                    ->minValue(0),
-
-                Toggle::make('is_active')
-                    ->label('Kích hoạt')
-                    ->default(true)
-                    ->inline(false),
-            ])
-            ->action(function (array $data) {
-                AdditionService::create([
-                    'name'      => $data['name'],
-                    'price'     => $data['price'],
-                    'image'     => $data['image'] ?? null,
-                    'is_active' => $data['is_active'] ?? true,
-                ]);
-
-                \Filament\Notifications\Notification::make()
-                    ->title('Đã tạo dịch vụ "' . $data['name'] . '"')
-                    ->body('Dịch vụ đã sẵn sàng để chọn trong form bên dưới.')
-                    ->success()
-                    ->send();
             })
             ->closeModalByClickingAway(true);
     }

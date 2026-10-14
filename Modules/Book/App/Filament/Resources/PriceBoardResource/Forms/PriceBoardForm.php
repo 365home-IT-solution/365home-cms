@@ -206,7 +206,7 @@ class PriceBoardForm
 
                                         Select::make('timeslot_id')
                                             ->label('Khung giờ')
-                                            ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
+                                            ->options(fn () => TimeSlot::forCurrentAdmin()->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
                                             ->searchable()
                                             ->dehydrated(false)
                                             ->columnSpan(1)

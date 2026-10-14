@@ -7,6 +7,7 @@ namespace Modules\Product\App\Filament\Resources\ProductResource\Forms;
 use AmidEsfahani\FilamentTinyEditor\TinyEditor;
 use CodeWithDennis\FilamentSelectTree\SelectTree;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Illuminate\Support\Facades\DB;
 use Modules\Product\App\Models\Product;
@@ -83,7 +84,14 @@ class ProductForm
 
             Select::make('tags')
                 ->label(__('product::product.form.label.tags'))
-                ->relationship('tags', 'name')
+                // Tiện ích mẫu hệ thống + tiện ích riêng của đối tác đang đăng nhập (tags.partner_id).
+                ->relationship('tags', 'name', modifyQueryUsing: function ($query) {
+                    $user = auth()->user();
+
+                    return $user && ! $user->seesAllPartners()
+                        ? $query->usableBy($user->partner_id)
+                        : $query;
+                })
                 ->getOptionLabelFromRecordUsing(fn ($record) => $record->getTranslation('name', app()->getLocale()))
                 ->searchable()
                 ->preload()
@@ -92,30 +100,14 @@ class ProductForm
                 ->helperText(__('product::product.form.helper_text.tags'))
                 ->inlineLabel(),
 
-            Select::make('additionalServices')
+            Placeholder::make('inherited_services')
                 ->label('Dịch vụ bổ sung')
-                ->relationship(
-                    name: 'additionalServices',
-                    titleAttribute: 'name',
-                    modifyQueryUsing: function ($query) {
-                        $query->where('is_active', true);
+                ->content(function (?Product $record) {
+                    $names = $record?->additionalServices()->pluck('name')->all() ?? [];
 
-                        $user = auth()->user();
-                        if (! $user || $user->isSuperAdmin()) {
-                            return $query;
-                        }
-
-                        // Dịch vụ bổ sung là của riêng từng đối tác (partner_id) — mỗi đối tác tự
-                        // tạo dịch vụ của mình, không dùng chung với đối tác khác.
-                        return $query->where('partner_id', $user->partner_id);
-                    }
-                )
-                ->getOptionLabelFromRecordUsing(fn ($record) => $record->name . ' — ' . number_format($record->price) . '₫')
-                ->searchable()
-                ->preload()
-                ->multiple()
-                ->placeholder('Chọn dịch vụ bổ sung cho phòng...')
-                ->helperText('Dịch vụ sẽ được gán vào phòng này')
+                    return $names ? implode(', ', $names) : 'Chưa có — gán dịch vụ cho chi nhánh ở trang Dịch vụ.';
+                })
+                ->helperText('Phòng tự nhận toàn bộ dịch vụ của chi nhánh nó thuộc về (quản lý ở menu Dịch vụ).')
                 ->inlineLabel(),
         ])->columns(1);
     }

@@ -1,0 +1,168 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\DB;
+use Modules\Product\App\Models\Product;
+
+/**
+ * Dịch vụ đi kèm (additional_services) gắn theo CHI NHÁNH (bảng additional_service_branches —
+ * category gốc, category_type=product), phòng tự kế thừa toàn bộ dịch vụ của chi nhánh nó thuộc về.
+ *
+ * Toàn bộ luồng đặt phòng (API khách, API admin, Livewire Book, Filament OrderForm...) vẫn đọc
+ * $room->additionalServices qua bảng room_additional_service_assigns — thay vì sửa ~15 chỗ đọc đó,
+ * bảng này được giữ làm dữ liệu DẪN XUẤT: class này ghi lại nó mỗi khi dịch vụ đổi chi nhánh hoặc
+ * phòng đổi chi nhánh. KHÔNG ghi tay vào room_additional_service_assigns ở chỗ nào khác nữa — sẽ bị
+ * ghi đè ở lần đồng bộ kế tiếp.
+ *
+ * Phòng có thể gắn vào category CON (khu vực) chứ không chỉ category gốc — luôn đi ngược parent_id
+ * lên tới gốc mới ra chi nhánh thật (cùng quy ước expandCategoryIds() ở ProductController).
+ */
+class BranchServiceSync
+{
+    /** Đồng bộ lại dịch vụ cho 1 phòng theo chi nhánh hiện tại của nó. */
+    public function syncRoom(Product|string $room): void
+    {
+        $roomId = $room instanceof Product ? (string) $room->getKey() : $room;
+
+        $serviceIds = $this->serviceIdsForBranches($this->rootBranchIdsForRoomId($roomId));
+
+        DB::transaction(function () use ($roomId, $serviceIds) {
+            DB::table('room_additional_service_assigns')
+                ->where('room_id', $roomId)
+                ->when($serviceIds, fn ($q) => $q->whereNotIn('additional_service_id', $serviceIds))
+                ->delete();
+
+            $existing = DB::table('room_additional_service_assigns')
+                ->where('room_id', $roomId)
+                ->pluck('additional_service_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $missing = array_diff($serviceIds, $existing);
+
+            if ($missing) {
+                DB::table('room_additional_service_assigns')->insert(array_map(
+                    fn ($serviceId) => ['room_id' => $roomId, 'additional_service_id' => $serviceId],
+                    array_values($missing)
+                ));
+            }
+        });
+    }
+
+    /** Đồng bộ lại mọi phòng thuộc các chi nhánh $branchIds (kể cả phòng gắn vào category con). */
+    public function syncBranches(array $branchIds): void
+    {
+        $branchIds = array_values(array_unique(array_filter(array_map('intval', $branchIds))));
+        if (! $branchIds) {
+            return;
+        }
+
+        $categoryIds = [];
+        foreach ($branchIds as $branchId) {
+            $categoryIds = array_merge($categoryIds, $this->expandCategoryIds($branchId));
+        }
+
+        $this->roomIdsInCategories(array_unique($categoryIds))->each(fn (string $roomId) => $this->syncRoom($roomId));
+    }
+
+    /** Đồng bộ lại TOÀN BỘ phòng — dùng 1 lần khi migrate, hoặc chạy tay khi nghi dữ liệu lệch. */
+    public function syncAll(): void
+    {
+        $roomIds = DB::table('categorizables')
+            ->where('categorizable_type', (new Product)->getMorphClass())
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('products')->whereColumn('products.id', 'categorizables.categorizable_id'))
+            ->distinct()
+            ->pluck('categorizable_id')
+            ->merge(DB::table('room_additional_service_assigns')->distinct()->pluck('room_id'))
+            ->map(fn ($id) => (string) $id)
+            ->unique();
+
+        $roomIds->each(fn (string $roomId) => $this->syncRoom($roomId));
+    }
+
+    /** Chi nhánh (category gốc, category_type=product) của 1 phòng — thường chỉ 1, trả mảng phòng
+     *  trường hợp dữ liệu cũ gắn phòng vào nhiều chi nhánh (khi đó phòng nhận HỢP dịch vụ). */
+    public function rootBranchIdsForRoomId(string $roomId): array
+    {
+        $categoryIds = DB::table('categorizables')
+            ->join('categories', 'categories.id', '=', 'categorizables.category_id')
+            ->where('categorizables.categorizable_type', (new Product)->getMorphClass())
+            ->where('categorizables.categorizable_id', $roomId)
+            ->where('categories.category_type', 'product')
+            ->whereNull('categories.deleted_at')
+            ->pluck('categories.id')
+            ->all();
+
+        $roots = [];
+        foreach ($categoryIds as $categoryId) {
+            if ($rootId = $this->rootOf((int) $categoryId)) {
+                $roots[$rootId] = $rootId;
+            }
+        }
+
+        return array_values($roots);
+    }
+
+    private function serviceIdsForBranches(array $branchIds): array
+    {
+        if (! $branchIds) {
+            return [];
+        }
+
+        return DB::table('additional_service_branches')
+            ->whereIn('category_id', $branchIds)
+            ->distinct()
+            ->pluck('additional_service_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    private function roomIdsInCategories(array $categoryIds)
+    {
+        return DB::table('categorizables')
+            ->where('categorizable_type', (new Product)->getMorphClass())
+            ->whereIn('category_id', $categoryIds)
+            // categorizables không có FK nên còn sót dòng trỏ tới phòng đã xoá hẳn khỏi products.
+            ->whereExists(fn ($q) => $q->selectRaw('1')->from('products')->whereColumn('products.id', 'categorizables.categorizable_id'))
+            ->distinct()
+            ->pluck('categorizable_id')
+            ->map(fn ($id) => (string) $id);
+    }
+
+    private function rootOf(int $categoryId): ?int
+    {
+        $seen = [];
+
+        while ($categoryId && ! isset($seen[$categoryId])) {
+            $seen[$categoryId] = true;
+
+            $parentId = DB::table('categories')->where('id', $categoryId)->value('parent_id');
+            if ($parentId === null) {
+                return $categoryId;
+            }
+
+            $categoryId = (int) $parentId;
+        }
+
+        return null;
+    }
+
+    private function expandCategoryIds(int $categoryId): array
+    {
+        $allIds       = [$categoryId];
+        $currentLevel = [$categoryId];
+
+        while ($currentLevel) {
+            $children = DB::table('categories')->whereIn('parent_id', $currentLevel)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $children = array_diff($children, $allIds);
+
+            $allIds       = array_merge($allIds, $children);
+            $currentLevel = $children;
+        }
+
+        return $allIds;
+    }
+}

@@ -6,6 +6,7 @@ namespace Modules\Product\App\Filament\Resources;
 
 use App\Filament\Support\PartnerTableHelpers;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
@@ -82,6 +83,26 @@ class AdditionServiceResource extends Resource
                 ->required()
                 ->minValue(0),
 
+            // Dịch vụ gắn theo CHI NHÁNH (category gốc) — phòng thuộc chi nhánh nào tự có dịch vụ của
+            // chi nhánh đó (App\Services\BranchServiceSync, gọi ở Create/EditAdditionService).
+            Select::make('branches')
+                ->label('Chi nhánh áp dụng')
+                ->relationship('branches', 'name', modifyQueryUsing: function ($query) {
+                    $query->whereNull('categories.parent_id')->where('categories.category_type', 'product');
+
+                    $user = auth()->user();
+
+                    return $user && ! $user->seesAllPartners()
+                        ? $query->where('categories.partner_id', $user->partner_id)
+                        : $query;
+                })
+                ->multiple()
+                ->preload()
+                ->searchable()
+                ->required()
+                ->helperText('Mọi phòng thuộc chi nhánh đã chọn sẽ có dịch vụ này.')
+                ->columnSpanFull(),
+
             Toggle::make('is_active')
                 ->label('Kích hoạt')
                 ->default(true)
@@ -112,6 +133,11 @@ class AdditionServiceResource extends Resource
                     ->label('Đơn giá')
                     ->money('VND')
                     ->sortable(),
+
+                TextColumn::make('branches.name')
+                    ->label('Chi nhánh')
+                    ->badge()
+                    ->separator(','),
 
                 TextColumn::make('products_count')
                     ->label('Số phòng')
