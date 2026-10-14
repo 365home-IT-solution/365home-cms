@@ -16,7 +16,6 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
@@ -135,8 +134,7 @@ class SettlementSummarySheet implements FromArray, WithEvents, WithTitle
 
         $ws->mergeCells("A{$row}:B{$row}");
         $ws->setCellValue("A{$row}", $text);
-        $ws->getStyle("A{$row}")->getFont()->setBold(true)->setSize(13)->getColor()->setRGB(self::COLOR_PRIMARY);
-        $ws->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2EFDA');
+        $ws->getStyle("A{$row}")->getFont()->setBold(true)->setSize(13);
         $ws->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
         $ws->getRowDimension($row)->setRowHeight(30);
         $this->border($ws, "A{$row}:B{$row}");
@@ -159,9 +157,9 @@ class SettlementSummarySheet implements FromArray, WithEvents, WithTitle
         $ws->mergeCells("A{$row}:B{$row}");
         $ws->setCellValue("A{$row}", $label);
         $style = $ws->getStyle("A{$row}:B{$row}");
-        $style->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-        $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB(self::COLOR_PRIMARY);
+        $style->getFont()->setBold(true);
         $style->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        $this->border($ws, "A{$row}:B{$row}");
         $ws->getRowDimension($row)->setRowHeight(22);
 
         return $row + 1;

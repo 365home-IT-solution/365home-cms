@@ -195,29 +195,27 @@ class PartnerSettlementController extends Controller
         return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\PartnerSettlementExport($found), \App\Exports\PartnerSettlementExport::fileName($found));
     }
 
-    // GET …/settlements/export[?status=&from=&to=] — file Excel danh sách các bảng đối soát của đối tác (mỗi bảng 1 dòng).
-    // from/to lọc theo ngày kết thúc kỳ (YYYY-MM-DD). Đối tác không thấy bảng nháp.
-    public function exportList(Request $request, Partner $partner)
+    // GET /api/admin/settlements/cycle/export[?period_start=&period_end=&partner_ids=] — BẢNG ĐỐI SOÁT CỦA TẤT CẢ ĐỐI TÁC TRONG 1 CHU KỲ
+    // (chỉ Super Admin): 1 sheet, mỗi đối tác có bảng trong kỳ 1 dòng. Bỏ trống kỳ = kỳ 2 lần/tháng vừa đóng gần nhất.
+    public function exportCycle(Request $request, SettlementService $service)
     {
-        $this->authorizeView($request, $partner);
+        abort_unless($request->user()->isSuperAdmin(), 403, 'Chỉ Super Admin được xuất đối soát của tất cả đối tác.');
 
         $data = $request->validate([
-            'status' => ['nullable', 'string'],
-            'from'   => ['nullable', 'date'],
-            'to'     => ['nullable', 'date', 'after_or_equal:from'],
+            'period_start' => ['nullable', 'date', 'required_with:period_end'],
+            'period_end'   => ['nullable', 'date', 'required_with:period_start', 'after_or_equal:period_start'],
+            'partner_ids'  => ['nullable', 'string'],
         ]);
 
-        $query = Settlement::query()->where('partner_id', $partner->id)->orderBy('period_start')->orderBy('id');
-        if (! $request->user()->isSuperAdmin()) {
-            $query->where('status', '!=', Settlement::STATUS_DRAFT);
-        }
-        $query->when($data['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
-            ->when($data['from'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '>=', $v))
-            ->when($data['to'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '<=', $v));
+        [$start, $end] = isset($data['period_start'])
+            ? [Carbon::parse($data['period_start']), Carbon::parse($data['period_end'])]
+            : $service->lastClosedPeriod('biweekly', now());
+
+        $ids = collect(explode(',', (string) ($data['partner_ids'] ?? '')))->map(fn ($v) => trim($v))->filter()->values()->all();
 
         return \Maatwebsite\Excel\Facades\Excel::download(
-            new \App\Exports\PartnerSettlementListExport($partner, $query->get()),
-            'doi-soat-' . \Illuminate\Support\Str::slug($partner->name ?: 'doi-tac') . '-' . now()->format('Ymd') . '.xlsx'
+            \App\Exports\CycleSettlementExport::for($request->user(), $start, $end, ['partner_ids' => $ids]),
+            \App\Exports\CycleSettlementExport::fileName($start, $end)
         );
     }
 
