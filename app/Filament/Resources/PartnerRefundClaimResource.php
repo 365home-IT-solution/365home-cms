@@ -46,7 +46,14 @@ class PartnerRefundClaimResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return self::isPlatformSide() ? Claim::query() : Claim::query()->where('partner_id', auth()->user()?->partner_id ?? '-');
+        $user = auth()->user();
+
+        // Phía nền tảng thấy tất cả; Super Admin đã chọn đối tác thì chỉ yêu cầu hoàn của đối tác đó.
+        if (self::isPlatformSide() && ! $user?->actingPartnerId()) {
+            return Claim::query();
+        }
+
+        return Claim::query()->where('partner_id', $user?->partner_id ?? '-');
     }
 
     public static function table(Table $table): Table

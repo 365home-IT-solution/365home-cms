@@ -186,6 +186,41 @@ class PartnerSettlementController extends Controller
         });
     }
 
+    // GET …/settlements/{id}/export — file Excel của 1 bảng đối soát (sheet Tổng hợp + Chi tiết đơn). Super Admin và đối tác (bảng đã gửi).
+    public function export(Request $request, Partner $partner, int $settlement)
+    {
+        $this->authorizeView($request, $partner);
+        $found = $this->find($request, $partner, $settlement);
+
+        return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\PartnerSettlementExport($found), \App\Exports\PartnerSettlementExport::fileName($found));
+    }
+
+    // GET …/settlements/export[?status=&from=&to=] — file Excel danh sách các bảng đối soát của đối tác (mỗi bảng 1 dòng).
+    // from/to lọc theo ngày kết thúc kỳ (YYYY-MM-DD). Đối tác không thấy bảng nháp.
+    public function exportList(Request $request, Partner $partner)
+    {
+        $this->authorizeView($request, $partner);
+
+        $data = $request->validate([
+            'status' => ['nullable', 'string'],
+            'from'   => ['nullable', 'date'],
+            'to'     => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        $query = Settlement::query()->where('partner_id', $partner->id)->orderBy('period_start')->orderBy('id');
+        if (! $request->user()->isSuperAdmin()) {
+            $query->where('status', '!=', Settlement::STATUS_DRAFT);
+        }
+        $query->when($data['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($data['from'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '>=', $v))
+            ->when($data['to'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '<=', $v));
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\PartnerSettlementListExport($partner, $query->get()),
+            'doi-soat-' . \Illuminate\Support\Str::slug($partner->name ?: 'doi-tac') . '-' . now()->format('Ymd') . '.xlsx'
+        );
+    }
+
     // GET …/settlements/{id}/invoice[?format=pdf] — số liệu (hoặc PDF bảng kê) để xuất hoá đơn GTGT phần hoa hồng của kỳ. Super Admin và đối tác (bảng đã gửi).
     public function invoice(Request $request, Partner $partner, int $settlement)
     {

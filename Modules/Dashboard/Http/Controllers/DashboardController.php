@@ -138,8 +138,10 @@ class DashboardController extends Controller
         [$from, $to] = $stats->range($filter, $request->query('start_date'), $request->query('end_date'));
 
         if ($user->isSuperAdmin()) {
-            $scope = $request->query('scope') === 'partner' ? 'partner' : 'platform';
-            $partnerId = $request->query('partner_id') ? (string) $request->query('partner_id') : null;
+            // Đã chọn 1 đối tác (header X-Partner-Id) → mặc định xem góc nhìn đối tác đó, trừ khi chủ động scope=platform.
+            $acting = $user->actingPartnerId();
+            $scope = ($request->query('scope') === 'partner' || ($acting !== null && $request->query('scope') !== 'platform')) ? 'partner' : 'platform';
+            $partnerId = $request->query('partner_id') ? (string) $request->query('partner_id') : $acting;
             abort_if($scope === 'partner' && $partnerId === null, 422, 'Xem góc nhìn đối tác cần truyền partner_id.');
         } else {
             // Chủ/nhân viên đối tác: chỉ thấy đối tác của chính mình, không có góc nhìn nền tảng.

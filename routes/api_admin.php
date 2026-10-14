@@ -157,6 +157,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::prefix('partners/{partner}/settlements')->name('partners.settlements.')->controller(\App\Http\Controllers\Api\Admin\PartnerSettlementController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('/', 'store')->name('store');
+        Route::get('export', 'exportList')->name('export');
         Route::get('held-orders', 'heldOrders')->name('held-orders');
         Route::post('held-orders/{orderCode}/resolve', 'resolveHeldOrder')->name('held-orders.resolve');
         Route::get('{settlement}', 'show')->whereNumber('settlement')->name('show');
@@ -166,6 +167,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
         Route::post('{settlement}/disputes/{dispute}/resolve', 'resolveDispute')->whereNumber(['settlement', 'dispute'])->name('disputes.resolve');
         Route::post('{settlement}/mark-paid', 'markPaid')->whereNumber('settlement')->name('mark-paid');
         Route::post('{settlement}/paid-out', 'paidOut')->whereNumber('settlement')->name('paid-out');
+        Route::get('{settlement}/export', 'export')->whereNumber('settlement')->name('export.show');
         Route::get('{settlement}/invoice', 'invoice')->whereNumber('settlement')->name('invoice.show');
         Route::post('{settlement}/invoice', 'markInvoiced')->whereNumber('settlement')->name('invoice.store');
     });

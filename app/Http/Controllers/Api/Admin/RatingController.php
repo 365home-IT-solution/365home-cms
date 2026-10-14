@@ -66,6 +66,16 @@ class RatingController extends Controller
             $query->whereHas('room', fn ($q) => $q->where('slug', $request->string('room_slug')));
         }
 
+        // Đánh giá chỉ của phòng thuộc đối tác tài khoản được xem (đối tác thường: đối tác của mình; super_admin đã chọn đối tác: đối tác đó).
+        // Trước đây chỉ lọc theo chi nhánh được gán nên chủ đối tác (không bị gán chi nhánh cụ thể) thấy đánh giá của MỌI đối tác.
+        $viewer = $request->user();
+        if (! $viewer->seesAllPartners()) {
+            $partnerId = $viewer->partner_id;
+            $partnerId
+                ? $query->whereHas('room', fn ($q) => $q->where('partner_id', $partnerId))
+                : $query->whereRaw('1 = 0');
+        }
+
         $categoryIds = $this->resolveCategoryFilter($request);
         if ($categoryIds !== null) {
             if (empty($categoryIds)) {
@@ -271,6 +281,12 @@ class RatingController extends Controller
 
         if ($user->isSuperAdmin()) {
             return true;
+        }
+
+        // Phòng được đánh giá phải thuộc đối tác của tài khoản (chặn xem/trả lời đánh giá của đối tác khác khi biết id).
+        $rating->loadMissing('room');
+        if (empty($user->partner_id) || $rating->room?->partner_id !== $user->partner_id) {
+            return false;
         }
 
         $allowed = $user->allowedCategoryIds();

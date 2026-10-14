@@ -20,6 +20,36 @@ class ListPartnerSettlements extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            // Xuất Excel danh sách bảng đối soát của 1 đối tác (mỗi bảng 1 dòng) — cùng file với API GET …/settlements/export.
+            Action::make('exportList')
+                ->label('Xuất Excel')->icon('heroicon-o-arrow-down-tray')->color('gray')
+                ->form([
+                    Forms\Components\Select::make('partner_id')->label('Đối tác')->required()->searchable()->native(false)
+                        ->options(fn () => \App\Models\PartnerSettlement::query()->with('partner:id,name')->get()->pluck('partner.name', 'partner_id')->filter()->unique()->sort())
+                        ->default(fn () => auth()->user()?->isSuperAdmin() ? null : auth()->user()?->partner_id)
+                        ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false),
+                    Forms\Components\DatePicker::make('from')->label('Kỳ kết thúc từ ngày')->native(false),
+                    Forms\Components\DatePicker::make('to')->label('Đến ngày')->native(false)->afterOrEqual('from'),
+                    Forms\Components\Select::make('status')->label('Trạng thái')->native(false)->options(\App\Models\PartnerSettlement::STATUSES),
+                ])
+                ->action(function (array $data) {
+                    $user = auth()->user();
+                    $partner = Partner::findOrFail($user->isSuperAdmin() ? $data['partner_id'] : $user->partner_id);
+
+                    $query = \App\Models\PartnerSettlement::query()->where('partner_id', $partner->id)->orderBy('period_start')->orderBy('id');
+                    if (! $user->isSuperAdmin()) {
+                        $query->where('status', '!=', \App\Models\PartnerSettlement::STATUS_DRAFT);
+                    }
+                    $query->when($data['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+                        ->when($data['from'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '>=', $v))
+                        ->when($data['to'] ?? null, fn ($q, $v) => $q->whereDate('period_end', '<=', $v));
+
+                    return \Maatwebsite\Excel\Facades\Excel::download(
+                        new \App\Exports\PartnerSettlementListExport($partner, $query->get()),
+                        'doi-soat-' . \Illuminate\Support\Str::slug($partner->name ?: 'doi-tac') . '-' . now()->format('Ymd') . '.xlsx'
+                    );
+                }),
+
             // Bảng đối soát thường tự sinh theo kỳ (lệnh settlements:process); Super Admin sinh tay cho 1 kỳ bất kỳ khi cần.
             Action::make('generate')
                 ->label('Sinh bảng đối soát')->icon('heroicon-o-plus')->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)

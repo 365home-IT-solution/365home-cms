@@ -19,7 +19,7 @@ class SalaryTemplateController extends Controller
     // GET /api/admin/salary-templates
     public function index(Request $request): JsonResponse
     {
-        $templates = SalaryTemplate::query()
+        $templates = $this->partnerScoped(SalaryTemplate::query(), $request)
             ->with('salaryType:id,name')
             ->when($request->boolean('all') === false, fn ($q) => $q->where('status', true))
             ->orderBy('name')
@@ -28,10 +28,26 @@ class SalaryTemplateController extends Controller
         return response()->json(['salary_templates' => $templates]);
     }
 
-    // GET /api/admin/salary-templates/{id}
-    public function show(int $id): JsonResponse
+    /** Chỉ mẫu lương của đối tác mình + mẫu dùng chung (partner_id null); super_admin chưa chọn đối tác thấy tất cả. */
+    private function partnerScoped($query, Request $request)
     {
-        $template = SalaryTemplate::with(['salaryType', 'allowanceTypes', 'deductionTypes'])->find($id);
+        $user = $request->user();
+
+        if (! $user instanceof \App\Models\User || $user->seesAllPartners()) {
+            return $query;
+        }
+
+        $partnerId = $user->partner_id;
+
+        return $query->where(fn ($q) => $partnerId
+            ? $q->where('partner_id', $partnerId)->orWhereNull('partner_id')
+            : $q->whereNull('partner_id'));
+    }
+
+    // GET /api/admin/salary-templates/{id}
+    public function show(Request $request, int $id): JsonResponse
+    {
+        $template = $this->partnerScoped(SalaryTemplate::query(), $request)->with(['salaryType', 'allowanceTypes', 'deductionTypes'])->find($id);
 
         if (! $template) {
             return response()->json(['message' => 'Không tìm thấy mẫu lương.'], 404);
@@ -45,7 +61,11 @@ class SalaryTemplateController extends Controller
     {
         $data = $request->validate($this->rules());
 
+        $user = $request->user();
+
         $template = SalaryTemplate::create([
+            // Mẫu lương của đối tác đang làm việc (super_admin chưa chọn đối tác: dùng chung, partner_id null).
+            'partner_id'      => $user instanceof \App\Models\User && ! $user->seesAllPartners() ? $user->partner_id : null,
             'name'            => $data['name'],
             'slug'            => $this->uniqueSlug(SalaryTemplate::class, $data['name']),
             'salary_type_id'  => $data['salary_type_id'],
@@ -64,7 +84,7 @@ class SalaryTemplateController extends Controller
     // PUT /api/admin/salary-templates/{id}
     public function update(Request $request, int $id): JsonResponse
     {
-        $template = SalaryTemplate::find($id);
+        $template = $this->partnerScoped(SalaryTemplate::query(), $request)->find($id);
 
         if (! $template) {
             return response()->json(['message' => 'Không tìm thấy mẫu lương.'], 404);
@@ -86,9 +106,9 @@ class SalaryTemplateController extends Controller
     }
 
     // DELETE /api/admin/salary-templates/{id}
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
-        $template = SalaryTemplate::find($id);
+        $template = $this->partnerScoped(SalaryTemplate::query(), $request)->find($id);
 
         if (! $template) {
             return response()->json(['message' => 'Không tìm thấy mẫu lương.'], 404);
