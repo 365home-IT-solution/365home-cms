@@ -7,13 +7,12 @@ namespace App\Exports\Concerns;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
  * Bộ định dạng dùng chung cho các file Excel đối soát: tiêu đề, tiêu đề cột, viền, định dạng tiền, khổ in.
- * Màu theo nhận diện của tài liệu nội bộ (xanh đậm 1F4E79, nền nhạt F2F6FA).
+ * Giao diện đen trắng: không tô nền, không chữ màu.
  */
 trait StylesSettlementSheet
 {
@@ -58,7 +57,7 @@ trait StylesSettlementSheet
         // Dòng 1: tiêu đề
         $ws->mergeCells("A1:{$last}1");
         $ws->setCellValue('A1', $title);
-        $ws->getStyle('A1')->getFont()->setBold(true)->setSize(14)->getColor()->setRGB(self::COLOR_PRIMARY);
+        $ws->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $ws->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
         $ws->getRowDimension(1)->setRowHeight(24);
 
@@ -67,7 +66,7 @@ trait StylesSettlementSheet
         foreach ($subtitles as $line) {
             $ws->mergeCells("A{$row}:{$last}{$row}");
             $ws->setCellValue("A{$row}", $line);
-            $ws->getStyle("A{$row}")->getFont()->setSize(10)->getColor()->setRGB('555555');
+            $ws->getStyle("A{$row}")->getFont()->setSize(10);
             $ws->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $row++;
         }
@@ -81,8 +80,7 @@ trait StylesSettlementSheet
         $range = self::col($firstCol) . $row . ':' . self::col($lastCol) . $row;
 
         $style = $ws->getStyle($range);
-        $style->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-        $style->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB(self::COLOR_PRIMARY);
+        $style->getFont()->setBold(true);
         $style->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
         $this->border($ws, $range);
 
@@ -91,12 +89,12 @@ trait StylesSettlementSheet
 
     protected function border(Worksheet $ws, string $range): void
     {
-        $ws->getStyle($range)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB(self::COLOR_BORDER);
+        $ws->getStyle($range)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('000000');
     }
 
     protected function soft(Worksheet $ws, string $range): void
     {
-        $ws->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB(self::COLOR_SOFT);
+        // Giao diện đen trắng: không tô nền.
     }
 
     /** Dòng tổng cộng: chữ đậm, nền nhạt, viền trên đậm hơn. */
@@ -107,7 +105,7 @@ trait StylesSettlementSheet
         $ws->getStyle($range)->getFont()->setBold(true);
         $this->soft($ws, $range);
         $this->border($ws, $range);
-        $ws->getStyle($range)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB(self::COLOR_PRIMARY);
+        $ws->getStyle($range)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('000000');
     }
 
     /** Khổ in: A4 ngang, vừa chiều rộng 1 trang, lặp lại dòng tiêu đề cột ở mỗi trang, có số trang ở chân. */

@@ -153,11 +153,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
         Route::post('deductions/{deduction}/dispute', 'disputeDeduction')->whereNumber('deduction')->name('deductions.dispute');
         Route::post('deductions/{deduction}/resolve', 'resolveDeduction')->whereNumber('deduction')->name('deductions.resolve');
     });
+    // Bảng đối soát của tất cả đối tác trong 1 chu kỳ (mỗi đối tác 1 dòng) — xem PartnerSettlementController::exportCycle.
+    Route::get('settlements/cycle/export', [\App\Http\Controllers\Api\Admin\PartnerSettlementController::class, 'exportCycle'])->name('settlements.export-cycle');
     // Đối soát hoa hồng theo kỳ: bảng đối soát, QR nộp, khiếu nại từng đơn, xác nhận chi, đơn bị giữ khoản bù — xem PartnerSettlementController.
     Route::prefix('partners/{partner}/settlements')->name('partners.settlements.')->controller(\App\Http\Controllers\Api\Admin\PartnerSettlementController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('/', 'store')->name('store');
-        Route::get('export', 'exportList')->name('export');
         Route::get('held-orders', 'heldOrders')->name('held-orders');
         Route::post('held-orders/{orderCode}/resolve', 'resolveHeldOrder')->name('held-orders.resolve');
         Route::get('{settlement}', 'show')->whereNumber('settlement')->name('show');
