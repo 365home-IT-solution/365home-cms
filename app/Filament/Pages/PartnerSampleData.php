@@ -136,13 +136,56 @@ class PartnerSampleData extends Page implements HasForms
             'rooms'      => 'phòng',
         ];
 
-        $body = collect($result)->map(fn ($n, $key) => "{$n} {$labels[$key]}")->implode(', ');
+        $body = collect($result['counts'])->map(fn ($n, $key) => "{$n} {$labels[$key]}")->implode(', ');
 
         Notification::make()->title('Đã sinh dữ liệu mẫu')->body("Đã tạo: {$body}.")->success()->send();
     }
 
     protected function getFormActions(): array
     {
-        return [Action::make('generate')->label('Sinh dữ liệu mẫu')->icon('heroicon-o-sparkles')->submit('generate')];
+        return [
+            Action::make('generate')->label('Sinh dữ liệu mẫu')->icon('heroicon-o-sparkles')->submit('generate'),
+            // Xoá đúng dữ liệu mẫu đã sinh cho đối tác đang chọn (mọi lần sinh) — giữ lại mục đã có đơn
+            // hoặc đang được dữ liệu thật dùng. Chỉ cần chọn đối tác, không cần chi nhánh.
+            Action::make('purge')
+                ->label('Xoá dữ liệu mẫu')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->disabled(fn () => blank($this->data['partner_id'] ?? null))
+                ->requiresConfirmation()
+                ->modalHeading('Xoá dữ liệu mẫu của đối tác?')
+                ->modalDescription('Xoá các phòng, bảng giá mẫu, khung giờ, tiện ích, dịch vụ đã sinh cho đối tác này. Mục đã có đơn hoặc đang được dữ liệu thật dùng sẽ được giữ lại.')
+                ->action(fn () => $this->purge()),
+        ];
+    }
+
+    public function purge(): void
+    {
+        $partnerId = $this->data['partner_id'] ?? null;
+
+        if (blank($partnerId)) {
+            Notification::make()->title('Chọn đối tác trước')->warning()->send();
+
+            return;
+        }
+
+        $generator = app(PartnerSampleDataGenerator::class);
+
+        if (array_sum($generator->summary((string) $partnerId)) === 0) {
+            Notification::make()->title('Đối tác không có dữ liệu mẫu nào để xoá')->warning()->send();
+
+            return;
+        }
+
+        $result = $generator->purge((string) $partnerId);
+
+        $labels = ['time_slot' => 'khung giờ', 'price_template' => 'bảng giá mẫu', 'tag' => 'tiện ích', 'service' => 'dịch vụ', 'room' => 'phòng'];
+        $body   = 'Đã xoá: ' . collect($result['deleted'])->map(fn ($n, $key) => "{$n} {$labels[$key]}")->implode(', ') . '.';
+
+        if ($result['kept']) {
+            $body .= ' Giữ lại: ' . collect($result['kept'])->map(fn ($k) => "{$k['name']} ({$k['reason']})")->implode('; ');
+        }
+
+        Notification::make()->title('Đã xoá dữ liệu mẫu')->body($body)->success()->send();
     }
 }

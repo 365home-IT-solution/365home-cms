@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
 use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PriceTemplateController as AdminPriceTemplateController;
+use App\Http\Controllers\Api\Admin\SampleDataController as AdminSampleDataController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
 use App\Http\Controllers\Api\Admin\RatingController as AdminRatingController;
@@ -876,6 +877,23 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates'
     Route::patch('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update.patch')->whereNumber('id');
     Route::delete('/{id}', [AdminPriceTemplateController::class, 'destroy'])->name('destroy')->whereNumber('id');
     Route::post('/{id}/apply', [AdminPriceTemplateController::class, 'apply'])->name('apply')->whereNumber('id');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Sample Data — "Tạo / Xoá dữ liệu mẫu" cho đối tác: tạo đồng bộ khung giờ, bảng giá mẫu, tiện ích,
+| dịch vụ của chi nhánh, phòng theo khung giờ đã có giá + điều kiện giảm giá (đặt được ngay); xoá đúng
+| những gì đã tạo, giữ lại mục đã có đơn / đang được dùng. Bắt buộc có đối tác + chi nhánh; super_admin
+| thao tác hộ thì gửi X-Partner-Id. Xem SampleDataController.
+| GET    /api/admin/sample-data → đủ điều kiện chưa, chi nhánh, số lượng mặc định, dữ liệu mẫu đang có
+| POST   /api/admin/sample-data → tạo (branch_id, time_slots, templates, tags, services, rooms)
+| DELETE /api/admin/sample-data → xoá dữ liệu mẫu đã tạo
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/sample-data')->name('api.admin.sample-data.')->group(function () {
+    Route::get('/', [AdminSampleDataController::class, 'show'])->name('show');
+    Route::post('/', [AdminSampleDataController::class, 'store'])->name('store');
+    Route::delete('/', [AdminSampleDataController::class, 'destroy'])->name('destroy');
 });
 
 /*

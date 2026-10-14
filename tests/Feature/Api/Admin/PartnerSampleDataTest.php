@@ -14,19 +14,28 @@ use Modules\Product\App\Models\PriceTemplate;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
+use Tests\Concerns\CleansUpTags;
 use Tests\TestCase;
 
 // Trang quản trị → "Dữ liệu mẫu": super_admin chọn đối tác + chi nhánh, sinh ngẫu nhiên khung giờ,
 // bảng giá mẫu, tiện ích, dịch vụ, phòng — chạy lại không sinh trùng.
 class PartnerSampleDataTest extends TestCase
 {
+    use CleansUpTags;
     use DatabaseTransactions;
 
     private object $branch;
 
+    protected function tearDown(): void
+    {
+        $this->cleanUpTags();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTags();
 
         $this->actingAs(User::role('super_admin')->first());
         Filament::setCurrentPanel(Filament::getPanel('admin'));
@@ -94,5 +103,18 @@ class PartnerSampleDataTest extends TestCase
         $room = Product::withoutGlobalScopes()->where('partner_id', $partner)->latest('created_at')->first();
         $this->assertTrue(RoomTimeSlot::where('room_id', $room->id)->whereNull('date')->whereNotNull('price')->exists());
         $this->assertTrue($room->additionalServices()->exists());
+    }
+
+    public function test_purge_button_removes_sample_data_of_selected_partner(): void
+    {
+        $this->generate()->assertHasNoFormErrors();
+        $this->assertGreaterThan(0, DB::table('sample_data_records')->where('partner_id', $this->branch->partner_id)->count());
+
+        Livewire::test(PartnerSampleData::class)
+            ->fillForm(['partner_id' => $this->branch->partner_id])
+            ->call('purge')
+            ->assertNotified('Đã xoá dữ liệu mẫu');
+
+        $this->assertSame(0, DB::table('sample_data_records')->where('partner_id', $this->branch->partner_id)->count());
     }
 }

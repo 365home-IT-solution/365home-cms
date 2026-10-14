@@ -12,12 +12,14 @@ use Modules\Product\App\Models\PriceBoardItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
+use Tests\Concerns\CleansUpTags;
 use Tests\TestCase;
 
 // Khung giờ/tiện ích tách theo đối tác (mẫu hệ thống = partner_id NULL), bảng giá mẫu (tách bản riêng
 // khi đối tác sửa mẫu hệ thống, áp xuống phòng), dịch vụ đi kèm gắn theo chi nhánh.
 class PricingTemplatesAndCatalogTest extends TestCase
 {
+    use CleansUpTags;
     use DatabaseTransactions;
 
     private string $token;
@@ -26,9 +28,16 @@ class PricingTemplatesAndCatalogTest extends TestCase
     private object $a;
     private object $b;
 
+    protected function tearDown(): void
+    {
+        $this->cleanUpTags();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTags();
 
         $this->withoutMiddleware(ThrottleRequests::class);
 

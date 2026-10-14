@@ -15,19 +15,29 @@ use Modules\Product\App\Models\PriceTemplate;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
+use Tests\Concerns\CleansUpTags;
+use Modules\Product\App\Filament\Resources\PriceTemplateResource\Pages\EditPriceTemplate;
 use Tests\TestCase;
 
 // Trang quản trị → "Bảng giá mẫu": super_admin tạo mẫu hệ thống, đối tác tách bản riêng rồi áp
 // xuống phòng của mình.
 class PriceTemplateResourceTest extends TestCase
 {
+    use CleansUpTags;
     use DatabaseTransactions;
 
     private User $admin;
 
+    protected function tearDown(): void
+    {
+        $this->cleanUpTags();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTags();
 
         $this->admin = User::role('super_admin')->first();
         $this->actingAs($this->admin);
@@ -99,5 +109,28 @@ class PriceTemplateResourceTest extends TestCase
 
         $this->assertNotContains($other->id, TimeSlot::forCurrentAdmin()->pluck('id')->all());
         $this->assertContains($this->systemSlotIds(1)[0], TimeSlot::forCurrentAdmin()->pluck('id')->all());
+    }
+
+    // Lỗi 500 cũ: ô chọn khung giờ trong Repeater nhận PriceTemplateSlot thay vì PriceTemplate.
+    public function test_edit_page_renders_and_saves_slot_prices(): void
+    {
+        [$s1, $s2] = $this->systemSlotIds(2);
+
+        $template = PriceTemplate::create(['partner_id' => null, 'name' => 'Mẫu sửa web', 'is_active' => true]);
+        app(\App\Services\PriceTemplateService::class)->replaceSlots($template, [
+            ['timeslot_id' => $s1, 'price' => 100000],
+            ['timeslot_id' => $s2, 'price' => 200000],
+        ]);
+
+        $page = Livewire::test(EditPriceTemplate::class, ['record' => $template->id])->assertSuccessful();
+
+        $slots = $page->get('data.slots');
+        $first = array_key_first($slots);
+        $slots[$first]['price'] = 150000;
+
+        $page->fillForm(['name' => 'Mẫu đã sửa', 'slots' => $slots])->call('save')->assertHasNoFormErrors();
+
+        $this->assertSame('Mẫu đã sửa', $template->fresh()->name);
+        $this->assertSame(150000, (int) $template->slots()->where('timeslot_id', $s1)->value('price'));
     }
 }

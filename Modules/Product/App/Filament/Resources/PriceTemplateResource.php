@@ -166,7 +166,11 @@ class PriceTemplateResource extends Resource
                         ->schema([
                             Select::make('timeslot_id')
                                 ->label('Khung giờ')
-                                ->options(fn (?PriceTemplate $record) => static::timeSlotOptions($record))
+                                // Trong Repeater, $record là DÒNG khung giờ (PriceTemplateSlot), không phải bảng
+                                // giá mẫu — lấy bảng giá mẫu từ trang (Edit có record, Create thì null).
+                                ->options(fn ($livewire) => static::timeSlotOptions(
+                                    ($livewire->record ?? null) instanceof PriceTemplate ? $livewire->record : null
+                                ))
                                 ->searchable()
                                 ->required()
                                 ->distinct()
