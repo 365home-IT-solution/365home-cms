@@ -104,6 +104,8 @@
         </div>
     </section>
 
+    @livewire('bladethemev1::footer')
+
     {{-- .fav-branch-*/.fav-skel* rules đã chuyển ra public/css/site.css. Phần .branch-grid/
          .room-slider-nav/.room-wishlist-btn giữ inline: cùng pattern được flash-sale.blade.php,
          pages/booking-board.blade.php và pages/product/search.blade.php dùng lại với các biến thể

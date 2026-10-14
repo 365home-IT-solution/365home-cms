@@ -6,6 +6,29 @@
     <script>
         window.__PROVINCES__ = @json($provinces);
     </script>
+    {{-- Thanh gợi ý chọn khu vực lần đầu vào site — thay cho việc tự bật modal phủ toàn màn hình
+         (xem autoOpen() trong public/js/alpine-blocks.js). Nhỏ, nằm sát cạnh dưới (trên thanh
+         điều hướng mobile), không che nội dung chính. --}}
+    <template x-teleport="body">
+        <div
+            x-show="prompt && !open"
+            x-transition.opacity
+            class="fixed left-1/2 -translate-x-1/2 bottom-[84px] lg:bottom-6 z-[1001] w-[calc(100%-32px)] max-w-md flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-lg"
+            style="display: none;"
+        >
+            <svg class="w-5 h-5 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <p class="flex-1 text-sm text-gray-700">Chọn khu vực để xem phòng và ưu đãi gần bạn.</p>
+            <button type="button" @click="openFromPrompt()"
+                class="shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold"
+                style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};">Chọn</button>
+            <button type="button" @click="closePopup()" aria-label="Đóng" class="shrink-0 text-gray-400 hover:text-gray-600">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </template>
+
     <template x-teleport="body">
         <div
             x-show="open"

@@ -55,6 +55,9 @@
         @livewire('bladethemev1::flash-sale', ['criticalHome' => $criticalHome ?? []])
         @livewire('bladethemev1::voucher')
 
+        {{-- Bài viết mới + chi nhánh/khu vực: link nội bộ render sẵn trong HTML cho SEO --}}
+        <x-bladethemev1::home.internal-links />
+
     @else
         {{-- Các trang khác: render CMS components bình thường --}}
         <div>

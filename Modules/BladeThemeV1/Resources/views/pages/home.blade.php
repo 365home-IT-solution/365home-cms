@@ -24,6 +24,9 @@
         @livewire('bladethemev1::voucher', [], key('voucher'))
     </div>
 
+    {{-- Bài viết mới + chi nhánh/khu vực: link nội bộ render sẵn trong HTML cho SEO --}}
+    <x-bladethemev1::home.internal-links />
+
     <div wire:key="footer-section">
         @livewire('bladethemev1::footer')
     </div>

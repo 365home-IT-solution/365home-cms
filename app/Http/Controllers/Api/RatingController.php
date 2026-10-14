@@ -30,8 +30,12 @@ class RatingController extends Controller
             ->groupBy('star')
             ->pluck('count', 'star');
 
+        // Điểm trung bình tính thẳng từ đánh giá thật, không đọc products.rating_score: cột đó
+        // từng bị seed/nhập tay (5.0 khi phòng chưa có đánh giá nào) — 0 đánh giá thì null.
+        $average = RoomRating::where('room_id', $roomId)->avg('star');
+
         $summary = [
-            'average'      => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'average'      => $average !== null ? round((float) $average, 1) : null,
             'total_count'  => $ratings->total(),
             'distribution' => [
                 5 => (int) ($distribution[5] ?? 0),

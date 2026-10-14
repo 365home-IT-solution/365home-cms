@@ -29,4 +29,6 @@
             ], key('posts-page'))
         </div>
     </div>
+
+    @livewire('bladethemev1::footer')
 @endsection

@@ -813,7 +813,7 @@ class BladeThemeV1Controller extends Controller
             'video_name'         => $product->name,
             'video_description'  => $seoDescription,
             'video_upload_date'  => $product->updated_at?->toIso8601String(),
-            'rating_average'     => $product->rating_score !== null ? (float) $product->rating_score : null,
+            'rating_average'     => $ratingCount > 0 ? round((float) $product->ratings()->avg('star'), 1) : null,
             'rating_count'       => $ratingCount,
             'reviews'            => $reviews->map(fn ($r) => [
                 'author'  => $r->customer?->fullname ?: 'Khách ẩn danh',

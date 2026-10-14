@@ -682,6 +682,8 @@
         @media (max-width:480px) { .pod-card { padding:16px; } .pod-picker { flex-direction:column; align-items:stretch; text-align:center; } .pod-picker-btn { text-align:center; } .pod-picker-sub { justify-content:center; } }
     </style>
 
+    @livewire('bladethemev1::footer')
+
     <script>
         function partnerOnboarding(initialType, docTypes, provinces, termsRequired, docForms) {
             const KEY = '365home_partner_onboarding';

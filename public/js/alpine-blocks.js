@@ -294,6 +294,7 @@ return {
     blocks.locationModal = function (_m, _s, a) { with (_m) { with (_s) {
 return {
         open: false,
+        prompt: false,
         loading: false,
         detecting: false,
         provinces: window.__PROVINCES__ || [],
@@ -307,6 +308,7 @@ return {
             // lại được, bất kể đã dismiss trước đó hay chưa, vì đây là hành động chủ động của
             // khách, khác với việc initProvince() tự động mở lúc mới vào site.
             window.addEventListener('open-location-modal', () => {
+                this.prompt = false;
                 this.open = true;
                 if (!this.loaded) this.loadProvinces();
             });
@@ -318,6 +320,7 @@ return {
         // sau này có chỗ khác cần phân biệt 2 trạng thái này thì vẫn tách được.
         closePopup() {
             this.open = false;
+            this.prompt = false;
             if (!localStorage.getItem('home_province_id')) {
                 localStorage.setItem('home_location_popup_dismissed', '1');
             }
@@ -352,16 +355,39 @@ return {
                 .catch(() => this.autoOpen());
         },
 
-        // Tự mở popup hỏi khu vực khi chưa chọn và chưa từng tắt — TRỪ trang bài viết
-        // (/bai-viet/...): Googlebot không có localStorage nên luôn rơi vào nhánh này, render
-        // bài viết với overlay đen phủ toàn màn hình (intrusive interstitial). Bài viết không
-        // phụ thuộc khu vực; khách vẫn mở được thủ công qua nút 'Chọn khu vực' ở header.
+        // Lần đầu vào site (chưa chọn khu vực, chưa từng tắt) KHÔNG còn tự bật modal phủ đen toàn
+        // màn hình — Google tính đó là "intrusive interstitial" (trừ điểm trang đến từ kết quả tìm
+        // kiếm), Googlebot lại không có localStorage nên LẦN NÀO cũng gặp. Thay vào đó tự lấy khu vực:
+        //   1. Chỉ có 1 tỉnh/thành đang hoạt động → chọn luôn, khỏi hỏi.
+        //   2. Khách đã cho phép định vị từ trước (permissions = granted) → định vị ngầm.
+        //   3. Còn lại → thanh gợi ý nhỏ ở cạnh dưới (không che nội dung), bấm mới mở modal.
+        // Bot/crawler bỏ qua hết. Khách vẫn mở modal thủ công qua nút 'Chọn khu vực' ở header.
         autoOpen() {
-            if (window.location.pathname.startsWith('/bai-viet/')) return;
-            if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
-                this.open = true;
-                this.loadProvinces();
+            if (/bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent) || navigator.webdriver) return;
+            if (localStorage.getItem('home_province_id') || localStorage.getItem('home_location_popup_dismissed')) return;
+
+            if (this.loaded && this.provinces.length === 1) {
+                this.selectProvince(this.provinces[0]);
+                return;
             }
+
+            const showPrompt = () => { this.prompt = true; };
+            if (!navigator.geolocation || !navigator.permissions || !navigator.permissions.query) {
+                showPrompt();
+                return;
+            }
+            navigator.permissions.query({ name: 'geolocation' })
+                .then((status) => {
+                    if (status.state === 'granted') this.detectLocation(showPrompt);
+                    else showPrompt();
+                })
+                .catch(showPrompt);
+        },
+
+        openFromPrompt() {
+            this.prompt = false;
+            this.open = true;
+            this.loadProvinces();
         },
 
         get filteredProvinces() {
@@ -389,6 +415,7 @@ return {
             localStorage.setItem('home_province_name', p.name);
             window.dispatchEvent(new CustomEvent('province-selected', { detail: p }));
             this.open = false;
+            this.prompt = false;
             this.persistSelection(p.id);
         },
 
@@ -417,7 +444,9 @@ return {
             }).catch(() => {});
         },
 
-        detectLocation() {
+        // onFail: định vị ngầm từ autoOpen() — lỗi thì gọi onFail (hiện thanh gợi ý) thay vì báo lỗi.
+        detectLocation(onFail) {
+            const fail = (msg) => { if (onFail) onFail(); else this.error = msg; };
             if (!navigator.geolocation) {
                 this.error = 'Trình duyệt không hỗ trợ định vị.';
                 return;
@@ -432,13 +461,13 @@ return {
                         .then(res => res.json())
                         .then(data => {
                             if (data.province) this.selectProvince(data.province);
-                            else this.error = 'Không xác định được vị trí gần bạn.';
+                            else fail('Không xác định được vị trí gần bạn.');
                         })
-                        .catch(() => { this.error = 'Không tải được vị trí.'; })
+                        .catch(() => fail('Không tải được vị trí.'))
                         .finally(() => { this.detecting = false; });
                 },
                 () => {
-                    this.error = 'Bạn chưa cho phép truy cập vị trí.';
+                    fail('Bạn chưa cho phép truy cập vị trí.');
                     this.detecting = false;
                 }
             );

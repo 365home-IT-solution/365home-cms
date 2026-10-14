@@ -25,6 +25,7 @@ module.exports = {
         views + 'components/header/**/*.blade.php',
         views + 'components/seo-content/**/*.blade.php',
         views + 'components/seo.blade.php',
+        views + 'components/home/**/*.blade.php',
         views + 'components/icon-sprite.blade.php',
         ...livewire.map((name) => views + 'livewire/' + name + '.blade.php'),
         views + 'livewire/book/**/*.blade.php',

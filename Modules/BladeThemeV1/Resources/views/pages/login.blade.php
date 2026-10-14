@@ -221,6 +221,7 @@
         </div>
     </section>
 
+    @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 @endsection
