@@ -38,9 +38,14 @@ class PartnerSettlementResource extends Resource
     {
         $user = auth()->user();
 
-        return $user?->isSuperAdmin()
-            ? Settlement::query()
-            : Settlement::query()->where('partner_id', $user?->partner_id ?? '-')->where('status', '!=', Settlement::STATUS_DRAFT);
+        if ($user?->seesAllPartners()) {
+            return Settlement::query();
+        }
+
+        // Super Admin đã chọn đối tác: thấy cả bảng nháp của đối tác đó; đối tác thường không thấy bảng nháp.
+        $query = Settlement::query()->where('partner_id', $user?->partner_id ?? '-');
+
+        return $user?->isSuperAdmin() ? $query : $query->where('status', '!=', Settlement::STATUS_DRAFT);
     }
 
     public static function table(Table $table): Table

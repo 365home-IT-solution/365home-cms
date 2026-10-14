@@ -81,6 +81,14 @@ class ViewPartnerSettlement extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Xuất Excel bảng đối soát (Tổng hợp + Chi tiết đơn) — cùng file với API GET …/settlements/{id}/export.
+            Action::make('exportExcel')
+                ->label('Xuất Excel')->icon('heroicon-o-arrow-down-tray')->color('gray')
+                ->action(fn () => \Maatwebsite\Excel\Facades\Excel::download(
+                    new \App\Exports\PartnerSettlementExport($this->settlement()),
+                    \App\Exports\PartnerSettlementExport::fileName($this->settlement()),
+                )),
+
             Action::make('send')
                 ->label('Gửi cho đối tác')->icon('heroicon-o-paper-airplane')->requiresConfirmation()
                 ->modalDescription('Gửi bảng đối soát cho đối tác (kèm QR nộp nếu đối tác phải nộp). Sau khi gửi không sửa số liệu trực tiếp được nữa.')

@@ -69,7 +69,7 @@ class CategoryResource extends Resource implements HasKnowledgeBase
         $query = parent::getEloquentQuery()->where('category_type', 'product');
         $user  = auth()->user();
 
-        if (! $user || $user->isSuperAdmin()) {
+        if (! $user || $user->seesAllPartners()) {
             return $query;
         }
 

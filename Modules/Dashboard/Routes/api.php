@@ -31,4 +31,6 @@ Route::middleware(['auth:sanctum', 'admin.api'])
         Route::get('/room', [ReportController::class, 'room'])->name('room');
         Route::get('/customer', [ReportController::class, 'customer'])->name('customer');
         Route::get('/financial', [ReportController::class, 'financial'])->name('financial');
+        Route::get('/partners', [ReportController::class, 'partners'])->name('partners');
+        Route::get('/partners/{partner}', [ReportController::class, 'partnerDetail'])->name('partners.show');
     });

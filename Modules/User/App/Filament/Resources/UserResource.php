@@ -61,7 +61,7 @@ class UserResource extends Resource
         $query = parent::getEloquentQuery();
         $user  = auth()->user();
 
-        if (! $user || $user->isSuperAdmin()) {
+        if (! $user || $user->seesAllPartners()) {
             return $query;
         }
 

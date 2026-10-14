@@ -42,7 +42,7 @@ class PartnerEscrowResource extends Resource
 
         $user = auth()->user();
 
-        return $user?->isSuperAdmin() ? $query : $query->where('id', $user?->partner_id ?? '-');
+        return $user?->seesAllPartners() ? $query : $query->where('id', $user?->partner_id ?? '-');
     }
 
     public static function table(Table $table): Table

@@ -46,7 +46,13 @@ class HeldSubsidyOrderResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return Order::withoutGlobalScopes()->whereNotNull('subsidy_held_at')->whereNull('settlement_id')->with('partner');
+        $query = Order::withoutGlobalScopes()->whereNotNull('subsidy_held_at')->whereNull('settlement_id')->with('partner');
+        $user = auth()->user();
+
+        // Super Admin đã chọn đối tác: chỉ các đơn bị giữ khoản bù của đối tác đó.
+        return $user instanceof \App\Models\User && $user->actingPartnerId()
+            ? $query->where('partner_id', $user->actingPartnerId())
+            : $query;
     }
 
     public static function table(Table $table): Table
