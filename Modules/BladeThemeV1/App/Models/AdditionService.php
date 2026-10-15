@@ -22,6 +22,16 @@ class AdditionService extends Model
         'is_active',
     ];
 
+    // Tạo dịch vụ không kèm ảnh → dùng ảnh mặc định, để không có dịch vụ nào "thiếu ảnh".
+    protected static function booted(): void
+    {
+        static::creating(function (self $service) {
+            if (blank($service->image)) {
+                $service->image = app(\App\Services\DefaultCatalogImage::class)->servicePath();
+            }
+        });
+    }
+
     protected $casts = [
         'price'     => 'integer',
         'is_active' => 'boolean',

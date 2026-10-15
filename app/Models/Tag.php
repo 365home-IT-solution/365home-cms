@@ -14,6 +14,17 @@ class Tag extends BaseTag
 
     public $guarded = [];
 
+    // Tạo tiện ích không kèm ảnh → dùng ảnh mặc định, để không có tiện ích nào "thiếu ảnh".
+    protected static function booted(): void
+    {
+        static::creating(function (self $tag) {
+            if (! app(\App\Services\DefaultCatalogImage::class)->tagHasImage($tag)
+                && blank($tag->getTranslation('image', app()->getLocale(), false))) {
+                $tag->image = app(\App\Services\DefaultCatalogImage::class)->amenityPath();
+            }
+        });
+    }
+
     // partner_id NULL = tiện ích mẫu hệ thống (đối tác chỉ chọn); có partner_id = tiện ích đối tác
     // đó tự thêm, chỉ đối tác đó thấy/gán được.
     public function isSystem(): bool

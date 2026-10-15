@@ -6,7 +6,17 @@ namespace Modules\Product\App\Filament\Resources\ProductResource\Forms;
 
 use AmidEsfahani\FilamentTinyEditor\TinyEditor;
 use CodeWithDennis\FilamentSelectTree\SelectTree;
+use App\Models\Tag;
+use App\Services\BranchServiceSync;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Toggle;
+use Filament\Forms\Get;
+use Filament\Notifications\Notification;
+use Modules\BladeThemeV1\App\Models\AdditionService;
+use Modules\Category\Entities\Category;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Illuminate\Support\Facades\DB;
@@ -96,20 +106,119 @@ class ProductForm
                 ->searchable()
                 ->preload()
                 ->multiple()
+                // Thêm mới tiện ích ngay trong form phòng: thành tiện ích RIÊNG của đối tác (super_admin
+                // chưa chọn đối tác → tiện ích mẫu hệ thống), trùng tên thì dùng lại tiện ích đã có.
+                ->createOptionForm([
+                    TextInput::make('name')->label('Tên tiện ích')->required()->maxLength(255),
+                    FileUpload::make('image')->label('Ảnh')->image()->disk('public')->directory('Amenity'),
+                ])
+                ->createOptionUsing(function (array $data) {
+                    $user      = auth()->user();
+                    $partnerId = $user && ! $user->seesAllPartners() ? $user->partner_id : null;
+                    $name      = trim((string) $data['name']);
+                    $locale    = app()->getLocale();
+
+                    $existing = Tag::usableBy($partnerId)->get()
+                        ->first(fn (Tag $t) => mb_strtolower((string) $t->getTranslation('name', $locale, false)) === mb_strtolower($name));
+
+                    if ($existing) {
+                        return $existing->getKey();
+                    }
+
+                    $attributes = ['name' => $name, 'type' => 'product', 'partner_id' => $partnerId];
+                    if (! empty($data['image'])) {
+                        $attributes['image'] = $data['image'];
+                    }
+
+                    return Tag::create($attributes)->getKey();
+                })
                 ->placeholder(__('product::product.form.placeholder.tags'))
                 ->helperText(__('product::product.form.helper_text.tags'))
                 ->inlineLabel(),
 
+            // Dịch vụ đi kèm gắn theo CHI NHÁNH, không gắn từng phòng: phòng tự nhận dịch vụ của chi
+            // nhánh nó thuộc về. Ở đây xem danh sách của chi nhánh và thêm mới nhanh cho chi nhánh đó.
             Placeholder::make('inherited_services')
-                ->label('Dịch vụ bổ sung')
-                ->content(function (?Product $record) {
-                    $names = $record?->additionalServices()->pluck('name')->all() ?? [];
+                ->label('Dịch vụ đi kèm')
+                ->content(function (?Product $record, Get $get) {
+                    $names = static::branchServicesFor($record, $get('categories'))->pluck('name')->all();
 
-                    return $names ? implode(', ', $names) : 'Chưa có — gán dịch vụ cho chi nhánh ở trang Dịch vụ.';
+                    return $names ? implode(', ', $names) : 'Chưa có dịch vụ nào cho chi nhánh này.';
                 })
-                ->helperText('Phòng tự nhận toàn bộ dịch vụ của chi nhánh nó thuộc về (quản lý ở menu Dịch vụ).')
+                ->helperText('Dịch vụ của chi nhánh phòng đang thuộc về — mọi phòng cùng chi nhánh đều có. Thêm mới bằng nút bên dưới hoặc ở menu Dịch vụ.')
                 ->inlineLabel(),
+
+            Actions::make([
+                Action::make('add_branch_service')
+                    ->label('Thêm dịch vụ cho chi nhánh')
+                    ->icon('heroicon-o-plus')
+                    ->color('gray')
+                    ->modalHeading('Thêm dịch vụ đi kèm cho chi nhánh')
+                    ->form([
+                        TextInput::make('name')->label('Tên dịch vụ')->required()->maxLength(255),
+                        TextInput::make('price')->label('Đơn giá')->numeric()->prefix('₫')->required()->minValue(0),
+                        FileUpload::make('image')->label('Ảnh')->image()->disk('public')->directory('addition-services'),
+                        Toggle::make('is_active')->label('Kích hoạt')->default(true)->inline(false),
+                    ])
+                    ->action(function (array $data, ?Product $record, Get $get) {
+                        $branchIds = static::branchIdsFor($record, $get('categories'));
+
+                        if (! $branchIds) {
+                            Notification::make()->title('Chọn danh mục/chi nhánh cho phòng trước khi thêm dịch vụ.')->warning()->send();
+
+                            return;
+                        }
+
+                        $user      = auth()->user();
+                        $partnerId = $user && ! $user->seesAllPartners()
+                            ? $user->partner_id
+                            : Category::withoutGlobalScopes()->whereIn('id', $branchIds)->value('partner_id');
+
+                        $service = AdditionService::create([
+                            'partner_id' => $partnerId,
+                            'name'       => trim($data['name']),
+                            'price'      => (int) $data['price'],
+                            'is_active'  => (bool) ($data['is_active'] ?? true),
+                            'image'      => $data['image'] ?? null,
+                        ]);
+                        $service->branches()->sync($branchIds);
+
+                        app(BranchServiceSync::class)->syncBranches($branchIds);
+
+                        Notification::make()->title('Đã thêm dịch vụ cho chi nhánh')->success()->send();
+                    }),
+            ]),
         ])->columns(1);
+    }
+
+    /** Chi nhánh gốc của phòng: theo bản ghi đã lưu, hoặc theo danh mục đang chọn trên form. */
+    private static function branchIdsFor(?Product $record, mixed $selectedCategories): array
+    {
+        $sync = app(BranchServiceSync::class);
+
+        if ($record?->exists) {
+            $ids = $sync->rootBranchIdsForRoomId((string) $record->getKey());
+            if ($ids) {
+                return $ids;
+            }
+        }
+
+        return $sync->rootBranchIdsForCategoryIds((array) $selectedCategories);
+    }
+
+    private static function branchServicesFor(?Product $record, mixed $selectedCategories)
+    {
+        $branchIds = static::branchIdsFor($record, $selectedCategories);
+
+        if (! $branchIds) {
+            return collect();
+        }
+
+        return AdditionService::withoutGlobalScopes()
+            ->where('is_active', true)
+            ->whereHas('branches', fn ($q) => $q->whereIn('categories.id', $branchIds))
+            ->orderBy('name')
+            ->get(['id', 'name']);
     }
 
     // ── Thông tin cơ bản ────────────────────────────────────────────────────

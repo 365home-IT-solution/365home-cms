@@ -9,6 +9,8 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AdminNotificationService;
 use App\Services\BranchServiceSync;
+use App\Services\DefaultCatalogImage;
+use App\Services\PriceTemplateService;
 use App\Services\TelegramService;
 use App\Services\RoomEmergencyAccessService;
 use Carbon\Carbon;
@@ -319,6 +321,25 @@ class ProductController extends Controller
             return response()->json(['message' => $tagError], 422);
         }
 
+        $template = null;
+
+        if (! empty($data['price_template_id'])) {
+            if ((int) $data['styles'] !== 1) {
+                return response()->json(['message' => 'Bảng giá mẫu chỉ dùng cho phòng theo khung giờ (styles=1).'], 422);
+            }
+
+            $templates = app(PriceTemplateService::class);
+            $template  = $templates->usableTemplate($partnerId, (int) $data['price_template_id']);
+
+            if (! $template) {
+                return response()->json(['message' => 'Không tìm thấy bảng giá mẫu.'], 422);
+            }
+
+            if ($error = $templates->applyError($template, $partnerId, null, $data['price_template_timeslot_ids'] ?? null)) {
+                return response()->json(['message' => $error], 422);
+            }
+        }
+
         $product = DB::transaction(function () use ($data, $partnerId) {
             $product = Product::create([
                 'partner_id'         => $partnerId,
@@ -344,6 +365,11 @@ class ProductController extends Controller
         });
 
         app(BranchServiceSync::class)->syncRoom($product);
+
+        // Chọn bảng giá mẫu khi tạo phòng → thêm thẳng khung giờ + giá của mẫu vào phòng.
+        if ($template) {
+            app(PriceTemplateService::class)->applyToRoom($template, $product, true, $data['price_template_timeslot_ids'] ?? null);
+        }
 
         $this->handleImages($request, $product);
 
@@ -383,6 +409,21 @@ class ProductController extends Controller
             return response()->json(['message' => $tagError], 422);
         }
 
+        $template = null;
+
+        if (! empty($data['price_template_id'])) {
+            $templates = app(PriceTemplateService::class);
+            $template  = $templates->usableTemplate($product->partner_id, (int) $data['price_template_id']);
+
+            if (! $template) {
+                return response()->json(['message' => 'Không tìm thấy bảng giá mẫu.'], 422);
+            }
+
+            if ($error = $templates->applyError($template, $product->partner_id, $product, $data['price_template_timeslot_ids'] ?? null)) {
+                return response()->json(['message' => $error], 422);
+            }
+        }
+
         // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:8' đã đủ chặn), update()
         // phải cộng dồn ảnh gallery ĐÃ CÓ SẴN của phòng — kiểm tra TRƯỚC khi ghi bất kỳ thay đổi nào
         // xuống DB (fail fast), không để handleImages() âm thầm bỏ qua ảnh mới nếu vượt hạn mức.
@@ -420,6 +461,10 @@ class ProductController extends Controller
         }
 
         $this->handleImages($request, $product);
+
+        if ($template) {
+            app(PriceTemplateService::class)->applyToRoom($template, $product, true, $data['price_template_timeslot_ids'] ?? null);
+        }
 
         $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug']);
 
@@ -966,6 +1011,13 @@ class ProductController extends Controller
             'gallery.*'           => self::IMAGE_RULE,
 
             'partner_id'          => 'nullable|uuid|exists:partners,id',
+
+            // Chọn 1 bảng giá mẫu (GET /api/admin/price-templates) → khung giờ + giá của mẫu được thêm
+            // thẳng vào phòng (chỉ phòng theo khung giờ, styles=1).
+            'price_template_id'   => 'nullable|integer',
+            // Chỉ thêm các khung giờ NÀY trong mẫu (timeslot_id); bỏ trống = thêm cả mẫu.
+            'price_template_timeslot_ids'   => 'nullable|array|min:1',
+            'price_template_timeslot_ids.*' => 'integer',
         ];
     }
 
@@ -990,6 +1042,24 @@ class ProductController extends Controller
 
     // Tiện ích gán cho phòng: mẫu hệ thống (partner_id NULL) hoặc tiện ích riêng của đúng đối tác
     // sở hữu phòng — không gán được tiện ích riêng của đối tác khác.
+    /** Đường dẫn ảnh của tiện ích (cột image lưu JSON theo locale hoặc chuỗi thường), null nếu chưa có. */
+    private function tagImagePath(Tag $tag): ?string
+    {
+        $raw = $tag->getRawOriginal('image');
+
+        if (blank($raw)) {
+            return null;
+        }
+
+        if (is_string($raw) && str_starts_with($raw, '{')) {
+            $decoded = json_decode($raw, true);
+
+            return is_array($decoded) ? ($decoded[app()->getLocale()] ?? collect($decoded)->filter()->first()) : null;
+        }
+
+        return $raw;
+    }
+
     private function validateTagIds(?string $partnerId, array $tagIds): ?string
     {
         $tagIds     = array_values(array_unique(array_map('intval', $tagIds)));
@@ -1259,15 +1329,16 @@ class ProductController extends Controller
                 'parent_id' => $c->parent_id,
             ])->values(),
             'tags'                => $product->tags->map(fn (Tag $t) => [
-                'id'   => $t->id,
-                'name' => $t->name,
+                'id'        => $t->id,
+                'name'      => $t->name,
+                'image_url' => app(DefaultCatalogImage::class)->amenityUrl($this->tagImagePath($t)),
             ])->values(),
             'additional_services' => $product->additionalServices->map(fn (AdditionService $s) => [
                 'id'        => $s->id,
                 'name'      => $s->name,
                 'price'     => $s->price,
-                'image'     => $s->image,
-                'image_url' => $s->image ? Storage::disk('public')->url($s->image) : null,
+                'image'     => $s->image ?: app(DefaultCatalogImage::class)->servicePath(),
+                'image_url' => app(DefaultCatalogImage::class)->serviceUrl($s->image),
             ])->values(),
             'status'              => $product->is_activated,
             'created_at'          => $product->created_at,

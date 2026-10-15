@@ -171,7 +171,7 @@ class TagController extends Controller
         if ($request->hasFile('image')) {
             $tag->image = $request->file('image')->store('Amenity', 'public');
         } elseif (! empty($data['remove_image'])) {
-            $tag->image = null;
+            $tag->image = app(\App\Services\DefaultCatalogImage::class)->amenityPath();
         }
 
         $tag->save();
@@ -242,22 +242,24 @@ class TagController extends Controller
         ];
     }
 
+    /** Ảnh của tiện ích; chưa có ảnh thì dùng ảnh mặc định để app không bao giờ thiếu ảnh. */
     private function extractImage(Tag $tag): ?string
     {
         $raw = $tag->getRawOriginal('image');
 
-        if (empty($raw)) {
-            return null;
-        }
+        if (! empty($raw)) {
+            if (is_string($raw) && str_starts_with($raw, '{')) {
+                $decoded = json_decode($raw, true);
+                $found   = is_array($decoded) ? ($decoded[app()->getLocale()] ?? collect($decoded)->filter()->first()) : null;
+            } else {
+                $found = $raw;
+            }
 
-        if (is_string($raw) && str_starts_with($raw, '{')) {
-            $decoded = json_decode($raw, true);
-
-            if (is_array($decoded)) {
-                return $decoded[app()->getLocale()] ?? collect($decoded)->first();
+            if (filled($found)) {
+                return $found;
             }
         }
 
-        return $raw;
+        return app(\App\Services\DefaultCatalogImage::class)->amenityPath();
     }
 }

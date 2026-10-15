@@ -83,6 +83,19 @@ class BranchServiceSync
         $roomIds->each(fn (string $roomId) => $this->syncRoom($roomId));
     }
 
+    /** Chi nhánh gốc của các category $categoryIds (category gắn phòng có thể là khu vực con). */
+    public function rootBranchIdsForCategoryIds(array $categoryIds): array
+    {
+        $roots = [];
+        foreach (array_filter(array_map('intval', $categoryIds)) as $categoryId) {
+            if ($root = $this->rootOf($categoryId)) {
+                $roots[] = $root;
+            }
+        }
+
+        return array_values(array_unique($roots));
+    }
+
     /** Chi nhánh (category gốc, category_type=product) của 1 phòng — thường chỉ 1, trả mảng phòng
      *  trường hợp dữ liệu cũ gắn phòng vào nhiều chi nhánh (khi đó phòng nhận HỢP dịch vụ). */
     public function rootBranchIdsForRoomId(string $roomId): array

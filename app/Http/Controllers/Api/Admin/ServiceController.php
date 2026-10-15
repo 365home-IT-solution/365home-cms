@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\BranchServiceSync;
+use App\Services\DefaultCatalogImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -165,7 +166,7 @@ class ServiceController extends Controller
             if ($request->hasFile('image')) {
                 $update['image'] = $request->file('image')->store('addition-services', 'public');
             } elseif (! empty($data['remove_image'])) {
-                $update['image'] = null;
+                $update['image'] = app(DefaultCatalogImage::class)->servicePath();
             }
 
             $service->update($update);
@@ -263,8 +264,8 @@ class ServiceController extends Controller
             'partner_id' => $service->partner_id,
             'name'       => $service->name,
             'price'      => $service->price,
-            'image'      => $service->image,
-            'image_url'  => $service->image ? Storage::disk('public')->url($service->image) : null,
+            'image'      => $service->image ?: app(DefaultCatalogImage::class)->servicePath(),
+            'image_url'  => app(DefaultCatalogImage::class)->serviceUrl($service->image),
             'is_active'  => $service->is_active,
             'branches'   => $service->relationLoaded('branches')
                 ? $service->branches->map(fn (Category $c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug])->values()

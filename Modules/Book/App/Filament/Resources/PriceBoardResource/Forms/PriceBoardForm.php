@@ -147,16 +147,34 @@ class PriceBoardForm
                             ->columnSpanFull()
                             ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
+                        Select::make('_slot_source')
+                            ->label('Cách tạo khung giờ')
+                            ->options([
+                                'random' => 'Random (trải từ sáng đến tối + 1 khung qua đêm)',
+                                'template' => 'Chọn trong bảng giá mẫu có sẵn',
+                            ])
+                            ->default('random')
+                            ->live()
+                            ->dehydrated(false)
+                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
+
+                        Select::make('_template_id')
+                            ->label('Bảng giá mẫu')
+                            ->options(fn (Get $get) => static::templateOptions($get('category_id')))
+                            ->helperText('Chọn bảng giá mẫu rồi bấm "Điền khung giờ + giá" — có thể sửa lại giá từng khung trước khi lưu.')
+                            ->dehydrated(false)
+                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT && $get('_slot_source') === 'template'),
+
                         TextInput::make('_random_count')
                             ->label('Số khung giờ ngẫu nhiên mỗi phòng')
-                            ->helperText('Dùng cho nút "Điền khung giờ + giá ngẫu nhiên": trải từ sáng đến tối + 1 khung qua đêm, cách nhau 15–30 phút.')
+                            ->helperText('Dùng cho cách Random: trải từ sáng đến tối + 1 khung qua đêm, cách nhau 15–30 phút.')
                             ->numeric()
                             ->integer()
                             ->minValue(\App\Services\RoomSlotRandomizer::MIN_COUNT)
                             ->maxValue(\App\Services\RoomSlotRandomizer::MAX_COUNT)
                             ->default(\App\Services\RoomSlotRandomizer::DEFAULT_COUNT)
                             ->dehydrated(false)
-                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
+                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT && ($get('_slot_source') ?? 'random') === 'random'),
 
                         Actions::make([
                             Action::make('apply_room_selection')
@@ -165,7 +183,7 @@ class PriceBoardForm
                                 ->color('gray')
                                 ->action(fn (Get $get, Set $set) => static::syncItemsFromChecklist($get('_room_checklist') ?? [], $get, $set)),
                             Action::make('random_slots')
-                                ->label('Điền khung giờ + giá ngẫu nhiên')
+                                ->label('Điền khung giờ + giá')
                                 ->icon('heroicon-o-sparkles')
                                 ->color('gray')
                                 ->tooltip('Mỗi phòng (theo khung giờ) được điền sẵn số khung giờ đã chọn, trải từ sáng đến tối + 1 khung qua đêm, kèm giá ngẫu nhiên — đỡ phải thêm và đặt giá từng khung. Kiểm tra lại rồi bấm Lưu.')
@@ -687,6 +705,28 @@ class PriceBoardForm
             ->toArray();
     }
 
+    /** Bảng giá mẫu dùng được cho chi nhánh đã chọn: mẫu hệ thống + mẫu riêng của đối tác chi nhánh đó
+     *  (mẫu hệ thống đã tách bản riêng thì ẩn). */
+    public static function templateOptions(mixed $branchId = null): array
+    {
+        $partnerId = filled($branchId)
+            ? Category::withoutGlobalScopes()->whereKey($branchId)->value('partner_id')
+            : auth()->user()?->partner_id;
+
+        $forkedIds = $partnerId
+            ? \Modules\Product\App\Models\PriceTemplate::where('partner_id', $partnerId)->whereNotNull('source_template_id')->pluck('source_template_id')
+            : collect();
+
+        return \Modules\Product\App\Models\PriceTemplate::usableBy($partnerId)
+            ->where('is_active', true)
+            ->whereNotIn('id', $forkedIds)
+            ->orderByRaw('partner_id IS NULL DESC')
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->mapWithKeys(fn ($t) => [$t->id => $t->name . ($t->partner_id ? ' (riêng)' : '')])
+            ->toArray();
+    }
+
     private static function allRoomOptions(mixed $branchId = null): array
     {
         if (blank($branchId)) {
@@ -704,9 +744,9 @@ class PriceBoardForm
      *  1 bộ khung giờ chung cho cả lần điền; giá từng phòng lệch ±10% cho tự nhiên.
      *
      *  @return array{0: array, 1: int} [items đã điền, số phòng đã điền] */
-    public static function randomizeItems(array $items, string $partnerId, int $count): array
+    public static function randomizeItems(array $items, string $partnerId, int $count, ?array $slots = null): array
     {
-        $slots    = app(\App\Services\RoomSlotRandomizer::class)->pick($partnerId, $count)['slots'];
+        $slots  ??= app(\App\Services\RoomSlotRandomizer::class)->pick($partnerId, $count)['slots'];
         $baseline = static::baselinePriceResolver();
         $filled   = 0;
 
@@ -758,9 +798,32 @@ class PriceBoardForm
             return;
         }
 
+        $slots = null;
+
+        if (($get('_slot_source') ?? 'random') === 'template') {
+            $template = \Modules\Product\App\Models\PriceTemplate::usableBy((string) $partnerId)
+                ->where('is_active', true)
+                ->with('slots')
+                ->find($get('_template_id'));
+
+            if (! $template) {
+                Notification::make()->title('Chọn bảng giá mẫu trước.')->warning()->send();
+
+                return;
+            }
+
+            $slots = $template->slots
+                ->filter(fn ($s) => $s->price !== null)
+                ->map(fn ($s) => [
+                    'timeslot_id' => (int) $s->timeslot_id,
+                    'price'       => (int) $s->price,
+                    'over_night'  => (bool) $s->over_night,
+                ])->values()->all();
+        }
+
         $count = (int) ($get('_random_count') ?: \App\Services\RoomSlotRandomizer::DEFAULT_COUNT);
 
-        [$items, $filled] = static::randomizeItems($items, (string) $partnerId, $count);
+        [$items, $filled] = static::randomizeItems($items, (string) $partnerId, $count, $slots);
 
         $set('items', $items);
 

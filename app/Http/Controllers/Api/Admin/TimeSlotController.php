@@ -13,6 +13,7 @@ use Illuminate\Validation\Rule;
 use Modules\Product\App\Models\PriceBoardTimeSlot;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
+use Modules\Product\App\Models\PriceTemplateSlot;
 
 /**
  * Danh sách khung giờ dùng chung (bảng `time_slots`) — dữ liệu nền để admin gán khung giờ cho
@@ -195,7 +196,14 @@ class TimeSlotController extends Controller
         ]);
 
         $picked = $randomizer->pick((string) $user->partner_id, (int) ($data['random_count'] ?? RoomSlotRandomizer::DEFAULT_COUNT));
-        $slots  = TimeSlot::whereIn('id', array_column($picked['slots'], 'timeslot_id'))->get()->keyBy('id');
+
+        return $this->slotsResponse($picked);
+    }
+
+    /** Response chung của 2 cách tạo khung giờ (random / bộ mẫu). */
+    private function slotsResponse(array $picked): JsonResponse
+    {
+        $slots = TimeSlot::whereIn('id', array_column($picked['slots'], 'timeslot_id'))->get()->keyBy('id');
 
         return response()->json([
             'message' => $picked['created'] > 0
@@ -272,6 +280,10 @@ class TimeSlotController extends Controller
 
         if (RoomTimeSlot::where('timeslot_id', $id)->exists()) {
             return response()->json(['message' => 'Không thể xoá — đang có phòng gán khung giờ này.'], 422);
+        }
+
+        if (PriceTemplateSlot::where('timeslot_id', $id)->exists()) {
+            return response()->json(['message' => 'Không thể xoá — đang có bảng giá mẫu dùng khung giờ này.'], 422);
         }
 
         if (PriceBoardTimeSlot::where('timeslot_id', $id)->exists()) {

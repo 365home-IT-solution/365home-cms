@@ -647,6 +647,10 @@ class RoomController extends Controller
                     'name'  => $tag->name,
                     'slug'  => $tag->slug,
                     'image' => $tag->image,
+                    // URL đầy đủ; chưa có ảnh thì dùng ảnh mặc định để app không thiếu ảnh.
+                    'image_url' => app(\App\Services\DefaultCatalogImage::class)->amenityUrl(
+                        filled($tag->image) ? (string) $tag->image : null
+                    ),
                 ])->values()->toArray(),
             ])
             ->values()
@@ -665,7 +669,7 @@ class RoomController extends Controller
                 'id'    => $s->id,
                 'name'  => $s->name,
                 'price' => $s->price,
-                'image' => $s->image ? Storage::disk('public')->url($s->image) : null,
+                'image' => app(\App\Services\DefaultCatalogImage::class)->serviceUrl($s->image),
             ])->values()->toArray();
     }
 

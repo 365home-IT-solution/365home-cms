@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
 use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PriceBoardController as AdminPriceBoardController;
+use App\Http\Controllers\Api\Admin\PriceTemplateController as AdminPriceTemplateController;
 use App\Http\Controllers\Api\Admin\SampleDataController as AdminSampleDataController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
@@ -847,7 +848,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 | POST /api/admin/time-slots → tạo khung giờ riêng (start_time/end_time/over_night/label/type) — trùng
 |                              giờ với khung giờ đã có → 422 kèm 'existing'
 | PUT|PATCH /api/admin/time-slots/{id} → sửa (chỉ khung giờ riêng) — ảnh hưởng mọi phòng đang gán
-| DELETE /api/admin/time-slots/{id} → xoá (chỉ khung giờ riêng) — chặn nếu còn phòng/bảng giá mẫu dùng
+| DELETE /api/admin/time-slots/{id} → xoá (chỉ khung giờ riêng) — chặn nếu còn phòng/bảng giá dùng
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
@@ -858,6 +859,33 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
     Route::put('/{id}', [AdminTimeSlotController::class, 'update'])->name('update');
     Route::patch('/{id}', [AdminTimeSlotController::class, 'update'])->name('update.patch');
     Route::delete('/{id}', [AdminTimeSlotController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Price Templates — BẢNG GIÁ MẪU (price_templates): bộ khung giờ + giá có sẵn để chọn khi tạo bảng
+| giá. partner_id NULL = mẫu hệ thống; đối tác sửa mẫu hệ thống → tự tách bản riêng (response có
+| forked_from_id). Mẫu KHÔNG ghi thẳng xuống phòng — dùng mẫu = TẠO BẢNG GIÁ (create-board), giá
+| phòng đổi qua price_boards. Xem PriceTemplateController.
+| GET    /api/admin/price-templates                  → ?scope=system|mine&search=&is_active=
+| GET    /api/admin/price-templates/{id}             → chi tiết (kèm slots[])
+| POST   /api/admin/price-templates                  → tạo (name, note, is_active, sort_order, slots[])
+| PUT|PATCH /api/admin/price-templates/{id}          → sửa (slots gửi lên = thay toàn bộ)
+| DELETE /api/admin/price-templates/{id}             → xoá (chỉ mẫu riêng)
+| POST   /api/admin/price-templates/{id}/apply        → thêm thẳng khung giờ + giá vào phòng đã có (room_ids[], mode)
+| POST   /api/admin/price-templates/{id}/create-board → tạo bảng giá từ mẫu (branch_id, product_ids[], ...)
+| Tạo phòng: POST /api/admin/products kèm price_template_id → khung giờ + giá của mẫu được thêm thẳng vào phòng.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates')->name('api.admin.price-templates.')->group(function () {
+    Route::get('/', [AdminPriceTemplateController::class, 'index'])->name('index');
+    Route::post('/', [AdminPriceTemplateController::class, 'store'])->name('store');
+    Route::get('/{id}', [AdminPriceTemplateController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update')->whereNumber('id');
+    Route::patch('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update.patch')->whereNumber('id');
+    Route::delete('/{id}', [AdminPriceTemplateController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    Route::post('/{id}/apply', [AdminPriceTemplateController::class, 'apply'])->name('apply')->whereNumber('id');
+    Route::post('/{id}/create-board', [AdminPriceTemplateController::class, 'createBoard'])->name('create-board')->whereNumber('id');
 });
 
 /*
