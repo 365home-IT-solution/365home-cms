@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\PriceBoardSyncService;
-use App\Services\RoomSlotRandomizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +38,7 @@ use RuntimeException;
  */
 class PriceBoardController extends Controller
 {
-    public function __construct(private PriceBoardSyncService $service, private RoomSlotRandomizer $randomizer)
+    public function __construct(private PriceBoardSyncService $service)
     {
     }
 
@@ -68,75 +67,6 @@ class PriceBoardController extends Controller
         return response()->json(['data' => $boards]);
     }
 
-    /**
-     * POST /api/admin/price-boards/random-slots — GỢI Ý khung giờ + giá ngẫu nhiên cho các phòng, để
-     * app hiện lên cho đối tác xem/sửa trước khi bấm lưu (POST /api/admin/price-boards). KHÔNG tạo bảng giá.
-     *
-     * Body:
-     *  - branch_id (required)
-     *  - random_count : 2–8 khung mỗi phòng, mặc định 5 (gồm 1 khung qua đêm)
-     *  - product_ids[]: phòng cần gợi ý; bỏ trống = mọi phòng theo khung giờ (styles=1) của chi nhánh
-     *
-     * Bộ khung giờ trải từ sáng đến tối + 1 khung qua đêm, các khung liền nhau cách 15–30 phút; giá từng
-     * phòng lệch ±10%. Khung giờ chưa có sẽ được tạo thành khung riêng của đối tác (dùng lại khi gợi ý
-     * lần sau nếu trùng giờ).
-     */
-    public function randomSlots(Request $request): JsonResponse
-    {
-        /** @var User $user */
-        $user = $request->user();
-
-        if ($error = $this->partnerError($user)) {
-            return $error;
-        }
-
-        $data = $request->validate([
-            'branch_id'     => 'required|integer',
-            'random_count'  => 'nullable|integer|min:' . RoomSlotRandomizer::MIN_COUNT . '|max:' . RoomSlotRandomizer::MAX_COUNT,
-            'product_ids'   => 'nullable|array',
-            'product_ids.*' => 'string',
-        ]);
-
-        $branchId = (int) $data['branch_id'];
-
-        if (! $this->branches($user)->firstWhere('id', $branchId)) {
-            return response()->json(['message' => 'Chi nhánh không thuộc đối tác của bạn.'], 422);
-        }
-
-        $rooms = Product::query()
-            ->where('partner_id', $user->partner_id)
-            ->where('styles', 1)
-            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', PriceBoard::branchCategoryIds($branchId)))
-            ->when(! empty($data['product_ids']), fn ($q) => $q->whereIn('id', $data['product_ids']))
-            ->orderBy('name')
-            ->get(['id', 'name']);
-
-        if ($rooms->isEmpty()) {
-            return response()->json(['message' => 'Chi nhánh chưa có phòng theo khung giờ nào.'], 422);
-        }
-
-        $picked = $this->randomizer->pick((string) $user->partner_id, (int) ($data['random_count'] ?? RoomSlotRandomizer::DEFAULT_COUNT));
-        $labels = TimeSlot::whereIn('id', array_column($picked['slots'], 'timeslot_id'))->get()->keyBy('id');
-
-        return response()->json(['data' => [
-            'branch_id'    => $branchId,
-            'random_count' => count($picked['slots']),
-            'rooms'        => $rooms->map(fn (Product $room) => [
-                'product_id' => $room->id,
-                'room_name'  => $room->name,
-                'time_slots' => array_map(fn (array $s) => [
-                    'timeslot_id' => $s['timeslot_id'],
-                    'label'       => $labels[$s['timeslot_id']]->label,
-                    'start_time'  => $labels[$s['timeslot_id']]->start_time,
-                    'end_time'    => $labels[$s['timeslot_id']]->end_time,
-                    'price'       => intdiv((int) round($s['price'] * random_int(90, 110) / 100), 10000) * 10000,
-                    'over_night'  => $s['over_night'],
-                    'status'      => 'available',
-                ], $picked['slots']),
-            ])->values(),
-        ]]);
-    }
-
     public function show(Request $request, int $id): JsonResponse
     {
         $board = $this->find($request->user(), $id);
@@ -157,9 +87,7 @@ class PriceBoardController extends Controller
      *  - override   : items[] — { product_id, full_booking_discount, bulk_discount_rules[{slots,discount}],
      *                 room_config{max_free_guests,extra_guest_fee}, time_slots[{timeslot_id,price,over_night,status}] }
      *                 (phòng theo ngày: price, default_checkin, default_checkout, deposit_*). Field bỏ trống
-     *                 lấy theo giá trị hiện tại của phòng. `random: true` (hoặc `random_slots: true` ở
-     *                 cấp bảng) = bỏ time_slots, BE random `random_count` (2–8, mặc định 5) khung giờ
-     *                 trải từ sáng đến tối + 1 khung qua đêm, cách nhau 15–30 phút, kèm giá.
+     *                 Khung giờ lấy từ POST /api/admin/time-slots/random (random khung giờ TRƯỚC, rồi mới tạo bảng giá).
      *  - adjustment : adjustment_type (percentage|fixed), adjustment_value (+/-), product_ids[]
      */
     public function store(Request $request): JsonResponse
@@ -247,8 +175,6 @@ class PriceBoardController extends Controller
             'product_ids'                       => 'nullable|array',
             'product_ids.*'                     => 'string',
 
-            'random_slots'                      => 'nullable|boolean',
-            'random_count'                      => 'nullable|integer|min:' . RoomSlotRandomizer::MIN_COUNT . '|max:' . RoomSlotRandomizer::MAX_COUNT,
             'items'                             => 'nullable|array',
             'items.*.product_id'                => 'required_with:items|string',
             'items.*.full_booking_discount'     => 'nullable|string|max:50',
@@ -263,7 +189,6 @@ class PriceBoardController extends Controller
             'items.*.default_checkout'          => 'nullable|date_format:H:i',
             'items.*.deposit_min_nights'        => 'nullable|integer|min:1',
             'items.*.deposit_multi_night'       => 'nullable|integer|min:0|max:100',
-            'items.*.random'                    => 'nullable|boolean',
             'items.*.time_slots'                => 'nullable|array',
             'items.*.time_slots.*.timeslot_id'  => 'required|integer',
             'items.*.time_slots.*.price'        => 'required|integer|min:0',
@@ -325,7 +250,7 @@ class PriceBoardController extends Controller
                 $payload = ['product_ids' => $requested->all()];
             } else {
                 try {
-                    $payload = ['items' => $this->buildItems($partnerId, $data['items'] ?? [], $products, (bool) ($data['random_slots'] ?? false), (int) ($data['random_count'] ?? RoomSlotRandomizer::DEFAULT_COUNT))];
+                    $payload = ['items' => $this->buildItems($partnerId, $data['items'] ?? [], $products)];
                 } catch (RuntimeException $e) {
                     return response()->json(['message' => $e->getMessage()], 422);
                 }
@@ -367,9 +292,8 @@ class PriceBoardController extends Controller
      * Chuyển body API sang dạng PriceBoardSyncService::saveOverrideItems() đọc (cùng form Filament).
      * Field bỏ trống lấy theo giá trị hiện tại của phòng để không vô tình xoá điều kiện giảm giá.
      */
-    private function buildItems(string $partnerId, array $items, $products, bool $randomAll = false, int $randomCount = RoomSlotRandomizer::DEFAULT_COUNT): array
+    private function buildItems(string $partnerId, array $items, $products): array
     {
-        $randomBase = null;
         $usable = TimeSlot::usableBy($partnerId)->pluck('id')->map(fn ($v) => (int) $v)->all();
         $out    = [];
 
@@ -396,17 +320,7 @@ class PriceBoardController extends Controller
                 continue;
             }
 
-            if (($row['random'] ?? $randomAll) && ! array_key_exists('time_slots', $row)) {
-                // Bộ khung giờ ngẫu nhiên (sáng → tối + qua đêm, cách nhau 15–30 phút) dùng chung cho
-                // cả lần lưu; giá từng phòng lệch ±10%.
-                $randomBase ??= $this->randomizer->pick($partnerId, $randomCount)['slots'];
-                $usable = array_merge($usable, array_column($randomBase, 'timeslot_id'));
-                $slots = array_map(fn (array $s) => [
-                    'timeslot_id' => $s['timeslot_id'],
-                    'price'       => intdiv((int) round($s['price'] * random_int(90, 110) / 100), 10000) * 10000,
-                    'over_night'  => $s['over_night'],
-                ], $randomBase);
-            } elseif (array_key_exists('time_slots', $row)) {
+            if (array_key_exists('time_slots', $row)) {
                 $slots = $row['time_slots'] ?? [];
             } else {
                 $slots = $product->roomTimeSlots()->whereNull('date')->get()

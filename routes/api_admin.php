@@ -853,6 +853,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
     Route::get('/', [AdminTimeSlotController::class, 'index'])->name('index');
     Route::post('/', [AdminTimeSlotController::class, 'store'])->name('store');
+    // TẠO khung giờ ngẫu nhiên (bước đầu của luồng tạo bảng giá). POST nên không đụng '/{id}' (PUT/PATCH/DELETE).
+    Route::post('/random', [AdminTimeSlotController::class, 'random'])->name('random');
     Route::put('/{id}', [AdminTimeSlotController::class, 'update'])->name('update');
     Route::patch('/{id}', [AdminTimeSlotController::class, 'update'])->name('update.patch');
     Route::delete('/{id}', [AdminTimeSlotController::class, 'destroy'])->name('destroy');
@@ -865,7 +867,6 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
 | trang Filament "Bảng giá" (PriceBoardSyncService). Super_admin gửi X-Partner-Id. Xem PriceBoardController.
 | GET    /api/admin/price-boards            → ?branch_id=&search=&is_active=&status=active|pending|expired|inactive
 | GET    /api/admin/price-boards/{id}       → chi tiết (kèm phòng + giá từng khung giờ)
-| POST   /api/admin/price-boards/random-slots → gợi ý khung giờ + giá ngẫu nhiên (xem trước, chưa lưu)
 | POST   /api/admin/price-boards            → tạo (name, branch_id, start_date, end_date, pricing_mode, items[]|product_ids[])
 | PUT|PATCH /api/admin/price-boards/{id}    → sửa (items/product_ids gửi lên = thay toàn bộ phòng của bảng)
 | DELETE /api/admin/price-boards/{id}       → xoá, phòng được tính lại giá
@@ -875,8 +876,6 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-boards')->name('api.admin.price-boards.')->group(function () {
     Route::get('/', [AdminPriceBoardController::class, 'index'])->name('index');
     Route::post('/', [AdminPriceBoardController::class, 'store'])->name('store');
-    // Đăng ký TRƯỚC '/{id}' — nhưng '{id}' đã whereNumber nên không nuốt 'random-slots'.
-    Route::post('/random-slots', [AdminPriceBoardController::class, 'randomSlots'])->name('random-slots');
     Route::get('/{id}', [AdminPriceBoardController::class, 'show'])->name('show')->whereNumber('id');
     Route::put('/{id}', [AdminPriceBoardController::class, 'update'])->name('update')->whereNumber('id');
     Route::patch('/{id}', [AdminPriceBoardController::class, 'update'])->name('update.patch')->whereNumber('id');
