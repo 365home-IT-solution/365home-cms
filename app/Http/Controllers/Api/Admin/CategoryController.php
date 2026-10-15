@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use App\Models\Partner;
 use Modules\Category\Entities\Category;
 
 /**
@@ -30,12 +31,18 @@ class CategoryController extends Controller
 
     private const IMAGE_RULE = 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120';
 
+    // Cache {id, name} đối tác trong 1 request — toItem() gọi lặp cho từng chi nhánh/khu vực.
+    private array $partnerCache = [];
+
     /**
      * GET /api/admin/categories
      * Query params:
      *  - parent_id: bỏ trống = chi nhánh gốc (mặc định); 1 id = khu vực con của chi nhánh đó;
      *               'all' = toàn bộ (chi nhánh + khu vực) dạng phẳng
      *  - search: lọc theo tên
+     *  - partner_id: uuid đối tác — chỉ lấy chi nhánh GỐC của đối tác đó và khu vực con của
+     *               chúng (dùng cho super_admin xem riêng 1 đối tác; user thường vốn đã bị giới
+     *               hạn trong đối tác mình nên filter này chỉ thu hẹp thêm)
      * Mỗi item (trừ khi parent_id=all — đã phẳng sẵn) kèm field `children`: TOÀN BỘ khu vực con
      * (mọi cấp, dạng cây lồng nhau, cùng shape đầy đủ với item cha) — để FE không cần gọi thêm 1
      * request/chi nhánh chỉ để lấy danh sách khu vực con của nó.
@@ -62,6 +69,10 @@ class CategoryController extends Controller
             $query->where('name', 'like', "%{$search}%");
         }
 
+        if ($request->filled('partner_id')) {
+            $query->whereIn('id', $this->partnerSubtreeIds((string) $request->string('partner_id')));
+        }
+
         $categories = $query->orderBy('sort_order')->orderBy('name')->get();
 
         $data = $categories->map(fn (Category $c) => $this->toItem($c, withChildren: ! $flat));
@@ -86,6 +97,8 @@ class CategoryController extends Controller
      *                TOÀN BỘ khu vực con của nó, thay vì cả cây. Bỏ trống = trả về mọi chi nhánh
      *                user được xem (mặc định như cũ). Slug không khớp chi nhánh nào user được xem
      *                (gõ nhầm/không có quyền) → trả 'data': [] thay vì bỏ qua filter.
+     *  - partner_id: uuid đối tác — chỉ trả chi nhánh của đối tác đó (kèm khu vực con), giống
+     *                ?partner_id= của GET /api/admin/categories.
      */
     public function tree(Request $request): JsonResponse
     {
@@ -93,9 +106,10 @@ class CategoryController extends Controller
         $user = $request->user();
 
         $categories = $this->visibleCategoriesQuery($user)
+            ->when($request->filled('partner_id'), fn (Builder $q) => $q->whereIn('id', $this->partnerSubtreeIds((string) $request->string('partner_id'))))
             ->orderBy('sort_order')
             ->orderBy('name')
-            ->get(['id', 'name', 'slug', 'parent_id', 'sort_order', 'status', 'image']);
+            ->get(['id', 'name', 'slug', 'parent_id', 'sort_order', 'status', 'image', 'partner_id']);
 
         if ($request->filled('categories')) {
             $slugs = collect(explode(',', (string) $request->string('categories')))
@@ -116,17 +130,24 @@ class CategoryController extends Controller
         // rõ ràng thay vì phụ thuộc hành vi ép kiểu ngầm đó.
         $byParent = $categories->groupBy(fn (Category $c) => $c->parent_id ?? 'root');
 
-        $buildBranch = function ($parentKey) use (&$buildBranch, $byParent) {
+        // Đối tác lấy theo chi nhánh GỐC rồi truyền xuống khu vực con (xem rootPartnerId()).
+        $buildBranch = function ($parentKey, ?string $rootPartnerId = null) use (&$buildBranch, $byParent) {
             return $byParent->get($parentKey, collect())
-                ->map(fn (Category $c) => [
-                    'id'         => $c->id,
-                    'name'       => $c->name,
-                    'slug'       => $c->slug,
-                    'sort_order' => $c->sort_order,
-                    'status'     => $c->status,
-                    'image_url'  => $c->image ? asset('storage/' . $c->image) : null,
-                    'children'   => $buildBranch($c->id),
-                ])
+                ->map(function (Category $c) use ($buildBranch, $rootPartnerId) {
+                    $partnerId = $rootPartnerId ?? $c->partner_id;
+
+                    return [
+                        'id'         => $c->id,
+                        'name'       => $c->name,
+                        'slug'       => $c->slug,
+                        'sort_order' => $c->sort_order,
+                        'status'     => $c->status,
+                        'image_url'  => $c->image ? asset('storage/' . $c->image) : null,
+                        'partner_id' => $partnerId,
+                        'partner'    => $this->partnerSummary($partnerId),
+                        'children'   => $buildBranch($c->id, $partnerId),
+                    ];
+                })
                 ->values();
         };
 
@@ -166,8 +187,9 @@ class CategoryController extends Controller
 
     /**
      * POST /api/admin/categories (multipart/form-data nếu có ảnh)
-     * - parent_id bỏ trống → tạo CHI NHÁNH. super_admin bắt buộc chọn partner_id; user thường tự
-     *   động gán theo partner_id của mình.
+     * - parent_id bỏ trống → tạo CHI NHÁNH. super_admin bắt buộc chọn partner_id (hoặc đang chọn
+     *   đối tác qua header X-Partner-Id thì lấy đối tác đó); user thường tự động gán theo
+     *   partner_id của mình.
      * - parent_id = id 1 chi nhánh có sẵn → tạo KHU VỰC, partner_id LUÔN kế thừa theo chi nhánh cha
      *   (không cho lệch đối tác giữa khu vực và chi nhánh chứa nó).
      */
@@ -205,7 +227,8 @@ class CategoryController extends Controller
             }
         }
 
-        $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? null) : $user->partner_id;
+        // super_admin: ưu tiên partner_id gửi lên, không có thì lấy đối tác đang chọn qua X-Partner-Id.
+        $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? $user->actingPartnerId()) : $user->partner_id;
 
         if ($parent) {
             // Khu vực luôn thuộc cùng đối tác với chi nhánh cha — kế thừa, không cho lệch. Lấy
@@ -363,6 +386,42 @@ class CategoryController extends Controller
         return $current->partner_id;
     }
 
+    // Id toàn bộ chi nhánh GỐC thuộc $partnerId + mọi khu vực con của chúng (đi theo parent_id,
+    // không lọc bằng cột partner_id trên khu vực con — xem rootPartnerId()).
+    private function partnerSubtreeIds(string $partnerId): array
+    {
+        $ids = Category::where('category_type', 'product')
+            ->whereNull('parent_id')
+            ->where('partner_id', $partnerId)
+            ->pluck('id')
+            ->all();
+
+        $currentLevel = $ids;
+        while (! empty($currentLevel)) {
+            $currentLevel = Category::where('category_type', 'product')
+                ->whereIn('parent_id', $currentLevel)
+                ->pluck('id')
+                ->all();
+            $ids = array_merge($ids, $currentLevel);
+        }
+
+        return $ids;
+    }
+
+    private function partnerSummary(?string $partnerId): ?array
+    {
+        if (! $partnerId) {
+            return null;
+        }
+
+        if (! array_key_exists($partnerId, $this->partnerCache)) {
+            $partner = Partner::query()->find($partnerId, ['id', 'name']);
+            $this->partnerCache[$partnerId] = $partner ? ['id' => $partner->id, 'name' => $partner->name] : null;
+        }
+
+        return $this->partnerCache[$partnerId];
+    }
+
     /**
      * Phạm vi nhìn thấy: super_admin xem hết. User thường chỉ xem category_type='product' thuộc
      * đúng đối tác mình — thu hẹp thêm theo allowedCategoryIds() nếu được cấp quyền chi nhánh cụ
@@ -408,8 +467,12 @@ class CategoryController extends Controller
         return false;
     }
 
-    private function toItem(Category $c, bool $withChildren = false): array
+    // $rootPartnerId: đối tác của chi nhánh gốc, truyền xuống khi dựng children để khỏi đi ngược
+    // parent_id lại cho từng khu vực con.
+    private function toItem(Category $c, bool $withChildren = false, ?string $rootPartnerId = null): array
     {
+        $partnerId = $rootPartnerId ?? $this->rootPartnerId($c);
+
         $item = [
             'id'             => $c->id,
             'name'           => $c->name,
@@ -420,7 +483,8 @@ class CategoryController extends Controller
             'status'         => $c->status,
             'image'          => $c->image,
             'image_url'      => $c->image ? asset('storage/' . $c->image) : null,
-            'partner_id'     => $c->partner_id,
+            'partner_id'     => $partnerId,
+            'partner'        => $this->partnerSummary($partnerId),
             'children_count' => $c->children_count ?? $c->children()->count(),
             'created_at'     => $c->created_at,
             'updated_at'     => $c->updated_at,
@@ -433,7 +497,7 @@ class CategoryController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get()
-                ->map(fn (Category $child) => $this->toItem($child, withChildren: true))
+                ->map(fn (Category $child) => $this->toItem($child, withChildren: true, rootPartnerId: $partnerId))
                 ->values();
         }
 

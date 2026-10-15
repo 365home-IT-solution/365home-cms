@@ -530,7 +530,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | Categories — Quản lý CHI NHÁNH (parent_id=null) và KHU VỰC (parent_id=id chi nhánh),
 | category_type luôn 'product' — xem docblock App\Http\Controllers\Api\Admin\CategoryController.
 | GET    /api/admin/categories          → ?parent_id= (bỏ trống=chi nhánh gốc, 1 id=khu vực con,
-|                                          'all'=phẳng hết) + ?search=
+|                                          'all'=phẳng hết) + ?search= + ?partner_id= (uuid —
+|                                          chỉ chi nhánh của 1 đối tác, kèm khu vực con)
 | GET    /api/admin/categories/tree     → toàn bộ chi nhánh + khu vực con, dạng CÂY lồng nhau
 |                                          (children[]) — cùng phạm vi hiển thị với field
 |                                          "categories" ở POST /api/admin/login. Dùng cho FE hiển
@@ -538,6 +539,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                          ?categories={slug,...} → chỉ trả (những) chi nhánh đó
 |                                          kèm khu vực con của nó, giống ?categories= của các API
 |                                          admin khác (dashboard/kpi-stats, rankings, rooms).
+|                                          ?partner_id= lọc theo đối tác như trên.
+| Mỗi item đều kèm partner {id, name} — lấy theo CHI NHÁNH GỐC (khu vực con kế thừa).
+| Tài liệu đầy đủ: docs/api/categories-branch-api.md
 | GET    /api/admin/categories/{id}     → chi tiết 1 chi nhánh/khu vực
 | POST   /api/admin/categories          → tạo (multipart/form-data nếu có ảnh)
 | PUT|POST /api/admin/categories/{id}   → sửa (POST khi cần gửi kèm ảnh, PHP không tự parse
