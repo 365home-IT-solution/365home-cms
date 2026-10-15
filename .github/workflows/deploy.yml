@@ -4,6 +4,10 @@ on:
   push:
     branches: [production]
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -36,8 +40,46 @@ jobs:
       - name: Check artisan boots
         run: php artisan --version
 
-  deploy:
+  # Build image trên runner GitHub rồi đẩy lên GHCR — VPS chỉ pull image về, không build tại chỗ
+  # (npm ci + 3 lần vite build + composer trên VPS 4GB ăn hết RAM, app đang chạy bị OOM → 502).
+  build:
     needs: check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # VITE_REVERB_* được bake vào JS lúc build (xem Dockerfile stage frontend) — trước đây compose
+      # lấy từ .env trên VPS, giờ lấy từ Repository variables (Settings → Secrets and variables →
+      # Actions → Variables), giá trị copy y hệt .env production.
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/365home-it-solution/365home-cms:production
+            ghcr.io/365home-it-solution/365home-cms:${{ github.sha }}
+          build-args: |
+            VITE_REVERB_APP_KEY=${{ vars.REVERB_APP_KEY }}
+            VITE_REVERB_HOST=${{ vars.VITE_REVERB_HOST }}
+            VITE_REVERB_PORT=${{ vars.VITE_REVERB_PORT }}
+            VITE_REVERB_SCHEME=${{ vars.VITE_REVERB_SCHEME }}
+            VITE_REVERB_PATH=${{ vars.VITE_REVERB_PATH }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
@@ -62,7 +104,11 @@ jobs:
             git reset --hard origin/production
             sudo chown -R www-data:www-data /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
             sudo chmod -R 775 /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
-            docker compose up -d --build
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker compose pull app
+            docker logout ghcr.io
+            docker compose up -d --no-build
+            docker image prune -f
             pm2 startOrReload /home/dev/www/365home.vn/websocket/ecosystem.config.js --update-env
             pm2 save
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"

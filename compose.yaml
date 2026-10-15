@@ -9,7 +9,10 @@ services:
                 VITE_REVERB_PORT: ${VITE_REVERB_PORT}
                 VITE_REVERB_SCHEME: ${VITE_REVERB_SCHEME}
                 VITE_REVERB_PATH: ${VITE_REVERB_PATH}
-        image: '365home/app:latest'
+        # Image build sẵn trên GitHub Actions (deploy.yml) rồi đẩy lên GHCR — server chỉ pull, không
+        # build tại chỗ (build trên VPS 4GB ăn hết RAM, app đang chạy bị OOM → 502). Local vẫn
+        # "docker compose build" được nhờ khối build: phía trên.
+        image: 'ghcr.io/365home-it-solution/365home-cms:${IMAGE_TAG:-production}'
         restart: unless-stopped
         extra_hosts:
             - 'host.docker.internal:host-gateway'
@@ -41,7 +44,10 @@ services:
             - app
 
     reverb:
-        image: '365home/app:latest'
+        # Image build sẵn trên GitHub Actions (deploy.yml) rồi đẩy lên GHCR — server chỉ pull, không
+        # build tại chỗ (build trên VPS 4GB ăn hết RAM, app đang chạy bị OOM → 502). Local vẫn
+        # "docker compose build" được nhờ khối build: phía trên.
+        image: 'ghcr.io/365home-it-solution/365home-cms:${IMAGE_TAG:-production}'
         restart: unless-stopped
         command: php artisan reverb:start --host=0.0.0.0 --port=6001
         ports:
