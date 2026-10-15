@@ -25,6 +25,7 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use App\Services\PriceBoardSyncService;
 use Modules\Book\App\Filament\Traits\HasRoomPricingFormFields;
+use Modules\Category\Entities\Category;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\Product;
@@ -54,6 +55,20 @@ class PriceBoardForm
                             ->placeholder('VD: Giá Tết 2026, Giá đối tác ABC')
                             ->required()
                             ->maxLength(255),
+
+                        Select::make('category_id')
+                            ->label('Chi nhánh')
+                            ->options(fn () => static::branchOptions())
+                            ->searchable()
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(function (Set $set) {
+                                // Đổi chi nhánh thì danh sách phòng cũ không còn hợp lệ.
+                                $set('_room_checklist', []);
+                                $set('product_ids', []);
+                                $set('items', []);
+                            })
+                            ->helperText('Bảng giá chỉ áp cho phòng thuộc chi nhánh này.'),
 
                         Toggle::make('is_active')
                             ->label('Kích hoạt')
@@ -124,12 +139,23 @@ class PriceBoardForm
                         // sách phòng" bên dưới — 1 request DUY NHẤT, đọc đúng trạng thái tích cuối cùng.
                         CheckboxList::make('_room_checklist')
                             ->label('Phòng')
-                            ->options(fn () => static::allRoomOptions())
+                            ->options(fn (Get $get) => static::allRoomOptions($get('category_id')))
                             ->searchable()
                             ->bulkToggleable()
                             ->columns(3)
                             ->dehydrated(false)
                             ->columnSpanFull()
+                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
+
+                        TextInput::make('_random_count')
+                            ->label('Số khung giờ ngẫu nhiên mỗi phòng')
+                            ->helperText('Dùng cho nút "Điền khung giờ + giá ngẫu nhiên": trải từ sáng đến tối + 1 khung qua đêm, cách nhau 15–30 phút.')
+                            ->numeric()
+                            ->integer()
+                            ->minValue(\App\Services\RoomSlotRandomizer::MIN_COUNT)
+                            ->maxValue(\App\Services\RoomSlotRandomizer::MAX_COUNT)
+                            ->default(\App\Services\RoomSlotRandomizer::DEFAULT_COUNT)
+                            ->dehydrated(false)
                             ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
                         Actions::make([
@@ -138,13 +164,19 @@ class PriceBoardForm
                                 ->icon('heroicon-o-arrow-path')
                                 ->color('gray')
                                 ->action(fn (Get $get, Set $set) => static::syncItemsFromChecklist($get('_room_checklist') ?? [], $get, $set)),
+                            Action::make('random_slots')
+                                ->label('Điền khung giờ + giá ngẫu nhiên')
+                                ->icon('heroicon-o-sparkles')
+                                ->color('gray')
+                                ->tooltip('Mỗi phòng (theo khung giờ) được điền sẵn số khung giờ đã chọn, trải từ sáng đến tối + 1 khung qua đêm, kèm giá ngẫu nhiên — đỡ phải thêm và đặt giá từng khung. Kiểm tra lại rồi bấm Lưu.')
+                                ->action(fn (Get $get, Set $set) => static::fillRandomSlots($get, $set)),
                         ])
                             ->columnSpanFull()
                             ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
                         CheckboxList::make('product_ids')
                             ->label('Phòng')
-                            ->options(fn () => static::allRoomOptions())
+                            ->options(fn (Get $get) => static::allRoomOptions($get('category_id')))
                             ->searchable()
                             ->bulkToggleable()
                             ->columns(3)
@@ -637,12 +669,105 @@ class PriceBoardForm
      *  thống giá" (SettingBook) đã có bộ lọc chi nhánh riêng ở cấp trang, nên ở đây không lọc lại
      *  theo chi nhánh/đối tác/loại phòng nữa — chỉ cần danh sách phòng để tích chọn (đã có tìm kiếm
      *  theo tên qua ->searchable() trên CheckboxList). */
-    private static function allRoomOptions(): array
+    /** Chi nhánh (category gốc) của đối tác đang đăng nhập; super_admin chưa chọn đối tác thấy hết,
+     *  nhân viên chỉ được giao vài chi nhánh thì chỉ những chi nhánh đó. */
+    public static function branchOptions(): array
     {
-        return Product::where('is_activated', true)
+        $user    = auth()->user();
+        $allowed = $user?->allowedCategoryIds() ?? [];
+
+        return Category::withoutGlobalScopes()
+            ->whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->whereNull('deleted_at')
+            ->when($user && ! $user->seesAllPartners(), fn ($q) => $q->where('partner_id', $user->partner_id))
+            ->when(! empty($allowed), fn ($q) => $q->whereIn('id', $allowed))
             ->orderBy('name')
             ->pluck('name', 'id')
             ->toArray();
+    }
+
+    private static function allRoomOptions(mixed $branchId = null): array
+    {
+        if (blank($branchId)) {
+            return [];
+        }
+
+        return Product::where('is_activated', true)
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', PriceBoard::branchCategoryIds((int) $branchId)))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->toArray();
+    }
+
+    /** Điền khung giờ + giá ngẫu nhiên vào các dòng phòng theo khung giờ (styles=1) của $items.
+     *  1 bộ khung giờ chung cho cả lần điền; giá từng phòng lệch ±10% cho tự nhiên.
+     *
+     *  @return array{0: array, 1: int} [items đã điền, số phòng đã điền] */
+    public static function randomizeItems(array $items, string $partnerId, int $count): array
+    {
+        $slots    = app(\App\Services\RoomSlotRandomizer::class)->pick($partnerId, $count)['slots'];
+        $baseline = static::baselinePriceResolver();
+        $filled   = 0;
+
+        foreach ($items as $i => $item) {
+            if (static::styleOf($item['product_id'] ?? null) !== 1) {
+                continue;
+            }
+
+            $items[$i]['roomTimeSlots'] = collect($slots)
+                ->map(fn (array $slot) => [
+                    'timeslot_id'     => $slot['timeslot_id'],
+                    'price'           => number_format(intdiv((int) round($slot['price'] * random_int(90, 110) / 100), 10000) * 10000, 0, ',', '.'),
+                    '_baseline_price' => $baseline($item['product_id'], $slot['timeslot_id']),
+                    'promotions'      => [],
+                    'over_night'      => $slot['over_night'],
+                    'status'          => 'available',
+                ])->all();
+            $filled++;
+        }
+
+        return [$items, $filled];
+    }
+
+    /** Điền Repeater 'items' bằng khung giờ + giá NGẪU NHIÊN lấy từ các khung giờ có sẵn của đối tác
+     *  (App\Services\RoomSlotRandomizer) cho từng phòng theo khung giờ — mỗi phòng một bộ khác nhau.
+     *  Chỉ điền vào form; đối tác kiểm tra/sửa rồi bấm Lưu mới ghi xuống hệ thống. */
+    private static function fillRandomSlots(Get $get, Set $set): void
+    {
+        $items = $get('items') ?? [];
+
+        if (! $items) {
+            Notification::make()
+                ->title('Chưa có phòng nào — tích chọn phòng rồi bấm "Tạo/cập nhật danh sách phòng" trước.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        // Khung giờ random được tạo thành khung riêng của đối tác → phải biết chi nhánh (đối tác) trước.
+        $branchId  = $get('category_id');
+        $partnerId = $branchId
+            ? Category::withoutGlobalScopes()->whereKey($branchId)->value('partner_id')
+            : null;
+
+        if (blank($partnerId)) {
+            Notification::make()->title('Chọn chi nhánh trước khi điền khung giờ ngẫu nhiên.')->warning()->send();
+
+            return;
+        }
+
+        $count = (int) ($get('_random_count') ?: \App\Services\RoomSlotRandomizer::DEFAULT_COUNT);
+
+        [$items, $filled] = static::randomizeItems($items, (string) $partnerId, $count);
+
+        $set('items', $items);
+
+        Notification::make()
+            ->title($filled ? "Đã điền ngẫu nhiên khung giờ + giá cho {$filled} phòng — kiểm tra rồi bấm Lưu." : 'Không có phòng theo khung giờ nào để điền.')
+            ->{$filled ? 'success' : 'warning'}()
+            ->send();
     }
 
     /** Đồng bộ Repeater 'items' theo đúng tập phòng đang tích trong CheckboxList — thêm dòng mới

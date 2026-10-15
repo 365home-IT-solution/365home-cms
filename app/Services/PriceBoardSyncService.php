@@ -183,6 +183,12 @@ class PriceBoardSyncService
             ];
         }
 
+        return $this->liveSnapshot($product);
+    }
+
+    /** Giá ĐANG CHẠY trên phòng ở dạng baseline (các field chung + khung giờ tái sử dụng). */
+    private function liveSnapshot(Product $product): array
+    {
         $slots = $product->roomTimeSlots()
             ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
             ->get()
@@ -203,6 +209,42 @@ class PriceBoardSyncService
             'fields' => $this->extractProductFields($product),
             'slots'  => $slots,
         ];
+    }
+
+    /** Sau khi đối tác SỬA GIÁ TAY: cập nhật "giá gốc" đã đóng băng của mọi bảng đặt tên chứa phòng
+     *  này thành giá vừa sửa — nếu không, job `price-boards:sync-due` hằng đêm sẽ khôi phục phòng về
+     *  giá gốc lúc tạo bảng và xoá mất giá vừa sửa. Bỏ qua khi đang có bảng hiệu lực đè lên phòng:
+     *  lúc đó giá đang chạy là giá tạm của bảng, không phải giá thật. */
+    private function refreshBaselines(Product $product): void
+    {
+        $items = PriceBoardItem::where('product_id', $product->id)
+            ->whereHas('priceBoard', fn ($q) => $q->where('is_default', false))
+            ->get();
+
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $today = now()->startOfDay();
+
+        $covered = $items->contains(function (PriceBoardItem $item) use ($today) {
+            $board = $item->priceBoard;
+
+            return $board && $board->is_active && $board->coversDate($today);
+        });
+
+        if ($covered) {
+            return;
+        }
+
+        $snapshot = $this->liveSnapshot($product);
+
+        foreach ($items as $item) {
+            $item->update([
+                'baseline_fields'     => $snapshot['fields'],
+                'baseline_time_slots' => $snapshot['slots'],
+            ]);
+        }
     }
 
     public function defaultBoard(): PriceBoard
@@ -247,6 +289,8 @@ class PriceBoardSyncService
                 'status'              => $slot->status,
             ]);
         }
+
+        $this->refreshBaselines($product);
 
         return $item->fresh('timeSlots');
     }

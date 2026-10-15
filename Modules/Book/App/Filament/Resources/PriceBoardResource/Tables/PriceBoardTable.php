@@ -31,6 +31,10 @@ class PriceBoardTable
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('branch.name')
+                    ->label('Chi nhánh')
+                    ->placeholder('—'),
+
                 TextColumn::make('items_count')
                     ->label('Số phòng áp dụng')
                     ->counts('items')

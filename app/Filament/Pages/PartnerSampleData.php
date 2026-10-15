@@ -18,9 +18,10 @@ use Filament\Pages\Page;
 use Modules\Category\Entities\Category;
 use Throwable;
 
-// DỮ LIỆU MẪU — super_admin chọn đối tác + chi nhánh rồi sinh ngẫu nhiên khung giờ, bảng giá mẫu, tiện
-// ích, dịch vụ đi kèm và phòng theo khung giờ (App\Services\PartnerSampleDataGenerator). Chạy lại
-// nhiều lần không sinh trùng: mục nào đối tác đã có (cùng giờ / cùng tên) thì bỏ qua.
+// DỮ LIỆU MẪU — super_admin chọn đối tác + chi nhánh rồi sinh khung giờ, tiện ích, dịch vụ đi kèm,
+// phòng theo khung giờ và 1 bảng giá của chi nhánh (App\Services\PartnerSampleDataGenerator). Chạy lại
+// nhiều lần không sinh trùng: mục nào đối tác đã có (cùng giờ / cùng tên) thì bỏ qua. Không có nút xoá:
+// dữ liệu sinh ra là của đối tác, họ sửa tiếp rồi dùng thật.
 class PartnerSampleData extends Page implements HasForms
 {
     use InteractsWithForms;
@@ -50,8 +51,7 @@ class PartnerSampleData extends Page implements HasForms
     public function mount(): void
     {
         $this->form->fill([
-            'time_slots' => 4,
-            'templates'  => 2,
+            'time_slots' => null,
             'tags'       => 5,
             'services'   => 4,
             'rooms'      => 3,
@@ -102,11 +102,16 @@ class PartnerSampleData extends Page implements HasForms
                 ->description('Nhập 0 để bỏ qua loại đó. Mục đối tác đã có (trùng giờ hoặc trùng tên) sẽ được bỏ qua, nên số tạo ra có thể ít hơn.')
                 ->columns(3)
                 ->schema([
-                    $count('time_slots', 'Khung giờ riêng', 10, 'Giờ ngẫu nhiên, dài 2–3 tiếng. Từ 3 khung trở lên có 1 khung qua đêm.'),
-                    $count('templates', 'Bảng giá mẫu', 10, '3–5 khung giờ mỗi mẫu, giá ngẫu nhiên.'),
+                    Forms\Components\TextInput::make('time_slots')
+                        ->label('Số khung giờ mỗi phòng')
+                        ->numeric()
+                        ->integer()
+                        ->minValue(\App\Services\RoomSlotRandomizer::MIN_COUNT)
+                        ->maxValue(\App\Services\RoomSlotRandomizer::MAX_COUNT)
+                        ->helperText('Để trống = theo phòng sẵn có của chi nhánh (hoặc 5 khung). Khung giờ trải từ sáng đến tối + 1 khung qua đêm, cách nhau 15–30 phút.'),
                     $count('tags', 'Tiện ích', 18, 'Tiện ích riêng của đối tác.'),
                     $count('services', 'Dịch vụ đi kèm', 12, 'Gắn cho chi nhánh đã chọn.'),
-                    $count('rooms', 'Phòng theo khung giờ', 20, 'Gắn tiện ích, nhận dịch vụ của chi nhánh, áp 1 bảng giá mẫu.'),
+                    $count('rooms', 'Phòng theo khung giờ', 20, 'Gắn tiện ích, nhận dịch vụ của chi nhánh, khung giờ + giá theo 1 phòng sẵn có; các phòng được gom vào 1 bảng giá của chi nhánh.'),
                 ]),
         ]);
     }
@@ -129,12 +134,13 @@ class PartnerSampleData extends Page implements HasForms
         }
 
         $labels = [
-            'time_slots' => 'khung giờ',
-            'templates'  => 'bảng giá mẫu',
+            'time_slots' => 'khung giờ mới',
             'tags'       => 'tiện ích',
             'services'   => 'dịch vụ',
             'rooms'      => 'phòng',
         ];
+
+        $labels['price_boards'] = 'bảng giá';
 
         $body = collect($result['counts'])->map(fn ($n, $key) => "{$n} {$labels[$key]}")->implode(', ');
 
@@ -145,47 +151,6 @@ class PartnerSampleData extends Page implements HasForms
     {
         return [
             Action::make('generate')->label('Sinh dữ liệu mẫu')->icon('heroicon-o-sparkles')->submit('generate'),
-            // Xoá đúng dữ liệu mẫu đã sinh cho đối tác đang chọn (mọi lần sinh) — giữ lại mục đã có đơn
-            // hoặc đang được dữ liệu thật dùng. Chỉ cần chọn đối tác, không cần chi nhánh.
-            Action::make('purge')
-                ->label('Xoá dữ liệu mẫu')
-                ->icon('heroicon-o-trash')
-                ->color('danger')
-                ->disabled(fn () => blank($this->data['partner_id'] ?? null))
-                ->requiresConfirmation()
-                ->modalHeading('Xoá dữ liệu mẫu của đối tác?')
-                ->modalDescription('Xoá các phòng, bảng giá mẫu, khung giờ, tiện ích, dịch vụ đã sinh cho đối tác này. Mục đã có đơn hoặc đang được dữ liệu thật dùng sẽ được giữ lại.')
-                ->action(fn () => $this->purge()),
         ];
-    }
-
-    public function purge(): void
-    {
-        $partnerId = $this->data['partner_id'] ?? null;
-
-        if (blank($partnerId)) {
-            Notification::make()->title('Chọn đối tác trước')->warning()->send();
-
-            return;
-        }
-
-        $generator = app(PartnerSampleDataGenerator::class);
-
-        if (array_sum($generator->summary((string) $partnerId)) === 0) {
-            Notification::make()->title('Đối tác không có dữ liệu mẫu nào để xoá')->warning()->send();
-
-            return;
-        }
-
-        $result = $generator->purge((string) $partnerId);
-
-        $labels = ['time_slot' => 'khung giờ', 'price_template' => 'bảng giá mẫu', 'tag' => 'tiện ích', 'service' => 'dịch vụ', 'room' => 'phòng'];
-        $body   = 'Đã xoá: ' . collect($result['deleted'])->map(fn ($n, $key) => "{$n} {$labels[$key]}")->implode(', ') . '.';
-
-        if ($result['kept']) {
-            $body .= ' Giữ lại: ' . collect($result['kept'])->map(fn ($k) => "{$k['name']} ({$k['reason']})")->implode('; ');
-        }
-
-        Notification::make()->title('Đã xoá dữ liệu mẫu')->body($body)->success()->send();
     }
 }

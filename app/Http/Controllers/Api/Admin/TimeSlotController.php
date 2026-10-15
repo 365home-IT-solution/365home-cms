@@ -8,7 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Modules\Product\App\Models\PriceTemplateSlot;
+use App\Services\RoomSlotRandomizer;
+use Illuminate\Validation\Rule;
+use Modules\Product\App\Models\PriceBoardTimeSlot;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
 
@@ -159,6 +161,63 @@ class TimeSlotController extends Controller
     }
 
     /**
+     * POST /api/admin/time-slots/random — TẠO khung giờ ngẫu nhiên cho đối tác (bước đầu của luồng
+     * tạo bảng giá: random khung giờ TRƯỚC, rồi mới tạo bảng giá với các timeslot_id này).
+     *
+     * Body:
+     *  - random_count (nullable, 2–8, mặc định 5): số khung giờ, đã gồm 1 khung qua đêm.
+     *
+     * Bộ khung giờ trải 1 ngày từ sáng đến tối + 1 khung qua đêm:
+     *  - khung đầu bắt đầu 06:00–08:00, các khung ban ngày nối tiếp nhau, độ dài xấp xỉ nhau;
+     *  - 2 khung liền nhau cách 15–30 phút;
+     *  - khung qua đêm bắt đầu 21:00–23:00, kết thúc đúng giờ khung đầu tiên của hôm sau.
+     * Khung trùng giờ với khung đối tác đã dùng được (hệ thống hoặc riêng) thì dùng lại (is_new =
+     * false), chưa có thì tạo khung riêng của đối tác (is_new = true). suggested_price là giá gợi
+     * ý để FE điền sẵn khi tạo bảng giá (ban ngày 100.000–300.000đ, qua đêm 250.000–450.000đ).
+     *
+     * Bắt buộc có đối tác: tài khoản đối tác dùng đối tác của mình; super_admin gửi X-Partner-Id.
+     */
+    public function random(Request $request, RoomSlotRandomizer $randomizer): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        if ($user->seesAllPartners()) {
+            return response()->json(['message' => 'Chọn đối tác (header X-Partner-Id) để tạo khung giờ ngẫu nhiên cho đối tác đó.'], 422);
+        }
+
+        if (empty($user->partner_id)) {
+            return response()->json(['message' => 'Tài khoản chưa thuộc đối tác nào.'], 403);
+        }
+
+        $data = $request->validate([
+            'random_count' => ['nullable', 'integer', 'min:' . RoomSlotRandomizer::MIN_COUNT, 'max:' . RoomSlotRandomizer::MAX_COUNT],
+        ]);
+
+        $picked = $randomizer->pick((string) $user->partner_id, (int) ($data['random_count'] ?? RoomSlotRandomizer::DEFAULT_COUNT));
+        $slots  = TimeSlot::whereIn('id', array_column($picked['slots'], 'timeslot_id'))->get()->keyBy('id');
+
+        return response()->json([
+            'message' => $picked['created'] > 0
+                ? 'Đã tạo ' . $picked['created'] . ' khung giờ mới.'
+                : 'Các khung giờ đã có sẵn, dùng lại khung giờ cũ.',
+            'data'    => [
+                'random_count' => count($picked['slots']),
+                'created'      => $picked['created'],
+                'slots'        => array_map(fn (array $row) => [
+                    'id'              => $row['timeslot_id'],
+                    'label'           => $slots[$row['timeslot_id']]->label,
+                    'start_time'      => $slots[$row['timeslot_id']]->start_time,
+                    'end_time'        => $slots[$row['timeslot_id']]->end_time,
+                    'over_night'      => $row['over_night'],
+                    'is_new'          => $row['is_new'],
+                    'suggested_price' => $row['price'],
+                ], $picked['slots']),
+            ],
+        ], 201);
+    }
+
+    /**
      * PUT/PATCH /api/admin/time-slots/{id}
      * Sửa khung giờ — LƯU Ý: khung giờ này có thể đang được nhiều phòng dùng chung (qua
      * room_time_slots.timeslot_id), sửa ở đây ảnh hưởng giờ/nhãn hiển thị ở TẤT CẢ phòng đó. Field
@@ -215,8 +274,8 @@ class TimeSlotController extends Controller
             return response()->json(['message' => 'Không thể xoá — đang có phòng gán khung giờ này.'], 422);
         }
 
-        if (PriceTemplateSlot::where('timeslot_id', $id)->exists()) {
-            return response()->json(['message' => 'Không thể xoá — đang có bảng giá mẫu dùng khung giờ này.'], 422);
+        if (PriceBoardTimeSlot::where('timeslot_id', $id)->exists()) {
+            return response()->json(['message' => 'Không thể xoá — đang có bảng giá dùng khung giờ này.'], 422);
         }
 
         $slot->delete();

@@ -3,6 +3,7 @@
 namespace Modules\Product\App\Models;
 
 use App\Models\Concerns\LogsAuditTrail;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Promotion\App\Models\Promotion;
@@ -16,6 +17,8 @@ class PriceBoard extends Model
     public const MODE_ADJUSTMENT = 'adjustment';
 
     protected $fillable = [
+        'partner_id',
+        'category_id',
         'name',
         'note',
         'start_date',
@@ -34,6 +37,38 @@ class PriceBoard extends Model
         'is_active'        => 'boolean',
         'adjustment_value' => 'decimal:2',
     ];
+
+    /** Chi nhánh (category gốc) bảng giá này áp dụng; NULL ở bảng mặc định toàn hệ thống. */
+    public function branch()
+    {
+        return $this->belongsTo(\Modules\Category\Entities\Category::class, 'category_id')->withoutGlobalScopes();
+    }
+
+    /** Bảng giá đặt tên (không phải bảng mặc định) mà $user được thấy: super_admin chưa chọn đối tác
+     *  thấy hết, còn lại chỉ bảng của đối tác mình. */
+    public function scopeVisibleTo(Builder $query, \App\Models\User $user): Builder
+    {
+        $query->where('is_default', false);
+
+        return $user->seesAllPartners() ? $query : $query->where('partner_id', $user->partner_id);
+    }
+
+    /** Id chi nhánh + mọi khu vực con (phòng có thể gắn thẳng chi nhánh hoặc gắn khu vực con của nó). */
+    public static function branchCategoryIds(int $branchId): array
+    {
+        $ids   = [$branchId];
+        $level = [$branchId];
+
+        while ($level) {
+            $level = \Modules\Category\Entities\Category::withoutGlobalScopes()
+                ->whereIn('parent_id', $level)
+                ->pluck('id')
+                ->all();
+            $ids = array_merge($ids, $level);
+        }
+
+        return array_values(array_unique($ids));
+    }
 
     public function isAdjustment(): bool
     {

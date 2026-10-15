@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Book\App\Filament\Resources;
 
+use App\Models\User;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
@@ -46,7 +47,13 @@ class PriceBoardResource extends Resource
     {
         // Bảng mặc định (is_default=true) là dữ liệu nội bộ, đã có trang "Hệ thống giá" quản lý —
         // không hiển thị/cho sửa lẫn ở đây.
-        return parent::getEloquentQuery()->where('is_default', false);
+        // Đối tác chỉ thấy bảng giá của mình; super_admin (chưa chọn đối tác) thấy tất cả.
+        $query = parent::getEloquentQuery()->where('is_default', false);
+        $user  = auth()->user();
+
+        return $user instanceof User && ! $user->seesAllPartners()
+            ? $query->where('partner_id', $user->partner_id)
+            : $query;
     }
 
     // Mặc định CHỈ super_admin — cùng mức hạn chế với "Sửa giá hàng loạt" (xem

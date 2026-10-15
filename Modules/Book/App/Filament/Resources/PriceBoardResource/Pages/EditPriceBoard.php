@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Book\App\Filament\Resources\PriceBoardResource;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Concerns\SavesPriceBoardItems;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardForm;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardPriceLog;
 
@@ -103,6 +104,11 @@ class EditPriceBoard extends EditRecord
         } catch (\RuntimeException $e) {
             Notification::make()->title($e->getMessage())->danger()->send();
             throw new Halt();
+        }
+
+        // Đổi chi nhánh sang đối tác khác (super_admin) thì bảng cũng chuyển theo đối tác đó.
+        if (! empty($data['category_id'])) {
+            $data['partner_id'] = Category::withoutGlobalScopes()->whereKey($data['category_id'])->value('partner_id') ?? $record->partner_id;
         }
 
         DB::transaction(function () use ($record, $data, $isAdjustment, $items, $rawProductIds, $service) {

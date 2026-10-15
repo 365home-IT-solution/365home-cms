@@ -11,6 +11,7 @@ use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Modules\Book\App\Filament\Resources\PriceBoardResource;
+use Modules\Category\Entities\Category;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Concerns\SavesPriceBoardItems;
 use Modules\Product\App\Models\PriceBoard;
 
@@ -37,6 +38,10 @@ class CreatePriceBoard extends CreateRecord
             Notification::make()->title($e->getMessage())->danger()->send();
             throw new Halt();
         }
+
+        // Đối tác của bảng = đối tác của chi nhánh đã chọn.
+        $data['partner_id'] = Category::withoutGlobalScopes()->whereKey($data['category_id'] ?? null)->value('partner_id')
+            ?? auth()->user()?->partner_id;
 
         return DB::transaction(function () use ($data, $isAdjustment, $items, $rawProductIds, $service) {
             $board = PriceBoard::create($data);

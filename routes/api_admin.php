@@ -31,7 +31,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
 use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
-use App\Http\Controllers\Api\Admin\PriceTemplateController as AdminPriceTemplateController;
+use App\Http\Controllers\Api\Admin\PriceBoardController as AdminPriceBoardController;
 use App\Http\Controllers\Api\Admin\SampleDataController as AdminSampleDataController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
@@ -860,43 +860,43 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
 
 /*
 |--------------------------------------------------------------------------
-| Price Templates — BẢNG GIÁ MẪU (price_templates): bộ khung giờ + giá có sẵn để chọn rồi áp xuống
-| phòng. partner_id NULL = mẫu hệ thống; đối tác sửa mẫu hệ thống → tự tách bản riêng (response có
-| forked_from_id). KHÁC price_boards (bảng giá theo lịch, quản lý ở Filament). Xem
-| PriceTemplateController.
-| GET    /api/admin/price-templates            → ?scope=system|mine&search=&is_active=
-| GET    /api/admin/price-templates/{id}       → chi tiết (kèm slots[])
-| POST   /api/admin/price-templates            → tạo (name, note, is_active, sort_order, slots[])
-| PUT|PATCH /api/admin/price-templates/{id}    → sửa (slots gửi lên = thay toàn bộ)
-| DELETE /api/admin/price-templates/{id}       → xoá (chỉ mẫu riêng)
-| POST   /api/admin/price-templates/{id}/apply → áp xuống phòng (room_ids[], mode=replace|merge)
+| Price Boards — BẢNG GIÁ của đối tác (price_boards): mỗi bảng thuộc 1 đối tác + 1 chi nhánh, có thể
+| có khoảng ngày hiệu lực, ghi đè giá các phòng đã chọn rồi tự khôi phục khi hết hạn. Cùng logic với
+| trang Filament "Bảng giá" (PriceBoardSyncService). Super_admin gửi X-Partner-Id. Xem PriceBoardController.
+| GET    /api/admin/price-boards            → ?branch_id=&search=&is_active=&status=active|pending|expired|inactive
+| GET    /api/admin/price-boards/{id}       → chi tiết (kèm phòng + giá từng khung giờ)
+| POST   /api/admin/price-boards/random-slots → gợi ý khung giờ + giá ngẫu nhiên (xem trước, chưa lưu)
+| POST   /api/admin/price-boards            → tạo (name, branch_id, start_date, end_date, pricing_mode, items[]|product_ids[])
+| PUT|PATCH /api/admin/price-boards/{id}    → sửa (items/product_ids gửi lên = thay toàn bộ phòng của bảng)
+| DELETE /api/admin/price-boards/{id}       → xoá, phòng được tính lại giá
+| POST   /api/admin/price-boards/{id}/apply → áp ngay xuống phòng, bất kể ngày hiệu lực
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates')->name('api.admin.price-templates.')->group(function () {
-    Route::get('/', [AdminPriceTemplateController::class, 'index'])->name('index');
-    Route::post('/', [AdminPriceTemplateController::class, 'store'])->name('store');
-    Route::get('/{id}', [AdminPriceTemplateController::class, 'show'])->name('show')->whereNumber('id');
-    Route::put('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update')->whereNumber('id');
-    Route::patch('/{id}', [AdminPriceTemplateController::class, 'update'])->name('update.patch')->whereNumber('id');
-    Route::delete('/{id}', [AdminPriceTemplateController::class, 'destroy'])->name('destroy')->whereNumber('id');
-    Route::post('/{id}/apply', [AdminPriceTemplateController::class, 'apply'])->name('apply')->whereNumber('id');
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-boards')->name('api.admin.price-boards.')->group(function () {
+    Route::get('/', [AdminPriceBoardController::class, 'index'])->name('index');
+    Route::post('/', [AdminPriceBoardController::class, 'store'])->name('store');
+    // Đăng ký TRƯỚC '/{id}' — nhưng '{id}' đã whereNumber nên không nuốt 'random-slots'.
+    Route::post('/random-slots', [AdminPriceBoardController::class, 'randomSlots'])->name('random-slots');
+    Route::get('/{id}', [AdminPriceBoardController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [AdminPriceBoardController::class, 'update'])->name('update')->whereNumber('id');
+    Route::patch('/{id}', [AdminPriceBoardController::class, 'update'])->name('update.patch')->whereNumber('id');
+    Route::delete('/{id}', [AdminPriceBoardController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    Route::post('/{id}/apply', [AdminPriceBoardController::class, 'apply'])->name('apply')->whereNumber('id');
 });
 
 /*
 |--------------------------------------------------------------------------
-| Sample Data — "Tạo / Xoá dữ liệu mẫu" cho đối tác: tạo đồng bộ khung giờ, bảng giá mẫu, tiện ích,
-| dịch vụ của chi nhánh, phòng theo khung giờ đã có giá + điều kiện giảm giá (đặt được ngay); xoá đúng
-| những gì đã tạo, giữ lại mục đã có đơn / đang được dùng. Bắt buộc có đối tác + chi nhánh; super_admin
-| thao tác hộ thì gửi X-Partner-Id. Xem SampleDataController.
-| GET    /api/admin/sample-data → đủ điều kiện chưa, chi nhánh, số lượng mặc định, dữ liệu mẫu đang có
-| POST   /api/admin/sample-data → tạo (branch_id, time_slots, templates, tags, services, rooms)
-| DELETE /api/admin/sample-data → xoá dữ liệu mẫu đã tạo
+| Sample Data — "Tạo dữ liệu mẫu" cho đối tác: tạo đồng bộ tiện ích, dịch vụ của chi nhánh, phòng theo
+| khung giờ đã có giá + điều kiện giảm giá (đặt được ngay) và 1 bảng giá của chi nhánh. Không có xoá:
+| dữ liệu sinh ra là của đối tác, họ sửa/xoá từng mục như dữ liệu thật. Bắt buộc có đối tác + chi
+| nhánh; super_admin thao tác hộ thì gửi X-Partner-Id. Xem SampleDataController.
+| GET    /api/admin/sample-data → đủ điều kiện chưa, chi nhánh, số lượng mặc định, chi nhánh đã có phòng
+| POST   /api/admin/sample-data → tạo (branch_id, time_slots, tags, services, rooms)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/sample-data')->name('api.admin.sample-data.')->group(function () {
     Route::get('/', [AdminSampleDataController::class, 'show'])->name('show');
     Route::post('/', [AdminSampleDataController::class, 'store'])->name('store');
-    Route::delete('/', [AdminSampleDataController::class, 'destroy'])->name('destroy');
 });
 
 /*
