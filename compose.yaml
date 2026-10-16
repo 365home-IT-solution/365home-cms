@@ -20,6 +20,9 @@ services:
             - '${APP_PORT:-80}:80'
         volumes:
             - './storage:/var/www/html/storage'
+            # vietnam.pmtiles (~1.2GB) bị .gitignore — image build trên GitHub Actions không có file
+            # này, phải mount từ thư mục source trên VPS vào (MAP_PMTILES_URL=/maps/vietnam.pmtiles).
+            - './public/maps:/var/www/html/public/maps:ro'
         env_file: .env
         dns:
             - 8.8.8.8
