@@ -66,8 +66,14 @@ class ThemeCache
 
     public static function menuForRoutes(): Collection
     {
-        return self::remember(self::MENU_ROUTES_KEY, function () {
-            try {
+        // try/catch đặt NGOÀI remember() (không phải trong closure): trước đây closure tự nuốt lỗi
+        // DB rồi trả collect() — remember() coi đó là kết quả hợp lệ và lưu "menu rỗng" vào Redis
+        // (AOF, sống qua restart) 6 tiếng. Container khởi động lúc MariaDB chưa sẵn sàng (vd sau
+        // reboot VPS) là đủ để route:cache trong entrypoint đọc lại cache rỗng đó → không đăng ký
+        // route CMS cho '/' → rơi vào fallback home() (pages/home.blade.php, không có header).
+        // Giờ lỗi DB ném ra khỏi closure nên không có gì được cache, lần sau đọc lại DB.
+        try {
+            return self::remember(self::MENU_ROUTES_KEY, function () {
                 return Menu::query()
                     ->with([
                         'menuItems' => function ($query) {
@@ -84,10 +90,14 @@ class ThemeCache
                     ])
                     ->where('is_visible', true)
                     ->get();
-            } catch (Throwable $e) {
-                return collect();
-            }
-        });
+            });
+        } catch (Throwable $e) {
+            Log::warning('ThemeCache: menu query failed, routes built without CMS menu (not cached)', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return collect();
+        }
     }
 
     /**
