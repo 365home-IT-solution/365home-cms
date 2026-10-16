@@ -22,6 +22,15 @@ class PriceTemplateSlot extends Model
         'sort_order' => 'integer',
     ];
 
+    // Form/API không gửi over_night thì mặc định false (khung ban ngày) — cột không cho NULL.
+    protected static function booted(): void
+    {
+        static::creating(function (self $slot) {
+            $slot->over_night ??= false;
+            $slot->sort_order ??= 0;
+        });
+    }
+
     public function template()
     {
         return $this->belongsTo(PriceTemplate::class, 'price_template_id');

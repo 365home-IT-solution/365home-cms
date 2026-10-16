@@ -899,16 +899,29 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates'
 | PUT|PATCH /api/admin/price-boards/{id}    → sửa (items/product_ids gửi lên = thay toàn bộ phòng của bảng)
 | DELETE /api/admin/price-boards/{id}       → xoá, phòng được tính lại giá
 | POST   /api/admin/price-boards/{id}/apply → áp ngay xuống phòng, bất kể ngày hiệu lực
+| GET    /api/admin/price-boards/options?branch_id=&room_style= → bảng giá + bộ giá chọn khi tạo / sửa phòng
+|        (POST|PUT /api/admin/products kèm price_board_id [+ price_board_sheet_id])
+| v2: GET /{id}/rooms · POST /preview · POST /{id}/duplicate · GET /presets · GET /presets/{code} ·
+|     POST /presets/{code}/use — body v2 = scope (rooms|branches|partner) + sheets[]; priority / days_of_week
+|     chỉ khi config('price_boards.phase2'). Tài liệu: docs/api/API_BangGia_v2.docx
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-boards')->name('api.admin.price-boards.')->group(function () {
     Route::get('/', [AdminPriceBoardController::class, 'index'])->name('index');
     Route::post('/', [AdminPriceBoardController::class, 'store'])->name('store');
+    // Đăng ký TRƯỚC '/{id}' (đã whereNumber nên không nuốt các đường dẫn chữ này).
+    Route::post('/preview', [AdminPriceBoardController::class, 'preview'])->name('preview');
+    Route::get('/options', [AdminPriceBoardController::class, 'roomOptions'])->name('options');
+    Route::get('/presets', [AdminPriceBoardController::class, 'presets'])->name('presets');
+    Route::get('/presets/{code}', [AdminPriceBoardController::class, 'presetShow'])->name('presets.show');
+    Route::post('/presets/{code}/use', [AdminPriceBoardController::class, 'presetUse'])->name('presets.use');
     Route::get('/{id}', [AdminPriceBoardController::class, 'show'])->name('show')->whereNumber('id');
     Route::put('/{id}', [AdminPriceBoardController::class, 'update'])->name('update')->whereNumber('id');
     Route::patch('/{id}', [AdminPriceBoardController::class, 'update'])->name('update.patch')->whereNumber('id');
     Route::delete('/{id}', [AdminPriceBoardController::class, 'destroy'])->name('destroy')->whereNumber('id');
     Route::post('/{id}/apply', [AdminPriceBoardController::class, 'apply'])->name('apply')->whereNumber('id');
+    Route::get('/{id}/rooms', [AdminPriceBoardController::class, 'rooms'])->name('rooms')->whereNumber('id');
+    Route::post('/{id}/duplicate', [AdminPriceBoardController::class, 'duplicate'])->name('duplicate')->whereNumber('id');
 });
 
 /*

@@ -206,8 +206,8 @@ class PartnerForm
                             Forms\Components\TextInput::make('tax_code')
                                 ->label('Mã số thuế')
                                 ->maxLength(14)
-                                ->regex('/^\d{10}(-?\d{3})?$/')
-                                ->validationMessages(['regex' => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).']),
+                                ->regex('/^(\d{10}(-?\d{3})?|\d{12})$/')
+                                ->validationMessages(['regex' => 'Mã số thuế gồm 10 số (doanh nghiệp), 13 số (đơn vị phụ thuộc, vd 0312345678-001) hoặc 12 số (cá nhân / hộ kinh doanh dùng số CCCD).']),
 
                             Forms\Components\DatePicker::make('business_license_date')
                                 ->label('Ngày cấp GPKD')
@@ -614,10 +614,15 @@ class PartnerForm
                 Forms\Components\Grid::make(2)->schema([
                     Forms\Components\TextInput::make('contract_code')
                         ->label('Mã số hợp đồng')
-                        ->disabled()
-                        ->dehydrated(false)
-                        ->placeholder('Tự sinh khi tạo hợp đồng')
-                        ->helperText('Hệ thống tự cấp theo mẫu 001/2026/HĐHT-365 (số thứ tự/năm/HĐHT-365) khi tạo hợp đồng; không nhập tay.'),
+                        ->placeholder('Để trống = tự sinh khi tạo hợp đồng')
+                        ->disabled(fn (?Partner $record) => $record?->contract_status === 'active')
+                        ->dehydrateStateUsing(fn (?string $state) => \App\Services\ContractCodeService::normalize($state))
+                        ->rules([fn (?Partner $record) => function (string $attribute, $value, \Closure $fail) use ($record) {
+                            if ($error = \App\Services\ContractCodeService::inputError($value, $record)) {
+                                $fail($error);
+                            }
+                        }])
+                        ->helperText('Nhập số thứ tự (vd 010) hoặc đủ mã 010/2026/HĐHT-365. Để trống thì hệ thống tự cấp số kế tiếp khi tạo hợp đồng. Đổi mã xong cần "Tạo lại & gửi ký" để áp dụng vào hợp đồng.'),
 
                     Forms\Components\Select::make('contract_type')
                         ->label('Hình thức hợp đồng')
@@ -635,6 +640,7 @@ class PartnerForm
                         ->label('Ngày hết hạn')
                         ->native(false)
                         ->displayFormat('d/m/Y')
+                        ->helperText('Không bắt buộc — để trống thì hợp đồng có thời hạn 12 tháng kể từ ngày ký (Điều 7) và ngày hết hạn tự tính khi hợp đồng có hiệu lực.')
                         ->afterOrEqual('contract_signed_at')
                         ->validationMessages(['after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày ký kết.']),
                 ]),

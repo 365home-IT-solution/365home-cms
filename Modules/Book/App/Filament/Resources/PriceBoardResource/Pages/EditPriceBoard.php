@@ -4,31 +4,28 @@ declare(strict_types=1);
 
 namespace Modules\Book\App\Filament\Resources\PriceBoardResource\Pages;
 
+use App\Models\User;
 use App\Services\PriceBoardSyncService;
+use App\Services\PriceBoards\PriceBoardV2Service;
+use App\Services\RoomSlotRandomizer;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Book\App\Filament\Resources\PriceBoardResource;
-use Modules\Book\App\Filament\Resources\PriceBoardResource\Concerns\SavesPriceBoardItems;
-use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardForm;
-use Modules\Category\Entities\Category;
+use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardPriceLog;
 
 class EditPriceBoard extends EditRecord
 {
-    use SavesPriceBoardItems;
-
     protected static string $resource = PriceBoardResource::class;
 
     protected function getHeaderActions(): array
     {
-        // Dùng biến ngoài, chia sẻ giữa before()/after() của DeleteAction bên dưới — before() phải
-        // chụp lại danh sách phòng gắn với bảng TRƯỚC khi xoá (xoá xong là mất, cascade theo
-        // PriceBoardItem), after() mới dùng lại để tính lại giá đúng cho từng phòng đó.
+        // Chụp danh sách phòng TRƯỚC khi xoá (cascade mất item), tính lại giá SAU khi xoá.
         $affectedProducts = collect();
 
         return [
@@ -51,16 +48,30 @@ class EditPriceBoard extends EditRecord
                 ->icon('heroicon-o-bolt')
                 ->color('warning')
                 ->requiresConfirmation()
-                ->modalDescription('Áp ngay giá của bảng này xuống các phòng đã chọn, bất kể ngày hiệu lực.')
+                ->modalDescription('Áp ngay giá của bảng này xuống các phòng, bất kể ngày hiệu lực. Job đêm sẽ tính lại theo ngày hiệu lực.')
+                ->visible(fn () => ! $this->record->is_template)
                 ->action(function () {
                     app(PriceBoardSyncService::class)->applyBoard($this->record);
 
                     Notification::make()->title('Đã áp dụng bảng giá')->success()->send();
                 }),
-            // Tính lại giá ĐÚNG cho mọi phòng trong bảng SAU khi xoá (yêu cầu người dùng — trước đây
-            // cố ý không khôi phục, nay đổi lại). Gọi lại đúng logic "bảng nào thắng" tiêu chuẩn thay
-            // vì tự ý ghi thẳng baseline của bảng vừa xoá — tránh ghi đè nhầm lên giá của 1 bảng KHÁC
-            // đang thật sự active cho cùng phòng đó.
+            Actions\Action::make('duplicate')
+                ->label('Nhân bản')
+                ->icon('heroicon-o-document-duplicate')
+                ->color('gray')
+                ->visible(fn () => ! $this->record->is_template)
+                ->action(function () {
+                    $service = app(PriceBoardV2Service::class);
+                    $clone   = $service->cloneBoard($this->record, (string) $this->record->partner_id, [
+                        'name' => $this->record->name . ' (bản sao)', 'is_active' => false,
+                    ]);
+
+                    $copy = $service->persist($clone['spec'], null);
+
+                    Notification::make()->title('Đã nhân bản bảng giá')->success()->send();
+
+                    $this->redirect(PriceBoardResource::getUrl('edit', ['record' => $copy]));
+                }),
             Actions\DeleteAction::make()
                 ->before(function () use (&$affectedProducts) {
                     $affectedProducts = app(PriceBoardSyncService::class)->productsAffectedByBoard($this->record);
@@ -75,49 +86,64 @@ class EditPriceBoard extends EditRecord
     {
         /** @var PriceBoard $record */
         $record = $this->record;
+        $spec   = app(PriceBoardV2Service::class)->specFromBoard($record);
 
-        if ($record->isAdjustment()) {
-            $data['product_ids'] = $record->items()->pluck('product_id')->toArray();
+        // Bảng dựng sẵn lưu khung giờ theo GIỜ → dò lại id khung hệ thống để hiện trong form.
+        if ($record->is_template) {
+            $slots = app(RoomSlotRandomizer::class);
 
-            return $data;
+            foreach ($record->sheets as $i => $sheet) {
+                $spec['sheets'][$i]['time_slots'] = collect((array) $sheet->slot_times)->map(function (array $t) use ($slots) {
+                    $found = $slots->findSlot(null, $t['start'], $t['end'], (bool) ($t['over_night'] ?? false));
+
+                    return $found ? ['timeslot_id' => $found->id, 'price' => (int) $t['price'], 'over_night' => (bool) ($t['over_night'] ?? false)] : null;
+                })->filter()->values()->all();
+            }
         }
 
-        $data['items'] = PriceBoardForm::buildItemsFromBoard($record);
-        $data['_room_checklist'] = collect($data['items'])->pluck('product_id')->toArray();
-
-        return $data;
+        return array_merge($data, PriceBoardSheetsForm::toFormData($spec, $record));
     }
 
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
-        $isAdjustment  = ($data['pricing_mode'] ?? PriceBoard::MODE_OVERRIDE) === PriceBoard::MODE_ADJUSTMENT;
-        $items         = $data['items'] ?? [];
-        $rawProductIds = $data['product_ids'] ?? [];
-        $productIds    = $isAdjustment ? collect($rawProductIds) : collect($items)->pluck('product_id');
-
-        unset($data['items'], $data['product_ids']);
-
-        $service = app(PriceBoardSyncService::class);
+        /** @var User $user */
+        $user    = auth()->user();
+        $service = app(PriceBoardV2Service::class);
 
         try {
-            $service->assertNoOverlap($record, $productIds->filter());
-        } catch (\RuntimeException $e) {
-            Notification::make()->title($e->getMessage())->danger()->send();
-            throw new Halt();
+            $spec = $service->specFromRequest(PriceBoardSheetsForm::toRequest($data), (string) ($record->partner_id ?? ''), $user, $record);
+        } catch (ValidationException $e) {
+            $this->fail((string) (collect($e->errors())->flatten()->first() ?? 'Dữ liệu không hợp lệ.'));
         }
 
-        // Đổi chi nhánh sang đối tác khác (super_admin) thì bảng cũng chuyển theo đối tác đó.
-        if (! empty($data['category_id'])) {
-            $data['partner_id'] = Category::withoutGlobalScopes()->whereKey($data['category_id'])->value('partner_id') ?? $record->partner_id;
+        if ($record->is_template) {
+            return $service->persistTemplate($spec, [
+                'code'           => $data['code'] ?? $record->code,
+                'description'    => $data['description'] ?? $record->description,
+                'default_scope'  => $data['default_scope'] ?? $record->default_scope,
+                'requires_dates' => (bool) ($data['requires_dates'] ?? $record->requires_dates),
+                'tags'           => $record->tags,
+            ], $record);
         }
 
-        DB::transaction(function () use ($record, $data, $isAdjustment, $items, $rawProductIds, $service) {
-            $record->update($data);
-            $this->savePriceBoardItems($record, $isAdjustment ? ['product_ids' => $rawProductIds] : ['items' => $items]);
+        $eval = $service->evaluate($spec, $record);
 
-            $service->resyncBoardProducts($record);
-        });
+        if ($eval['errors']) {
+            $this->fail((string) collect($eval['errors'])->flatten()->first());
+        }
 
-        return $record;
+        if ($eval['conflicts']) {
+            $first = $eval['conflicts'][0];
+            $this->fail('Có phòng đang nằm trong bảng "' . $first['board']['name'] . '" đang bật và trùng ngày — tắt bảng kia hoặc đổi khoảng ngày.');
+        }
+
+        return $service->persist($spec, $record);
+    }
+
+    private function fail(string $message): never
+    {
+        Notification::make()->title('Không lưu được bảng giá')->body($message)->danger()->send();
+
+        throw new Halt();
     }
 }

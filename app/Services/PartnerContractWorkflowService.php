@@ -42,8 +42,10 @@ class PartnerContractWorkflowService
             }
         }
 
+        // Ngày hết hạn KHÔNG bắt buộc: để trống thì thời hạn là config contract.default_term_months (12 tháng) kể từ ngày ký (Điều 7) và
+        // ngày hết hạn được tính khi hợp đồng có hiệu lực. Chỉ kiểm tra khi có nhập.
         if (blank($partner->contract_expires_at)) {
-            $missing['contract_expires_at'] = 'Chưa nhập ngày hết hạn hợp đồng.';
+            // không lỗi
         } elseif ($partner->contract_expires_at->lte(today())) {
             $missing['contract_expires_at'] = 'Ngày hết hạn hợp đồng phải sau hôm nay.';
         } elseif ($partner->contract_signed_at && $partner->contract_expires_at->lt($partner->contract_signed_at)) {
@@ -379,8 +381,11 @@ class PartnerContractWorkflowService
         // Điều 7 + 15 (mẫu Homestay): thời hạn N tháng tính từ ngày Hợp đồng có hiệu lực = ngày Bên A ký. Hợp đồng ĐẦU TIÊN của đối tác:
         // tính lại ngày hết hạn = ngày ký này + đúng số tháng đã in trong bản đối tác ký (số tháng suy từ ngày hết hạn lúc tạo bản),
         // để đối tác ký sớm, Bên A ký trễ thì thời hạn thực tế vẫn đủ N tháng. Bản tạo lại cho hợp đồng đã từng có hiệu lực thì giữ nguyên.
-        if (! $version->isAddendum() && ! $partner->isMinihouse() && $isFirstContract && $partner->contract_expires_at && $version->created_at) {
-            $months = PartnerContractRenderer::termMonths($partner->contract_expires_at, $version->created_at);
+        if (! $version->isAddendum() && ! $partner->isMinihouse() && $isFirstContract) {
+            // Chưa nhập ngày hết hạn → thời hạn mặc định (12 tháng) kể từ ngày ký.
+            $months = $partner->contract_expires_at && $version->created_at
+                ? PartnerContractRenderer::termMonths($partner->contract_expires_at, $version->created_at)
+                : max(1, (int) config('contract.default_term_months', 12));
             $attributes['contract_expires_at'] = $signingTime->copy()->startOfDay()->addMonths($months);
         }
         if ($attributes !== []) {

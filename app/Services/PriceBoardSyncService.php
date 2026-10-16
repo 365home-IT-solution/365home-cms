@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardItem;
 use Modules\Product\App\Models\PriceBoardPriceLog;
@@ -138,6 +139,54 @@ class PriceBoardSyncService
             $item->timeSlots()->delete();
             $item->delete();
         });
+    }
+
+    /**
+     * Ghi (hoặc cập nhật) item của $product trong $board từ 1 bộ giá — dùng khi "sinh item" của v2.
+     * $fields là các cột giá chung (price, full_booking_discount, bulk_discount_rules, room_config,
+     * deposit_*, default_checkin/out), $slots là danh sách { timeslot_id, price, over_night, status }
+     * (rỗng với bộ adjustment / phòng theo ngày). Chụp giá gốc 1 lần như saveOverrideItems().
+     *
+     * @param list<array{timeslot_id:int,price:int,over_night:bool,status:string}> $slots
+     */
+    public function upsertItem(PriceBoard $board, Product $product, array $fields, array $slots, ?int $sheetId): PriceBoardItem
+    {
+        $item = PriceBoardItem::updateOrCreate(
+            ['price_board_id' => $board->id, 'product_id' => $product->id],
+            $fields + ['sheet_id' => $sheetId]
+        );
+
+        if (! $board->is_default && ! $board->is_template) {
+            $this->captureBaselineIfMissing($item, $product);
+        }
+
+        $item->timeSlots()->delete();
+
+        foreach ($slots as $slot) {
+            PriceBoardTimeSlot::create([
+                'price_board_item_id' => $item->id,
+                'timeslot_id'         => $slot['timeslot_id'],
+                'price'               => $slot['price'],
+                'over_night'          => $slot['over_night'] ?? false,
+                'status'              => $slot['status'] ?? 'available',
+            ]);
+        }
+
+        return $item;
+    }
+
+    /** Xoá các item của $board có id KHÔNG nằm trong $keepItemIds; trả về product_id đã bị gỡ. */
+    public function pruneItems(PriceBoard $board, array $keepItemIds): array
+    {
+        $removed = [];
+
+        $board->items()->whereNotIn('id', $keepItemIds ?: [0])->get()->each(function (PriceBoardItem $item) use (&$removed) {
+            $removed[] = $item->product_id;
+            $item->timeSlots()->delete();
+            $item->delete();
+        });
+
+        return $removed;
     }
 
     /** Chụp "giá gốc" của $product vào ĐÚNG $item (bảng đặt tên) — CHỈ chụp 1 LẦN DUY NHẤT lúc item
@@ -308,6 +357,38 @@ class PriceBoardSyncService
         $this->logPriceChange($this->defaultBoard()->id, $fresh, $before, $this->snapshotPricing($fresh));
     }
 
+    /**
+     * Item THẮNG của phòng vào ngày $date trong các bảng đang bật (không phải mặc định / mẫu).
+     *  - Giai đoạn 1: bảng có start_date mới hơn thắng, rồi id lớn hơn (luật v1).
+     *  - Giai đoạn 2: priority cao hơn thắng; bằng nhau thì phạm vi hẹp hơn (rooms > branches > partner);
+     *    vẫn bằng thì start_date mới hơn, rồi id lớn hơn. Bảng phải đúng thứ (days_of_week).
+     */
+    public function winningItem(string $productId, Carbon $date): ?PriceBoardItem
+    {
+        $date  = $date->copy()->startOfDay();
+        $phase = PriceBoard::phase2Enabled();
+
+        return PriceBoardItem::where('product_id', $productId)
+            ->whereHas('priceBoard', function ($q) use ($date) {
+                $q->where('is_active', true)
+                    ->where('is_default', false)
+                    ->where('is_template', false)
+                    ->where(fn ($q2) => $q2->whereNull('start_date')->orWhereDate('start_date', '<=', $date))
+                    ->where(fn ($q2) => $q2->whereNull('end_date')->orWhereDate('end_date', '>=', $date));
+            })
+            ->with(['timeSlots', 'priceBoard', 'sheet'])
+            ->get()
+            ->filter(fn (PriceBoardItem $i) => $i->priceBoard && (! $phase || $i->priceBoard->coversWeekday($date)))
+            ->sortByDesc(fn (PriceBoardItem $i) => sprintf(
+                '%03d-%d-%s-%010d',
+                $phase ? (int) $i->priceBoard->priority : 0,
+                $phase ? $i->priceBoard->scopeRank() : 0,
+                $i->priceBoard->start_date ? Carbon::parse($i->priceBoard->start_date)->format('Y-m-d') : '9999-12-31',
+                $i->priceBoard->id
+            ))
+            ->first();
+    }
+
     /** Áp giá đang hiệu lực cho $product tại $date (mặc định hôm nay): tìm bảng đặt tên (không phải
      *  mặc định) đang active và có khoảng ngày phủ $date; nếu không có, khôi phục về bảng mặc định. */
     public function applyForProduct(Product $product, ?Carbon $date = null): void
@@ -318,21 +399,7 @@ class PriceBoardSyncService
         // hoạt, nhưng vẫn lấy hết các item khớp (không ->first() ngay trên query) rồi tự chọn 1 bảng
         // theo tiêu chí ổn định — phòng khi có sai sót lọt qua (dữ liệu cũ, sửa tay DB...) thì kết quả
         // "bảng nào thắng" luôn nhất quán giữa các lần chạy, không phụ thuộc thứ tự ngẫu nhiên của DB.
-        $item = PriceBoardItem::where('product_id', $product->id)
-            ->whereHas('priceBoard', function ($q) use ($date) {
-                $q->where('is_active', true)
-                    ->where('is_default', false)
-                    ->where(fn ($q2) => $q2->whereNull('start_date')->orWhereDate('start_date', '<=', $date))
-                    ->where(fn ($q2) => $q2->whereNull('end_date')->orWhereDate('end_date', '>=', $date));
-            })
-            ->with(['timeSlots', 'priceBoard'])
-            ->get()
-            ->sortByDesc(fn (PriceBoardItem $i) => sprintf(
-                '%s-%010d',
-                $i->priceBoard?->start_date ? Carbon::parse($i->priceBoard->start_date)->format('Y-m-d') : '9999-12-31',
-                $i->priceBoard?->id ?? 0
-            ))
-            ->first();
+        $item = $this->winningItem((string) $product->id, $date);
 
         if (! $item) {
             // Không còn bảng đặt tên nào đang active — ưu tiên khôi phục về giá gốc đã ĐÓNG BĂNG
@@ -378,6 +445,30 @@ class PriceBoardSyncService
         }
     }
 
+    /**
+     * Như applyBoard() nhưng chỉ các phòng trong $productIds (null = mọi phòng của bảng).
+     *
+     * @param list<string>|null $productIds
+     * @return list<string> product_id đã áp
+     */
+    public function applyBoardTo(PriceBoard $board, ?array $productIds = null): array
+    {
+        $applied = [];
+
+        $board->items()
+            ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds ?: ['-']))
+            ->with(['timeSlots', 'product', 'sheet'])
+            ->get()
+            ->each(function (PriceBoardItem $item) use (&$applied) {
+                if ($item->product) {
+                    $this->writeItemToProduct($item, $item->product);
+                    $applied[] = (string) $item->product_id;
+                }
+            });
+
+        return $applied;
+    }
+
     /** Lấy danh sách phòng gắn với $board — gọi TRƯỚC khi DeleteAction thực sự xoá bản ghi (xem
      *  PriceBoardResource), vì xoá PriceBoard sẽ cascade xoá luôn PriceBoardItem, không còn cách nào
      *  biết bảng này từng gắn phòng nào nữa SAU khi đã xoá. */
@@ -412,36 +503,108 @@ class PriceBoardSyncService
         }
     }
 
-    /** Chặn lưu nếu khoảng ngày hiệu lực của $board trùng với 1 bảng active khác (không phải mặc
-     *  định) đã áp cho cùng ít nhất 1 phòng — tránh phải xử lý ưu tiên khi 2 bảng cùng khớp 1 ngày. */
     public function assertNoOverlap(PriceBoard $board, ?\Illuminate\Support\Collection $productIds = null): void
     {
-        if ($board->is_default) {
+        $conflicts = $this->overlapConflicts($board, $productIds);
+
+        if (! $conflicts) {
             return;
+        }
+
+        $first = $conflicts[0];
+        $count = collect($conflicts)->pluck('product_ids')->flatten()->unique()->count();
+
+        throw new PriceBoardConflictException(
+            "{$count} phòng đang nằm trong bảng \"{$first['board']->name}\" đang bật và trùng ngày.",
+            array_map(fn (array $c) => [
+                'board'       => ['id' => $c['board']->id, 'name' => $c['board']->name, 'priority' => 0],
+                'product_ids' => array_values($c['product_ids']),
+            ], $conflicts)
+        );
+    }
+
+    /**
+     * Các bảng ĐANG BẬT khác (không phải bảng mặc định/mẫu) trùng khoảng ngày với $board cho ít nhất 1
+     * phòng trong $productIds. Mỗi phần tử: ['board' => PriceBoard, 'product_ids' => [...]].
+     *
+     * @return list<array{board: PriceBoard, product_ids: list<string>}>
+     */
+    public function overlapConflicts(PriceBoard $board, ?\Illuminate\Support\Collection $productIds = null): array
+    {
+        if ($board->is_default || $board->is_template) {
+            return [];
         }
 
         $productIds = $productIds ?? $board->items()->pluck('product_id');
         if ($productIds->isEmpty()) {
-            return;
+            return [];
         }
 
-        $othersQuery = PriceBoard::where('is_default', false)->where('is_active', true);
-
-        if ($board->exists) {
-            $othersQuery->where('id', '!=', $board->id);
-        }
-
-        $others = $othersQuery
+        $others = PriceBoard::where('is_default', false)
+            ->where('is_template', false)
+            ->where('is_active', true)
+            ->when($board->exists, fn ($q) => $q->where('id', '!=', $board->id))
             ->whereHas('items', fn ($q) => $q->whereIn('product_id', $productIds))
             ->get();
 
+        $conflicts = [];
+
         foreach ($others as $other) {
-            if ($this->rangesOverlap($board, $other)) {
-                throw new \RuntimeException(
-                    "Khoảng ngày hiệu lực trùng với bảng giá \"{$other->name}\" cho ít nhất 1 phòng đã chọn."
-                );
+            if (! $this->rangesOverlap($board, $other)) {
+                continue;
             }
+
+            // Giai đoạn 2: bảng ưu tiên cao hơn thắng nên chỉ chặn khi NGANG HÀNG (cùng priority + cùng
+            // phạm vi) — không có luật phân xử nào khác, để không bao giờ có 2 bảng ngang nhau mà không
+            // biết bảng nào thắng.
+            if (PriceBoard::phase2Enabled()
+                && ((int) $board->priority !== (int) $other->priority || $board->scopeRank() !== $other->scopeRank())) {
+                continue;
+            }
+
+            $shared = $other->items()->whereIn('product_id', $productIds)->pluck('product_id')->all();
+
+            $conflicts[] = ['board' => $other, 'product_ids' => $shared];
         }
+
+        return $conflicts;
+    }
+
+    /** Nhãn các khung giờ của $product đang có đơn CHƯA TỚI NGÀY (đã trả tiền / đang giữ chỗ, chưa huỷ).
+     *  order_items không lưu timeslot_id nên so theo nhãn khung (slot_label). */
+    public function futureOrderLabels(Product $product): array
+    {
+        return DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('order_items.product_id', $product->id)
+            ->whereNotNull('order_items.slot_label')
+            ->where('order_items.checkin_datetime', '>=', now())
+            ->whereIn('orders.status', ['paid', 'pending'])
+            ->distinct()
+            ->pluck('order_items.slot_label')
+            ->map(fn ($l) => (string) $l)
+            ->all();
+    }
+
+    /** Số đơn tương lai nằm trên các khung của phòng sẽ bị gỡ, theo từng khung — dùng cho slot_conflicts. */
+    public function futureOrdersByLabel(Product $product, array $labels): array
+    {
+        if (! $labels) {
+            return [];
+        }
+
+        return DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('order_items.product_id', $product->id)
+            ->whereIn('order_items.slot_label', $labels)
+            ->where('order_items.checkin_datetime', '>=', now())
+            ->whereIn('orders.status', ['paid', 'pending'])
+            ->select('order_items.slot_label as label')
+            ->selectRaw('count(*) as n, max(' . DB::getTablePrefix() . 'order_items.checkin_date) as last_date')
+            ->groupBy('order_items.slot_label')
+            ->get()
+            ->mapWithKeys(fn ($r) => [(string) $r->label => ['orders' => (int) $r->n, 'last_date' => (string) $r->last_date]])
+            ->all();
     }
 
     /** "Khung giờ tái sử dụng" (type='time') KHÁC "ngày đặc biệt" (type='date') — dữ liệu cũ trước
@@ -459,7 +622,21 @@ class PriceBoardSyncService
         $bStart = $b->start_date ? Carbon::parse($b->start_date) : Carbon::minValue();
         $bEnd   = $b->end_date ? Carbon::parse($b->end_date) : Carbon::maxValue();
 
-        return $aStart->lte($bEnd) && $bStart->lte($aEnd);
+        if (! ($aStart->lte($bEnd) && $bStart->lte($aEnd))) {
+            return false;
+        }
+
+        // Giai đoạn 2: hai bảng chỉ "trùng" khi có ít nhất 1 thứ chung (rỗng = mọi thứ).
+        if (PriceBoard::phase2Enabled()) {
+            $aDays = array_map('intval', (array) $a->days_of_week);
+            $bDays = array_map('intval', (array) $b->days_of_week);
+
+            if ($aDays && $bDays && ! array_intersect($aDays, $bDays)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function writeItemToProduct(PriceBoardItem $item, Product $product): void
@@ -513,8 +690,13 @@ class PriceBoardSyncService
 
             // Khung giờ nào KHÔNG còn nằm trong bảng mới mới thật sự bị xoá (gỡ khuyến mãi/mã giảm
             // giá trước khi xoá, vì bản ghi không còn tồn tại thì pivot trỏ vào id đó vô nghĩa).
+            // Khung còn đơn chưa tới ngày thì GIỮ LẠI (đơn vẫn hợp lệ, lễ tân vẫn thấy); hết đơn thì lần
+            // đồng bộ sau mới gỡ. Xem futureOrderLabels().
+            $heldLabels = $this->futureOrderLabels($product);
+
             $existingSlots
                 ->reject(fn (RoomTimeSlot $slot) => in_array((string) $slot->timeslot_id, $targetTimeslotIds, true))
+                ->reject(fn (RoomTimeSlot $slot) => in_array((string) ($slot->timeSlot?->label ?? ''), $heldLabels, true))
                 ->each(function (RoomTimeSlot $slot) {
                     $slot->promotions()->detach();
                     $slot->coupons()->detach();
@@ -607,13 +789,27 @@ class PriceBoardSyncService
     }
 
     /** 'override': dùng thẳng giá đã nhập trong $item. 'adjustment': lấy giá GỐC từ item của bảng
-     *  mặc định (luôn là ảnh chụp mới nhất từ SettingBook) rồi cộng/trừ % hoặc số tiền của $board —
-     *  không cần nhập lại giá từng phòng, tự tính lại mỗi lần áp dựa trên giá gốc hiện tại. */
+     *  mặc định (luôn là ảnh chụp mới nhất từ SettingBook) rồi cộng/trừ % hoặc số tiền — không cần nhập
+     *  lại giá từng phòng. Kiểu + mức điều chỉnh lấy ở BỘ GIÁ của item (v2); item cũ chưa có bộ giá thì
+     *  lấy ở cấp bảng (v1). adjustment_timeslot_ids (nếu có) giới hạn chỉ chỉnh các khung đó. */
     private function resolveEffectivePayload(PriceBoardItem $item, Product $product): array
     {
         $board = $item->priceBoard ?? $item->priceBoard()->first();
+        $sheet = $item->sheet_id ? ($item->sheet ?? $item->sheet()->first()) : null;
 
-        if (! $board || ! $board->isAdjustment()) {
+        if ($sheet) {
+            $isAdjustment = $sheet->isAdjustment();
+            $type         = $sheet->adjustment_type;
+            $value        = (float) $sheet->adjustment_value;
+            $onlySlots    = collect((array) $sheet->adjustment_timeslot_ids)->map(fn ($v) => (int) $v)->all();
+        } else {
+            $isAdjustment = $board && $board->isAdjustment();
+            $type         = $board?->adjustment_type;
+            $value        = (float) ($board?->adjustment_value ?? 0);
+            $onlySlots    = [];
+        }
+
+        if (! $isAdjustment) {
             return [
                 'fields'    => $this->itemToProductFields($item),
                 'timeSlots' => $item->timeSlots,
@@ -632,12 +828,19 @@ class PriceBoardSyncService
             ];
         }
 
-        $fields          = $this->itemToProductFields($baseline);
-        $fields['price'] = $this->applyAdjustment($fields['price'], $board);
+        $fields = $this->itemToProductFields($baseline);
 
-        $timeSlots = $baseline->timeSlots->map(function (PriceBoardTimeSlot $slot) use ($board) {
-            $adjusted        = clone $slot;
-            $adjusted->price = $this->applyAdjustment($slot->price, $board);
+        // Phòng theo ngày: chỉnh giá/đêm. Phòng theo giờ: chỉnh giá từng khung (price bảng mặc định null).
+        if ((int) ($product->styles ?? 1) === 2) {
+            $fields['price'] = $this->applyAdjustment($fields['price'], $type, $value);
+        }
+
+        $timeSlots = $baseline->timeSlots->map(function (PriceBoardTimeSlot $slot) use ($type, $value, $onlySlots) {
+            $adjusted = clone $slot;
+
+            if (! $onlySlots || in_array((int) $slot->timeslot_id, $onlySlots, true)) {
+                $adjusted->price = $this->applyAdjustment($slot->price, $type, $value);
+            }
 
             return $adjusted;
         });
@@ -645,19 +848,18 @@ class PriceBoardSyncService
         return ['fields' => $fields, 'timeSlots' => $timeSlots];
     }
 
-    private function applyAdjustment(mixed $basePrice, PriceBoard $board): ?int
+    /** Điều chỉnh giá, làm tròn 1.000đ sau khi tính và không bao giờ âm (âm → 0). */
+    public function applyAdjustment(mixed $basePrice, ?string $type, float $value): ?int
     {
         if ($basePrice === null) {
             return null;
         }
 
-        $value = (float) $board->adjustment_value;
+        $price = $type === 'fixed'
+            ? (float) $basePrice + $value
+            : (float) $basePrice * (1 + $value / 100);
 
-        if ($board->adjustment_type === 'fixed') {
-            return (int) round((float) $basePrice + $value);
-        }
-
-        return (int) round((float) $basePrice * (1 + $value / 100));
+        return max(0, (int) (round($price / 1000) * 1000));
     }
 
     private function extractProductFields(Product $product): array

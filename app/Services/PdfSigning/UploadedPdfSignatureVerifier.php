@@ -147,7 +147,7 @@ class UploadedPdfSignatureVerifier
             'serial' => $parsed['serialNumberHex'] ?? null,
             'valid_from' => $validFrom ? date('c', $validFrom) : null,
             'valid_to' => $validTo ? date('c', $validTo) : null,
-            'tax_code' => preg_match('/(?:MST|TAXCODE|TAX\s*CODE)\s*[:\-]?\s*([0-9]{10}(?:-[0-9]{3})?)/i', $flat, $m) ? $m[1] : null,
+            'tax_code' => preg_match('/(?:MST|TAXCODE|TAX\s*CODE)\s*[:\-]?\s*([0-9]{13}|[0-9]{12}|[0-9]{10}(?:-[0-9]{3})?)(?![0-9])/i', $flat, $m) ? $m[1] : null,
             'citizen_id' => preg_match('/(?:CCCD|CMND|CMT|CITIZEN\s*ID)\s*[:\-]?\s*([0-9]{9,12})/i', $flat, $m) ? $m[1] : null,
             'self_signed' => ($parsed['subject'] ?? null) === ($parsed['issuer'] ?? 1),
             // Thời gian ký: thuộc tính signingTime trong chữ ký; nhiều công cụ (SmartCA...) không ghi thuộc tính này nên lấy từ trường /M của từ điển chữ ký trong PDF.

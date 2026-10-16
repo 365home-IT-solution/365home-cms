@@ -48,6 +48,9 @@ class PartnerController extends Controller
         if ($plan && ($plan->partner_type !== $this->partnerType($request) || ! $plan->is_active)) {
             throw \Illuminate\Validation\ValidationException::withMessages(['plan_id' => 'Gói không áp dụng cho loại đối tác này.']);
         }
+        if (array_key_exists('contract_code', $data)) {
+            $data['contract_code'] = \App\Services\ContractCodeService::normalize($data['contract_code']);
+        }
         $partner = Partner::create([...$data, 'partner_type' => $this->partnerType($request), 'name' => $data['legal_name'], 'created_by' => $request->user()->id, 'verification_status' => 'pending', 'contract_status' => 'draft', 'status' => true]);
         PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => 'pending', 'note' => 'Hồ sơ đối tác được tạo qua API.', 'changed_by' => $request->user()->id]);
         if ($plan) {
@@ -71,6 +74,9 @@ class PartnerController extends Controller
         $data = $request->validate($this->rules(true, $partner), $this->messages());
         if (isset($data['legal_name'])) {
             $data['name'] = $data['legal_name'];
+        }
+        if (array_key_exists('contract_code', $data)) {
+            $data['contract_code'] = \App\Services\ContractCodeService::normalize($data['contract_code']);
         }
         $partner->update($data);
 
@@ -733,7 +739,7 @@ class PartnerController extends Controller
     private function messages(): array
     {
         return [
-            'tax_code.regex' => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).',
+            'tax_code.regex' => 'Mã số thuế gồm 10 số (doanh nghiệp), 13 số (đơn vị phụ thuộc, vd 0312345678-001) hoặc 12 số (cá nhân / hộ kinh doanh dùng số CCCD).',
             'phone.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
             'representative_phone_secondary.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
             'momo_phone.regex' => 'Số điện thoại MoMo phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
@@ -754,7 +760,7 @@ class PartnerController extends Controller
 
         return [
             'legal_name' => [$sometimes, 'string', 'max:255'],
-            'tax_code' => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
+            'tax_code' => ['nullable', 'string', 'regex:/^(\d{10}(-?\d{3})?|\d{12})$/'],
             'phone' => ['nullable', 'string', 'max:30', $vnPhone], 'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'], 'province_code' => ['nullable', 'integer', 'exists:provinces,code'], 'representative_name' => [$sometimes, 'string', 'max:255'],
             'representative_dob' => ['nullable', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
@@ -765,6 +771,12 @@ class PartnerController extends Controller
             'representative_phone_secondary' => ['nullable', 'string', 'max:30', $vnPhone],
             'business_license_date' => ['nullable', 'date', 'before_or_equal:today'], 'business_license_issuer' => ['nullable', 'string', 'max:255'],
             'contract_type' => ['nullable', Rule::in(['e_contract', 'paper'])],
+            // Nhập tay số hợp đồng (010 hoặc 010/2026/HĐHT-365); bỏ trống thì hệ thống tự cấp khi tạo hợp đồng.
+            'contract_code' => ['nullable', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) use ($partner) {
+                if ($error = \App\Services\ContractCodeService::inputError((string) $value, $partner)) {
+                    $fail($error);
+                }
+            }],
             'contract_expires_at' => ['nullable', 'date', 'after:today'],
             'commission_rate' => ['nullable', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) {
                 if (filled($value) && app(\App\Services\PartnerContractWorkflowService::class)->commissionValue((string) $value) === null) {

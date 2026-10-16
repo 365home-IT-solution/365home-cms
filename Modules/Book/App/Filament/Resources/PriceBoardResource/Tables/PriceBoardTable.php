@@ -31,14 +31,37 @@ class PriceBoardTable
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('scope')
+                    ->label('Phạm vi')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state, PriceBoard $record) => $record->is_template
+                        ? 'Bảng dựng sẵn'
+                        : match ($state) {
+                            PriceBoard::SCOPE_PARTNER  => 'Toàn đối tác',
+                            PriceBoard::SCOPE_BRANCHES => $record->scopeBranches->count() . ' chi nhánh',
+                            default                    => 'Một số phòng',
+                        })
+                    ->color(fn (PriceBoard $record) => $record->is_template ? 'info' : 'gray'),
+
                 TextColumn::make('branch.name')
                     ->label('Chi nhánh')
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(),
+
+                TextColumn::make('sheets_count')
+                    ->label('Bộ giá')
+                    ->counts('sheets')
+                    ->badge(),
 
                 TextColumn::make('items_count')
                     ->label('Số phòng áp dụng')
                     ->counts('items')
                     ->badge(),
+
+                TextColumn::make('source_preset')
+                    ->label('Từ bảng dựng sẵn')
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('start_date')
                     ->label('Ngày bắt đầu')
@@ -70,7 +93,7 @@ class PriceBoardTable
                     ->label('Kích hoạt')
                     // Ghi giá thật xuống hệ thống ngay khi bật/tắt — cần đúng quyền update, không chỉ
                     // quyền xem danh sách (view_any).
-                    ->disabled(fn (PriceBoard $record) => ! PriceBoardResource::canEdit($record))
+                    ->disabled(fn (PriceBoard $record) => $record->is_template || ! PriceBoardResource::canEdit($record))
                     ->afterStateUpdated(function (PriceBoard $record) {
                         $service = app(PriceBoardSyncService::class);
 
@@ -104,6 +127,92 @@ class PriceBoardTable
                     }),
             ])
             ->defaultSort('created_at', 'desc')
+            ->filters([
+                \Filament\Tables\Filters\SelectFilter::make('scope')
+                    ->label('Phạm vi')
+                    ->options([
+                        PriceBoard::SCOPE_ROOMS    => 'Một số phòng',
+                        PriceBoard::SCOPE_BRANCHES => 'Theo chi nhánh',
+                        PriceBoard::SCOPE_PARTNER  => 'Toàn đối tác',
+                    ]),
+                \Filament\Tables\Filters\TernaryFilter::make('is_active')->label('Kích hoạt'),
+            ])
+            ->headerActions([
+                // Tạo bảng thật từ bảng giá dựng sẵn (copy một lần, mặc định TẮT).
+                \Filament\Tables\Actions\Action::make('use_preset')
+                    ->label('Tạo từ bảng dựng sẵn')
+                    ->icon('heroicon-o-sparkles')
+                    ->color('gray')
+                    ->visible(fn () => PriceBoardResource::canCreate())
+                    ->modalHeading('Tạo bảng giá từ bảng dựng sẵn')
+                    ->modalSubmitActionLabel('Tạo bảng giá')
+                    ->form(fn () => [
+                        \Filament\Forms\Components\Select::make('code')
+                            ->label('Bảng dựng sẵn')
+                            ->options(fn () => PriceBoard::query()->where('is_template', true)->whereNull('partner_id')
+                                ->orderBy('sort_order')->pluck('name', 'code')->all())
+                            ->required(),
+                        \Filament\Forms\Components\Select::make('partner_id')
+                            ->label('Đối tác')
+                            ->options(fn () => \App\Models\Partner::query()->orderBy('name')->pluck('name', 'id')->all())
+                            ->searchable()
+                            ->required(fn () => \Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm::needsPartnerChoice())
+                            ->visible(fn () => \Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm::needsPartnerChoice())
+                            ->live(),
+                        \Filament\Forms\Components\Select::make('scope')
+                            ->label('Phạm vi')
+                            ->options([
+                                PriceBoard::SCOPE_PARTNER  => 'Toàn bộ chi nhánh của đối tác',
+                                PriceBoard::SCOPE_BRANCHES => 'Một số chi nhánh',
+                            ])
+                            ->default(PriceBoard::SCOPE_PARTNER)
+                            ->required()
+                            ->live(),
+                        \Filament\Forms\Components\Select::make('branch_ids')
+                            ->label('Chi nhánh')
+                            ->multiple()
+                            ->options(fn (\Filament\Forms\Get $get) => \Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm::branchOptions(
+                                \Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm::partnerId() ?: ($get('partner_id') ?: null)
+                            ))
+                            ->visible(fn (\Filament\Forms\Get $get) => $get('scope') === PriceBoard::SCOPE_BRANCHES)
+                            ->required(fn (\Filament\Forms\Get $get) => $get('scope') === PriceBoard::SCOPE_BRANCHES),
+                        \Filament\Forms\Components\TextInput::make('name')->label('Tên bảng giá')->maxLength(255),
+                        \Filament\Forms\Components\DatePicker::make('start_date')->label('Ngày bắt đầu')->native(false),
+                        \Filament\Forms\Components\DatePicker::make('end_date')->label('Ngày kết thúc')->native(false)->afterOrEqual('start_date'),
+                    ])
+                    ->action(function (array $data) {
+                        $user      = auth()->user();
+                        $partnerId = $user->seesAllPartners() ? ($data['partner_id'] ?? null) : $user->partner_id;
+                        $preset    = PriceBoard::query()->where('is_template', true)->where('code', $data['code'])->first();
+
+                        if (! $partnerId || ! $preset) {
+                            Notification::make()->title('Chọn bảng dựng sẵn và đối tác')->danger()->send();
+
+                            return;
+                        }
+
+                        if ($preset->requires_dates && (empty($data['start_date']) || empty($data['end_date']))) {
+                            Notification::make()->title('Bảng này bắt buộc chọn ngày bắt đầu và kết thúc')->danger()->send();
+
+                            return;
+                        }
+
+                        $service = app(\App\Services\PriceBoards\PriceBoardV2Service::class);
+                        $clone   = $service->cloneBoard($preset, (string) $partnerId, [
+                            'name'       => $data['name'] ?: $preset->name,
+                            'start_date' => $data['start_date'] ?? null,
+                            'end_date'   => $data['end_date'] ?? null,
+                            'is_active'  => false,
+                            'scope'      => $data['scope'],
+                            'branch_ids' => $data['branch_ids'] ?? [],
+                            'source_preset' => $preset->code,
+                        ], resolvePresetTimes: true);
+
+                        $service->persist($clone['spec'], null);
+
+                        Notification::make()->title('Đã tạo bảng giá "' . $clone['spec']['name'] . '" (đang tắt)')->success()->send();
+                    }),
+            ])
             ->actions([
                 Action::make('history')
                     ->label('Lịch sử')
@@ -127,7 +236,7 @@ class PriceBoardTable
                     ->modalDescription('Áp ngay giá của bảng này xuống các phòng đã chọn, bất kể ngày hiệu lực.')
                     // Ghi giá thật xuống hệ thống NGAY lập tức — cùng mức rủi ro với Sửa/Xoá, phải
                     // đòi đúng quyền update thay vì chỉ cần quyền xem danh sách (view_any) là bấm được.
-                    ->visible(fn (PriceBoard $record) => PriceBoardResource::canEdit($record))
+                    ->visible(fn (PriceBoard $record) => ! $record->is_template && PriceBoardResource::canEdit($record))
                     ->action(function (PriceBoard $record) {
                         app(PriceBoardSyncService::class)->applyBoard($record);
 
@@ -135,6 +244,20 @@ class PriceBoardTable
                             ->title('Đã áp dụng bảng giá "' . $record->name . '"')
                             ->success()
                             ->send();
+                    }),
+                Action::make('duplicate')
+                    ->label('Nhân bản')
+                    ->icon('heroicon-o-document-duplicate')
+                    ->color('gray')
+                    ->visible(fn (PriceBoard $record) => ! $record->is_template && PriceBoardResource::canCreate())
+                    ->action(function (PriceBoard $record) {
+                        $service = app(\App\Services\PriceBoards\PriceBoardV2Service::class);
+                        $clone   = $service->cloneBoard($record, (string) $record->partner_id, [
+                            'name' => $record->name . ' (bản sao)', 'is_active' => false,
+                        ]);
+                        $service->persist($clone['spec'], null);
+
+                        Notification::make()->title('Đã nhân bản bảng giá')->success()->send();
                     }),
                 EditAction::make(),
                 // Tính lại giá ĐÚNG cho mọi phòng trong bảng SAU khi xoá — xem giải thích ở

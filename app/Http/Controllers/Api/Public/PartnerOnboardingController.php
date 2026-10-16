@@ -246,7 +246,7 @@ class PartnerOnboardingController extends Controller
         $partner = $this->service->findByToken($token);
         $data = $request->validate([
             'legal_name'               => ['required', 'string', 'max:255'],
-            'tax_code'                 => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
+            'tax_code'                 => ['nullable', 'string', 'regex:/^(\d{10}(-?\d{3})?|\d{12})$/'],
             'address'                  => ['required', 'string', 'max:500'],
             'email'                    => ['required', 'email', 'max:255'],
             'representative_name'      => ['required', 'string', 'max:255'],
@@ -259,7 +259,7 @@ class PartnerOnboardingController extends Controller
             'business_license_issuer'  => ['nullable', 'string', 'max:255'],
         ], [
             'representative_id_number.regex' => 'Số CMND/CCCD phải gồm 9 hoặc 12 chữ số.',
-            'tax_code.regex'                 => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).',
+            'tax_code.regex'                 => 'Mã số thuế gồm 10 số (doanh nghiệp), 13 số (đơn vị phụ thuộc, vd 0312345678-001) hoặc 12 số (cá nhân / hộ kinh doanh dùng số CCCD).',
             'representative_dob.before_or_equal' => 'Người đại diện phải đủ 18 tuổi.',
             'representative_id_issued_at.required' => 'Vui lòng nhập ngày cấp CMND/CCCD.',
             'representative_id_issued_at.before_or_equal' => 'Ngày cấp CMND/CCCD không được ở tương lai.',

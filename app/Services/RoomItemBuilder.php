@@ -77,7 +77,7 @@ class RoomItemBuilder
             $endLabel    = substr($timeSlot->end_time, 0, 5);
             $isOvernight = (bool) $rts->over_night;
             $label       = $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
-            $price       = (int) $rts->price;
+            $price       = (int) ($rts->priceOn($checkin) ?? $rts->price);
 
             $totalPrice  += $price;
             $itemsData[]  = [
@@ -164,7 +164,9 @@ class RoomItemBuilder
             $dateStr = $current->format('Y-m-d');
             $rts     = $slotsByDate->get($dateStr);
 
-            $nightPrice   = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $nightPrice   = $rts?->price !== null
+                ? (float) $rts->price
+                : app(\App\Services\PriceBoards\StayPriceResolver::class)->nightPrice($room, $dateStr, $basePrice);
             $checkinTime  = $rts?->checkin  ?? $defCheckin;
             $checkoutTime = $rts?->checkout ?? $defCheckout;
             $nextDate     = $current->copy()->addDay()->format('Y-m-d');

@@ -11,9 +11,12 @@ use Filament\Resources\Pages\EditRecord;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\BladeThemeV1\App\Models\AdditionService;
 use Modules\Product\App\Filament\Resources\ProductResource;
+use Modules\Product\App\Filament\Resources\ProductResource\Pages\Concerns\AppliesRoomPriceSource;
 
 class EditProduct extends EditRecord
 {
+    use AppliesRoomPriceSource;
+
     protected static string $resource = ProductResource::class;
 
     protected array $oldTagIds     = [];
@@ -34,6 +37,11 @@ class EditProduct extends EditRecord
     // afterSave() so sánh với state mới rồi ghi log thủ công.
     protected function beforeSave(): void
     {
+        if ($error = $this->priceSourceError($this->record)) {
+            \Filament\Notifications\Notification::make()->title($error)->danger()->send();
+            $this->halt();
+        }
+
         $this->oldTagIds     = $this->record->tags()->pluck('tags.id')->map(fn ($id) => (string) $id)->all();
         $this->oldServiceIds = $this->record->additionalServices()->pluck('additional_services.id')->map(fn ($id) => (string) $id)->all();
     }
@@ -43,6 +51,7 @@ class EditProduct extends EditRecord
         // Dịch vụ bổ sung kế thừa theo chi nhánh — đổi chi nhánh/khu vực thì đồng bộ lại TRƯỚC khi so
         // sánh để log đúng dịch vụ được thêm/bỏ theo chi nhánh mới.
         app(BranchServiceSync::class)->syncRoom($this->record);
+        $this->applyPriceSource($this->record);
 
         $record = $this->record->fresh(['tags', 'additionalServices']);
 

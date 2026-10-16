@@ -153,8 +153,13 @@ class PartnerContractCksService
 
         $certTax = $this->digits((string) ($certificate['tax_code'] ?? ''));
         $certId = $this->digits((string) ($certificate['citizen_id'] ?? ''));
-        // MST doanh nghiệp có thể kèm mã chi nhánh (13 số): so 10 số đầu.
-        $taxMatch = $partnerTax !== '' && $certTax !== '' && substr($partnerTax, 0, 10) === substr($certTax, 0, 10);
+        // MST doanh nghiệp (10 số) có thể kèm mã chi nhánh (13 số): so 10 số đầu. MST cá nhân là 12 số (số
+        // CCCD): so nguyên 12 số, không cắt 10 số đầu để tránh khớp nhầm hai CCCD cùng đầu số.
+        $taxMatch = $partnerTax !== '' && $certTax !== '' && (
+            (strlen($partnerTax) === 12 || strlen($certTax) === 12)
+                ? $partnerTax === $certTax
+                : substr($partnerTax, 0, 10) === substr($certTax, 0, 10)
+        );
         $idMatch = $partnerId !== '' && $certId !== '' && $partnerId === $certId;
 
         if (! $taxMatch && ! $idMatch) {

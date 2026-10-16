@@ -71,6 +71,24 @@ class RoomTimeSlot extends Model
     }
 
     /**
+     * Giá của khung này vào ngày ở $date. Giai đoạn 2 (config price_boards.phase2): chọn bảng giá thắng
+     * của ĐÚNG ngày đó (App\Services\PriceBoards\StayPriceResolver) thay vì giá hiện tại; tắt cờ hoặc
+     * khung "ngày đặc biệt" (date != null, giá đã chốt theo ngày) thì trả đúng cột price như trước.
+     */
+    public function priceOn(\Carbon\Carbon|string|null $date): ?int
+    {
+        if ($this->price === null) {
+            return null;
+        }
+
+        if ($date === null || $date === '' || $this->date !== null || ! config('price_boards.phase2')) {
+            return (int) $this->price;
+        }
+
+        return app(\App\Services\PriceBoards\StayPriceResolver::class)->slotPrice($this, $date);
+    }
+
+    /**
      * Kiểm tra khung giờ có bị block vào 1 ngày cụ thể không
      */
     public function isBlockedOn(string $date): bool

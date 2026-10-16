@@ -16,9 +16,25 @@ class PriceBoard extends Model
     public const MODE_OVERRIDE   = 'override';
     public const MODE_ADJUSTMENT = 'adjustment';
 
+    public const SCOPE_ROOMS    = 'rooms';
+    public const SCOPE_BRANCHES = 'branches';
+    public const SCOPE_PARTNER  = 'partner';
+
     protected $fillable = [
         'partner_id',
         'category_id',
+        'scope',
+        'source_preset',
+        'is_template',
+        'code',
+        'description',
+        'tags',
+        'default_scope',
+        'requires_dates',
+        'sort_order',
+        'priority',
+        'days_of_week',
+        'phase',
         'name',
         'note',
         'start_date',
@@ -31,12 +47,34 @@ class PriceBoard extends Model
     ];
 
     protected $casts = [
+        'is_template'      => 'boolean',
+        'requires_dates'   => 'boolean',
+        'tags'             => 'array',
+        'days_of_week'     => 'array',
+        'priority'         => 'integer',
         'start_date'       => 'date',
         'end_date'         => 'date',
         'is_default'       => 'boolean',
         'is_active'        => 'boolean',
         'adjustment_value' => 'decimal:2',
     ];
+
+    public function sheets()
+    {
+        return $this->hasMany(PriceBoardSheet::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    /** Chi nhánh của phạm vi `branches`. */
+    public function scopeBranches()
+    {
+        return $this->belongsToMany(\Modules\Category\Entities\Category::class, 'price_board_branches', 'price_board_id', 'category_id');
+    }
+
+    /** Phòng khai báo ở cấp bảng (phạm vi `rooms`). */
+    public function declaredRooms()
+    {
+        return $this->hasMany(PriceBoardRoom::class);
+    }
 
     /** Chi nhánh (category gốc) bảng giá này áp dụng; NULL ở bảng mặc định toàn hệ thống. */
     public function branch()
@@ -48,7 +86,8 @@ class PriceBoard extends Model
      *  thấy hết, còn lại chỉ bảng của đối tác mình. */
     public function scopeVisibleTo(Builder $query, \App\Models\User $user): Builder
     {
-        $query->where('is_default', false);
+        // Bảng mẫu (preset) không phải bảng giá đang vận hành — có API/màn riêng.
+        $query->where('is_default', false)->where('is_template', false);
 
         return $user->seesAllPartners() ? $query : $query->where('partner_id', $user->partner_id);
     }
@@ -98,6 +137,40 @@ class PriceBoard extends Model
     public function coupons()
     {
         return $this->hasMany(Coupon::class);
+    }
+
+    /** Giai đoạn 2 (priority + days_of_week + giá theo ngày ở) đang bật không. */
+    public static function phase2Enabled(): bool
+    {
+        return (bool) config('price_boards.phase2', false);
+    }
+
+    /** Thứ 1 = Thứ 2 … 7 = Chủ nhật; rỗng = mọi ngày. */
+    public function coversWeekday(\Carbon\Carbon $date): bool
+    {
+        $days = array_map('intval', (array) $this->days_of_week);
+
+        return $days === [] || in_array((int) $date->dayOfWeekIso, $days, true);
+    }
+
+    /** Bảng có hiệu lực cho ngày $date: đang bật, trong khoảng ngày và (GĐ2) đúng thứ. */
+    public function appliesOn(\Carbon\Carbon $date): bool
+    {
+        if (! $this->is_active || ! $this->coversDate($date->copy()->startOfDay())) {
+            return false;
+        }
+
+        return ! static::phase2Enabled() || $this->coversWeekday($date);
+    }
+
+    /** Thứ tự ưu tiên của phạm vi khi priority bằng nhau: hẹp hơn thắng (rooms > branches > partner). */
+    public function scopeRank(): int
+    {
+        return match ($this->scope) {
+            self::SCOPE_ROOMS    => 3,
+            self::SCOPE_BRANCHES => 2,
+            default              => 1,
+        };
     }
 
     /** Bảng đang trong khoảng hiệu lực tại ngày $date (mặc định hôm nay). */

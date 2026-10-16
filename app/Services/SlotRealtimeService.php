@@ -244,6 +244,42 @@ class SlotRealtimeService
         }
     }
 
+    /**
+     * Báo FE giá của các phòng vừa đổi (bảng giá được bật / sửa / tắt) để tải lại lưới giá, không cần F5.
+     * Ngắt mạch: lỗi liên tiếp thì tạm dừng 60 giây, không để WS sập làm chậm lưu bảng giá.
+     *
+     * @param  list<string>  $roomIds
+     */
+    public function broadcastPriceChanged(array $roomIds): void
+    {
+        $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
+        $key = config('services.websocket.internal_key', '');
+
+        if (empty($url) || $roomIds === [] || \Illuminate\Support\Facades\Cache::get('ws_price_push_open')) {
+            return;
+        }
+
+        $date = now()->toDateString();
+
+        foreach (array_slice($roomIds, 0, 50) as $roomId) {
+            try {
+                Http::withHeaders(['x-internal-key' => $key])
+                    ->timeout(1)
+                    ->post("{$url}/internal/slot-update", [
+                        'room_id'  => (string) $roomId,
+                        'date'     => $date,
+                        'slot_ids' => [],
+                        'status'   => 'price_changed',
+                    ])->throw();
+            } catch (\Throwable $e) {
+                Log::warning('WS price push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+                \Illuminate\Support\Facades\Cache::put('ws_price_push_open', true, 60);
+
+                return;
+            }
+        }
+    }
+
     private function push(string $roomId, string $date, array $slotIds, string $status): void
     {
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');

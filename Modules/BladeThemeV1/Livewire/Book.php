@@ -483,7 +483,9 @@ class Book extends Component
      */
     public function calculateSlotPrice($slot, $dateString, $slotStartTime = null, $selectedSlots = [], $roomId = null)
     {
-        $originalPrice = (float) $slot->price;
+        $originalPrice = (float) ($slot instanceof \Modules\Product\App\Models\RoomTimeSlot
+            ? ($slot->priceOn(Carbon::createFromFormat('d-m-Y', $dateString)) ?? $slot->price)
+            : $slot->price);
         $priceAfterIncrease = $originalPrice;
         $finalPrice = $originalPrice;
         $totalDiscount = 0;

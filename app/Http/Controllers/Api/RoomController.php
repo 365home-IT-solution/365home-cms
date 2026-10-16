@@ -265,7 +265,7 @@ class RoomController extends Controller
 
         return $templateSlots->map(function ($slot) use ($bookedMap, $dateStr, $holdsForDate, $sessionId) {
             $rts       = $slot['rts'];
-            $basePrice = $slot['price'];
+            $basePrice = $rts->priceOn($dateStr) ?? $slot['price'];
 
             // Blocked date check (from roomTimeSlot settings)
             $isBlocked = $rts->isBlockedOn($dateStr);
