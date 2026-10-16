@@ -332,6 +332,24 @@ class PartnerSampleDataGenerator
             $name = "{$base} ({$i})";
         }
 
+        // Bảng giá của chi nhánh dựng từ bảng dựng sẵn "standard" (phạm vi = chi nhánh này, vẫn TẮT) —
+        // phòng mới tạo sau cũng nhận bộ giá. Chưa có preset (DB cũ) thì rơi về cách v1 bên dưới.
+        $preset = PriceBoard::query()->where('is_template', true)->where('code', 'standard')->first();
+
+        if ($preset) {
+            $v2    = app(\App\Services\PriceBoards\PriceBoardV2Service::class);
+            $clone = $v2->cloneBoard($preset, $partnerId, [
+                'name'        => $name,
+                'note'        => 'Dữ liệu mẫu',
+                'is_active'   => false,
+                'scope'       => PriceBoard::SCOPE_BRANCHES,
+                'branch_ids'  => [$branch->id],
+                'source_preset' => 'standard',
+            ], resolvePresetTimes: true);
+
+            return $v2->persist($clone['spec'], null);
+        }
+
         $board = PriceBoard::create([
             'partner_id'   => $partnerId,
             'category_id'  => $branch->id,

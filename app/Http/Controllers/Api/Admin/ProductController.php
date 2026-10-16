@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\AdminNotificationService;
 use App\Services\BranchServiceSync;
 use App\Services\DefaultCatalogImage;
+use App\Services\PriceBoards\RoomPriceBoardPicker;
 use App\Services\PriceTemplateService;
 use App\Services\TelegramService;
 use App\Services\RoomEmergencyAccessService;
@@ -340,6 +341,27 @@ class ProductController extends Controller
             }
         }
 
+        $board = $boardSheet = null;
+
+        if (! empty($data['price_board_id'])) {
+            if ($template) {
+                return response()->json(['message' => 'Chỉ chọn một trong hai: bảng giá mẫu (price_template_id) hoặc bảng giá (price_board_id).'], 422);
+            }
+
+            $picker = app(RoomPriceBoardPicker::class);
+            $board  = $picker->usableBoard($partnerId, (int) $data['price_board_id']);
+
+            if (! $board) {
+                return response()->json(['message' => 'Không tìm thấy bảng giá.'], 422);
+            }
+
+            $boardSheet = $picker->resolveSheet($board, (int) $data['styles'], $data['price_board_sheet_id'] ?? null);
+
+            if ($error = $picker->error($board, $boardSheet, (int) $data['styles'], array_map('intval', $data['categories'] ?? []))) {
+                return response()->json(['message' => $error], 422);
+            }
+        }
+
         $product = DB::transaction(function () use ($data, $partnerId) {
             $product = Product::create([
                 'partner_id'         => $partnerId,
@@ -369,6 +391,11 @@ class ProductController extends Controller
         // Chọn bảng giá mẫu khi tạo phòng → thêm thẳng khung giờ + giá của mẫu vào phòng.
         if ($template) {
             app(PriceTemplateService::class)->applyToRoom($template, $product, true, $data['price_template_timeslot_ids'] ?? null);
+        }
+
+        // Chọn bảng giá khi tạo phòng → phòng nhận khung giờ + giá của bộ giá và được gắn vào bảng.
+        if ($board && $boardSheet) {
+            app(RoomPriceBoardPicker::class)->apply($board, $boardSheet, $product->fresh());
         }
 
         $this->handleImages($request, $product);
@@ -424,6 +451,29 @@ class ProductController extends Controller
             }
         }
 
+        $board = $boardSheet = null;
+
+        if (! empty($data['price_board_id'])) {
+            if ($template) {
+                return response()->json(['message' => 'Chỉ chọn một trong hai: bảng giá mẫu (price_template_id) hoặc bảng giá (price_board_id).'], 422);
+            }
+
+            $picker = app(RoomPriceBoardPicker::class);
+            $board  = $picker->usableBoard($product->partner_id, (int) $data['price_board_id']);
+
+            if (! $board) {
+                return response()->json(['message' => 'Không tìm thấy bảng giá.'], 422);
+            }
+
+            $style      = (int) ($data['styles'] ?? $product->styles ?? 1);
+            $boardSheet = $picker->resolveSheet($board, $style, $data['price_board_sheet_id'] ?? null);
+            $cats       = $data['categories'] ?? $product->categories()->pluck('categories.id')->all();
+
+            if ($error = $picker->error($board, $boardSheet, $style, array_map('intval', $cats), $product)) {
+                return response()->json(['message' => $error], 422);
+            }
+        }
+
         // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:8' đã đủ chặn), update()
         // phải cộng dồn ảnh gallery ĐÃ CÓ SẴN của phòng — kiểm tra TRƯỚC khi ghi bất kỳ thay đổi nào
         // xuống DB (fail fast), không để handleImages() âm thầm bỏ qua ảnh mới nếu vượt hạn mức.
@@ -464,6 +514,10 @@ class ProductController extends Controller
 
         if ($template) {
             app(PriceTemplateService::class)->applyToRoom($template, $product, true, $data['price_template_timeslot_ids'] ?? null);
+        }
+
+        if ($board && $boardSheet) {
+            app(RoomPriceBoardPicker::class)->apply($board, $boardSheet, $product->fresh());
         }
 
         $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug']);
@@ -1015,6 +1069,11 @@ class ProductController extends Controller
             // Chọn 1 bảng giá mẫu (GET /api/admin/price-templates) → khung giờ + giá của mẫu được thêm
             // thẳng vào phòng (chỉ phòng theo khung giờ, styles=1).
             'price_template_id'   => 'nullable|integer',
+            // Chọn 1 bảng giá (GET /api/admin/price-boards/options) + bộ giá (tuỳ chọn, mặc định = bộ mặc
+            // định cùng loại phòng) → khung giờ + giá của bộ giá thành giá gốc của phòng và phòng được gắn
+            // vào bảng. Không dùng chung với price_template_id.
+            'price_board_id'       => 'nullable|integer',
+            'price_board_sheet_id' => 'nullable|integer',
             // Chỉ thêm các khung giờ NÀY trong mẫu (timeslot_id); bỏ trống = thêm cả mẫu.
             'price_template_timeslot_ids'   => 'nullable|array|min:1',
             'price_template_timeslot_ids.*' => 'integer',

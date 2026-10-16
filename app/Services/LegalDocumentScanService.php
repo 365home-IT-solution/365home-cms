@@ -267,7 +267,7 @@ class LegalDocumentScanService
 
         return [
             // 10 số (hoặc 10-3 cho đơn vị phụ thuộc); hộ kinh doanh có thể kèm chữ → giữ cụm đầu tiên.
-            'document_number' => preg_match('/\b\d{10}(-\d{3})?\b/', $number, $m) ? $m[0] : (preg_match('/[0-9A-Z][0-9A-Z.\-]{5,}/u', mb_strtoupper($number), $m) ? $m[0] : null),
+            'document_number' => preg_match('/\b(?:\d{10}(?:-\d{3})?|\d{12})\b/', $number, $m) ? $m[0] : (preg_match('/[0-9A-Z][0-9A-Z.\-]{5,}/u', mb_strtoupper($number), $m) ? $m[0] : null),
             'issued_at'       => $this->dateIn($this->after(['dang ky lan dau'])) ?? $this->signatureDate(),
             'issuer'          => $this->issuer(),
             // Mục "2. Địa chỉ trụ sở chính": giá trị nằm ở (các) dòng ngay dưới tiêu đề mục.

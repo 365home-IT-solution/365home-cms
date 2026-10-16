@@ -113,12 +113,15 @@ class PriceTemplateResource extends Resource
 
     /** Khung giờ dùng được cho mẫu: mẫu hệ thống chỉ dùng khung giờ hệ thống, mẫu đối tác dùng thêm
      *  khung giờ riêng của đối tác đó. */
-    private static function timeSlotOptions(?PriceTemplate $record): array
+    private static function timeSlotOptions(?PriceTemplate $record, mixed $chosenPartnerId = false): array
     {
         $user      = auth()->user();
-        $partnerId = $record
-            ? $record->partner_id
-            : (($user instanceof User && ! $user->seesAllPartners()) ? $user->partner_id : null);
+        $partnerId = match (true) {
+            $record !== null                                  => $record->partner_id,
+            $chosenPartnerId !== false                        => filled($chosenPartnerId) ? (string) $chosenPartnerId : null,
+            ($user instanceof User && ! $user->seesAllPartners()) => $user->partner_id,
+            default                                           => null,
+        };
 
         return TimeSlot::usableBy($partnerId)
             ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
@@ -132,6 +135,20 @@ class PriceTemplateResource extends Resource
     {
         return $form->schema([
             Section::make()->schema([
+                // Chỉ super_admin (không bị khoá theo 1 đối tác) chọn được mẫu dành cho ai. Đối tác tự tạo
+                // thì mẫu luôn là của chính họ (xem CreatePriceTemplate).
+                Select::make('partner_id')
+                    ->label('Áp dụng cho')
+                    ->options(fn () => \App\Models\Partner::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->searchable()
+                    ->placeholder('Mẫu hệ thống — mọi đối tác đều thấy')
+                    ->helperText('Để trống = mẫu hệ thống (mọi đối tác thấy và chọn được, chỉ dùng khung giờ hệ thống). Chọn đối tác = chỉ đối tác đó thấy.')
+                    ->default(fn () => auth()->user() instanceof User && ! auth()->user()->seesAllPartners() ? auth()->user()->partner_id : null)
+                    ->live()
+                    ->disabled(fn (?PriceTemplate $record) => $record !== null)
+                    ->dehydrated(fn (?PriceTemplate $record) => $record === null)
+                    ->visible(fn () => auth()->user() instanceof User && auth()->user()->isSuperAdmin())
+                    ->columnSpanFull(),
                 TextInput::make('name')
                     ->label('Tên mẫu')
                     ->required()
@@ -167,8 +184,10 @@ class PriceTemplateResource extends Resource
                                 ->label('Khung giờ')
                                 // Trong Repeater, $record là DÒNG khung giờ (PriceTemplateSlot), không phải bảng
                                 // giá mẫu — lấy bảng giá mẫu từ trang (Edit có record, Create thì null).
-                                ->options(fn ($livewire) => static::timeSlotOptions(
-                                    ($livewire->record ?? null) instanceof PriceTemplate ? $livewire->record : null
+                                ->options(fn ($livewire, \Filament\Forms\Get $get) => static::timeSlotOptions(
+                                    ($livewire->record ?? null) instanceof PriceTemplate ? $livewire->record : null,
+                                    // Tạo mới: theo ô "Áp dụng cho" (super_admin) — ngoài Repeater 2 cấp.
+                                    $get('../../partner_id')
                                 ))
                                 ->searchable()
                                 ->required()
@@ -182,6 +201,7 @@ class PriceTemplateResource extends Resource
                                 ->suffix('₫'),
                             Toggle::make('over_night')
                                 ->label('Qua đêm')
+                                ->default(false)
                                 ->inline(false),
                             TextInput::make('checkin')
                                 ->label('Giờ nhận riêng')

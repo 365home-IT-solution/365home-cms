@@ -9,7 +9,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardForm;
+use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Pages;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Tables\PriceBoardTable;
 use Modules\Product\App\Models\PriceBoard;
@@ -48,7 +48,7 @@ class PriceBoardResource extends Resource
         // Bảng mặc định (is_default=true) là dữ liệu nội bộ, đã có trang "Hệ thống giá" quản lý —
         // không hiển thị/cho sửa lẫn ở đây.
         // Đối tác chỉ thấy bảng giá của mình; super_admin (chưa chọn đối tác) thấy tất cả.
-        $query = parent::getEloquentQuery()->where('is_default', false);
+        $query = parent::getEloquentQuery()->where('is_default', false)->with('scopeBranches:id,name');
         $user  = auth()->user();
 
         return $user instanceof User && ! $user->seesAllPartners()
@@ -96,7 +96,7 @@ class PriceBoardResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return PriceBoardForm::form($form);
+        return PriceBoardSheetsForm::form($form);
     }
 
     public static function table(Table $table): Table

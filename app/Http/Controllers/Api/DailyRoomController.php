@@ -76,7 +76,9 @@ class DailyRoomController extends Controller
             $dateStr = $current->format('Y-m-d');
             $rts     = $slotsByDate->get($dateStr);
 
-            $price  = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $price  = $rts?->price !== null
+                ? (float) $rts->price
+                : app(\App\Services\PriceBoards\StayPriceResolver::class)->nightPrice($room, $dateStr, $basePrice);
             $promos = $this->calculator->calculateForDate($rts, $price, $dateStr);
             $disc   = $price - $promos['final_price'];
 
@@ -191,7 +193,9 @@ class DailyRoomController extends Controller
             $dateStr = $current->format('Y-m-d');
             $rts     = $slotsByDate->get($dateStr);
 
-            $price  = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $price  = $rts?->price !== null
+                ? (float) $rts->price
+                : app(\App\Services\PriceBoards\StayPriceResolver::class)->nightPrice($room, $dateStr, $basePrice);
             $promos = $this->calculator->calculateForDate($rts, $price, $dateStr);
             $disc   = $price - $promos['final_price'];
 

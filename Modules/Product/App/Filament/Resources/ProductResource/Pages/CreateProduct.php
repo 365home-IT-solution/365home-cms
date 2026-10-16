@@ -21,10 +21,22 @@ use Illuminate\Validation\Rule;
 use App\Services\BranchServiceSync;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Filament\Resources\ProductResource;
+use Modules\Product\App\Filament\Resources\ProductResource\Pages\Concerns\AppliesRoomPriceSource;
 
 class CreateProduct extends CreateRecord
 {
+    use AppliesRoomPriceSource;
+
     protected static string $resource = ProductResource::class;
+
+    // Chặn trước khi tạo nếu bảng giá / bảng giá mẫu đã chọn không dùng được cho phòng này.
+    protected function beforeCreate(): void
+    {
+        if ($error = $this->priceSourceError()) {
+            \Filament\Notifications\Notification::make()->title($error)->danger()->send();
+            $this->halt();
+        }
+    }
 
     protected function getHeaderActions(): array
     {
@@ -38,6 +50,7 @@ class CreateProduct extends CreateRecord
     protected function afterCreate(): void
     {
         app(BranchServiceSync::class)->syncRoom($this->record);
+        $this->applyPriceSource($this->record);
     }
 
     private static function createCategoryAction(): Action

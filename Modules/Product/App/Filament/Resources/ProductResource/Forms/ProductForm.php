@@ -37,6 +37,7 @@ class ProductForm
                 Grid::make(1)->columnSpan(2)->schema([
                     self::categoriesCard(),
                     self::basicInfoCard(),
+                    self::priceSourceCard(),
                     self::descriptionsCard(),
                 ]),
 
@@ -298,6 +299,102 @@ class ProductForm
                 ->icons([1 => 'heroicon-o-clock', 2 => 'heroicon-o-calendar-days'])
                 ->inlineLabel(),
         ])->columns(1);
+    }
+
+    // ── Giá gốc: lấy từ bảng giá / bảng giá mẫu (không lưu vào products, áp ở afterCreate/afterSave) ──
+    private static function priceSourceCard(): Section
+    {
+        $partnerId = function ($livewire, Get $get): ?string {
+            $user = auth()->user();
+
+            if ($user && ! $user->seesAllPartners() && $user->partner_id) {
+                return (string) $user->partner_id;
+            }
+
+            $raw = $get('categories');
+            $id  = is_array($raw) ? ($raw[0] ?? null) : $raw;
+
+            if ($id) {
+                return Category::withoutGlobalScopes()->whereKey($id)->value('partner_id');
+            }
+
+            return isset($livewire->record) ? ($livewire->record->partner_id ?: null) : null;
+        };
+
+        return Section::make('Giá gốc của phòng')
+            ->description('Lấy khung giờ + giá (hoặc giá/đêm) từ một bảng giá hoặc bảng giá mẫu có sẵn. Không bắt buộc.')
+            ->schema([
+                ToggleButtons::make('pick_price_source')
+                    ->label('Lấy giá từ')
+                    ->options(['none' => 'Không chọn', 'board' => 'Bảng giá', 'template' => 'Bảng giá mẫu'])
+                    ->default('none')
+                    ->grouped()
+                    ->live()
+                    ->dehydrated(false)
+                    ->columnSpanFull(),
+
+                Select::make('pick_price_board_id')
+                    ->label('Bảng giá')
+                    ->searchable()
+                    ->dehydrated(false)
+                    ->live()
+                    ->afterStateUpdated(fn (callable $set) => $set('pick_price_sheet_id', null))
+                    ->options(function ($livewire, Get $get) use ($partnerId) {
+                        $pid = $partnerId($livewire, $get);
+
+                        if (! $pid) {
+                            return [];
+                        }
+
+                        $style = (int) ($get('styles') ?: 1);
+
+                        return app(\App\Services\PriceBoards\RoomPriceBoardPicker::class)
+                            ->options($pid, null, $style)
+                            ->mapWithKeys(fn ($b) => [$b->id => $b->name . ($b->is_active ? '' : ' (đang tắt)')])
+                            ->all();
+                    })
+                    ->visible(fn (Get $get) => $get('pick_price_source') === 'board'),
+
+                Select::make('pick_price_sheet_id')
+                    ->label('Bộ giá')
+                    ->dehydrated(false)
+                    ->placeholder('Bộ mặc định theo loại phòng')
+                    ->options(function (Get $get) {
+                        $boardId = $get('pick_price_board_id');
+
+                        if (! $boardId) {
+                            return [];
+                        }
+
+                        $style  = (int) ($get('styles') ?: 1);
+                        $board  = \Modules\Product\App\Models\PriceBoard::with('sheets.slots')->find($boardId);
+                        $picker = app(\App\Services\PriceBoards\RoomPriceBoardPicker::class);
+
+                        return $board ? $board->sheets
+                            ->filter(fn ($s) => $picker->eligible($s, $style))
+                            ->mapWithKeys(fn ($s) => [$s->id => $s->name . ($s->is_default ? ' (mặc định)' : '')])
+                            ->all() : [];
+                    })
+                    ->visible(fn (Get $get) => $get('pick_price_source') === 'board' && filled($get('pick_price_board_id'))),
+
+                Select::make('pick_price_template_id')
+                    ->label('Bảng giá mẫu')
+                    ->searchable()
+                    ->dehydrated(false)
+                    ->options(function ($livewire, Get $get) use ($partnerId) {
+                        $pid = $partnerId($livewire, $get);
+
+                        return \Modules\Product\App\Models\PriceTemplate::usableBy($pid)
+                            ->where('is_active', true)
+                            ->orderBy('sort_order')->orderBy('id')
+                            ->pluck('name', 'id')
+                            ->all();
+                    })
+                    ->visible(fn (Get $get) => $get('pick_price_source') === 'template')
+                    ->helperText('Chỉ dùng cho phòng theo khung giờ.'),
+            ])
+            ->columns(2)
+            ->collapsible();
     }
 
     // ── Mô tả ───────────────────────────────────────────────────────────────

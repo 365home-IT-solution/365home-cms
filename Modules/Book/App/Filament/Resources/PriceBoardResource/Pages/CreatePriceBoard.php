@@ -4,54 +4,71 @@ declare(strict_types=1);
 
 namespace Modules\Book\App\Filament\Resources\PriceBoardResource\Pages;
 
-use App\Services\PriceBoardSyncService;
+use App\Models\User;
+use App\Services\PriceBoards\PriceBoardV2Service;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Book\App\Filament\Resources\PriceBoardResource;
-use Modules\Category\Entities\Category;
-use Modules\Book\App\Filament\Resources\PriceBoardResource\Concerns\SavesPriceBoardItems;
-use Modules\Product\App\Models\PriceBoard;
+use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardSheetsForm;
 
+/**
+ * Tạo bảng giá v2 — cùng nghiệp vụ API POST /api/admin/price-boards (PriceBoardV2Service): kiểm tra
+ * ràng buộc bộ giá + trùng ngày, lưu, sinh item cho từng phòng rồi ghi giá bằng động cơ có sẵn.
+ */
 class CreatePriceBoard extends CreateRecord
 {
-    use SavesPriceBoardItems;
-
     protected static string $resource = PriceBoardResource::class;
 
     protected function handleRecordCreation(array $data): Model
     {
-        $isAdjustment = ($data['pricing_mode'] ?? PriceBoard::MODE_OVERRIDE) === PriceBoard::MODE_ADJUSTMENT;
-        $items        = $data['items'] ?? [];
-        $rawProductIds = $data['product_ids'] ?? [];
-        $productIds   = $isAdjustment ? collect($rawProductIds) : collect($items)->pluck('product_id');
+        /** @var User $user */
+        $user    = auth()->user();
+        $service = app(PriceBoardV2Service::class);
 
-        unset($data['items'], $data['product_ids']);
+        $partnerId = $user->seesAllPartners() ? ($data['partner_id'] ?? null) : $user->partner_id;
+        $template  = $user->isSuperAdmin() && ! empty($data['is_template']);
 
-        $service = app(PriceBoardSyncService::class);
-
-        try {
-            $service->assertNoOverlap(new PriceBoard(), $productIds->filter());
-        } catch (\RuntimeException $e) {
-            Notification::make()->title($e->getMessage())->danger()->send();
-            throw new Halt();
+        if (! $partnerId && ! $template) {
+            $this->fail('Chọn đối tác sở hữu bảng giá.');
         }
 
-        // Đối tác của bảng = đối tác của chi nhánh đã chọn.
-        $data['partner_id'] = Category::withoutGlobalScopes()->whereKey($data['category_id'] ?? null)->value('partner_id')
-            ?? auth()->user()?->partner_id;
+        try {
+            $spec = $service->specFromRequest(PriceBoardSheetsForm::toRequest($data), (string) $partnerId, $user);
+        } catch (ValidationException $e) {
+            $this->fail((string) (collect($e->errors())->flatten()->first() ?? 'Dữ liệu không hợp lệ.'));
+        }
 
-        return DB::transaction(function () use ($data, $isAdjustment, $items, $rawProductIds, $service) {
-            $board = PriceBoard::create($data);
+        if ($template) {
+            return $service->persistTemplate($spec, [
+                'code'           => $data['code'] ?? null,
+                'description'    => $data['description'] ?? null,
+                'default_scope'  => $data['default_scope'] ?? 'partner',
+                'requires_dates' => (bool) ($data['requires_dates'] ?? false),
+            ]);
+        }
 
-            $this->savePriceBoardItems($board, $isAdjustment ? ['product_ids' => $rawProductIds] : ['items' => $items]);
+        $eval = $service->evaluate($spec);
 
-            $service->resyncBoardProducts($board);
+        if ($eval['errors']) {
+            $this->fail((string) collect($eval['errors'])->flatten()->first());
+        }
 
-            return $board;
-        });
+        if ($eval['conflicts']) {
+            $first = $eval['conflicts'][0];
+            $this->fail('Có phòng đang nằm trong bảng "' . $first['board']['name'] . '" đang bật và trùng ngày — tắt bảng kia hoặc đổi khoảng ngày.');
+        }
+
+        return $service->persist($spec, null);
+    }
+
+    private function fail(string $message): never
+    {
+        Notification::make()->title('Không lưu được bảng giá')->body($message)->danger()->send();
+
+        throw new Halt();
     }
 
     protected function getRedirectUrl(): string

@@ -32,7 +32,7 @@ class PromotionCalculator
      */
     public function calculate(RoomTimeSlot $rts, string $bookingDate): array
     {
-        $basePrice        = (float) $rts->price;
+        $basePrice        = (float) ($rts->priceOn($bookingDate) ?? $rts->price);
         $priceAfterInc    = $basePrice;
         $finalPrice       = $basePrice;
         $totalDiscount    = 0.0;

@@ -42,6 +42,7 @@ class PriceBoardItem extends Model
         'default_checkout',
         'baseline_fields',
         'baseline_time_slots',
+        'sheet_id',
     ];
 
     protected $casts = [
@@ -51,6 +52,11 @@ class PriceBoardItem extends Model
         'baseline_fields'     => 'array',
         'baseline_time_slots' => 'array',
     ];
+
+    public function sheet()
+    {
+        return $this->belongsTo(PriceBoardSheet::class, 'sheet_id');
+    }
 
     public function priceBoard()
     {

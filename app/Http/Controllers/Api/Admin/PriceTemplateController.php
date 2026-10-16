@@ -95,6 +95,8 @@ class PriceTemplateController extends Controller
      * POST /api/admin/price-templates
      * Body:
      *  - name (required), note, is_active (mặc định true), sort_order
+     *  - (chỉ super_admin) is_system=true → mẫu hệ thống (mọi đối tác thấy); partner_id → mẫu riêng của
+     *    đối tác đó. Đối tác thường: luôn là mẫu của chính mình, hai trường này bị bỏ qua.
      *  - slots (required, ≥1): [{ timeslot_id (required), price, checkin (H:i), checkout (H:i),
      *    over_night }] — thứ tự trong mảng = thứ tự hiển thị.
      * Mẫu thuộc đối tác của người gọi; super_admin không chọn đối tác → tạo mẫu hệ thống.
@@ -105,7 +107,19 @@ class PriceTemplateController extends Controller
         $user = $request->user();
         $data = $request->validate($this->rules(creating: true));
 
-        $partnerId = $user->seesAllPartners() ? null : $user->partner_id;
+        // Đối tác tạo thì mẫu luôn là của chính họ (bỏ qua partner_id/is_system gửi lên). Super_admin chọn
+        // chủ sở hữu: is_system=true → mẫu hệ thống; partner_id → mẫu riêng của đối tác đó; không gửi gì
+        // thì theo đối tác đang chọn (X-Partner-Id), chưa chọn = mẫu hệ thống.
+        if ($user->isSuperAdmin()) {
+            $partnerId = match (true) {
+                $request->boolean('is_system')                      => null,
+                filled($data['partner_id'] ?? null)                 => (string) $data['partner_id'],
+                $user->seesAllPartners()                            => null,
+                default                                             => $user->partner_id,
+            };
+        } else {
+            $partnerId = $user->partner_id;
+        }
 
         if ($error = $this->templates->foreignTimeSlotError($partnerId, array_column($data['slots'], 'timeslot_id'))) {
             return response()->json(['message' => $error], 422);
@@ -322,6 +336,9 @@ class PriceTemplateController extends Controller
             'note'               => 'nullable|string|max:2000',
             'is_active'          => 'nullable|boolean',
             'sort_order'         => 'nullable|integer|min:0',
+            // Chỉ super_admin có tác dụng khi tạo mới: chọn mẫu hệ thống hay mẫu của 1 đối tác.
+            'is_system'          => 'nullable|boolean',
+            'partner_id'         => 'nullable|uuid|exists:partners,id',
             'slots'              => "{$req}|array|min:1",
             'slots.*.timeslot_id' => 'required|integer|distinct|exists:time_slots,id',
             'slots.*.price'      => 'nullable|integer|min:0',

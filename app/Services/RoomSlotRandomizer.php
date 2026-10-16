@@ -95,26 +95,11 @@ class RoomSlotRandomizer
         $created = 0;
 
         foreach ($rows as $slot) {
-            $isNew    = false;
-            $existing = TimeSlot::usableBy($partnerId)
-                ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
-                ->where('over_night', $slot['over_night'])
-                ->where('start_time', $slot['start'] . ':00')
-                ->where('end_time', $slot['end'] . ':00')
-                ->orderByRaw('partner_id IS NULL DESC') // ưu tiên khung hệ thống
-                ->first();
+            $existing = $this->findOrCreateSlot($partnerId, $slot['start'], $slot['end'], (bool) $slot['over_night']);
+            $isNew    = $existing->wasRecentlyCreated;
 
-            if (! $existing) {
-                $existing = TimeSlot::create([
-                    'partner_id' => $partnerId,
-                    'start_time' => $slot['start'],
-                    'end_time'   => $slot['end'],
-                    'over_night' => $slot['over_night'],
-                    'label'      => "{$slot['start']} - {$slot['end']}" . ($slot['over_night'] ? ' (Qua đêm)' : ''),
-                    'type'       => 'time',
-                ]);
+            if ($isNew) {
                 $created++;
-                $isNew = true;
             }
 
             $out[] = [
@@ -126,6 +111,38 @@ class RoomSlotRandomizer
         }
 
         return ['slots' => $out, 'created' => $created];
+    }
+
+    /**
+     * Khung giờ trùng giờ bắt đầu/kết thúc/qua đêm mà đối tác dùng được (hệ thống hoặc riêng); null nếu
+     * chưa có. Khung hệ thống được ưu tiên. Không tạo gì.
+     */
+    public function findSlot(?string $partnerId, string $start, string $end, bool $overNight): ?TimeSlot
+    {
+        return TimeSlot::usableBy($partnerId)
+            ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
+            ->where('over_night', $overNight)
+            ->where('start_time', substr($start, 0, 5) . ':00')
+            ->where('end_time', substr($end, 0, 5) . ':00')
+            ->orderByRaw('partner_id IS NULL DESC') // ưu tiên khung hệ thống
+            ->first();
+    }
+
+    /** Như findSlot() nhưng chưa có thì tạo khung riêng của đối tác (không bao giờ tạo trùng giờ). */
+    public function findOrCreateSlot(?string $partnerId, string $start, string $end, bool $overNight): TimeSlot
+    {
+        $start = substr($start, 0, 5);
+        $end   = substr($end, 0, 5);
+
+        return $this->findSlot($partnerId, $start, $end, $overNight)
+            ?? TimeSlot::create([
+                'partner_id' => $partnerId,
+                'start_time' => $start,
+                'end_time'   => $end,
+                'over_night' => $overNight,
+                'label'      => "{$start} - {$end}" . ($overNight ? ' (Qua đêm)' : ''),
+                'type'       => 'time',
+            ]);
     }
 
     private function clock(int $minutes): string

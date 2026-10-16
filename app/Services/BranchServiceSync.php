@@ -50,6 +50,18 @@ class BranchServiceSync
                 ));
             }
         });
+
+        // Phòng mới / đổi chi nhánh: các bảng giá phạm vi chi nhánh / toàn đối tác nhận phòng này ngay
+        // (cùng điểm móc với dịch vụ theo chi nhánh). Lỗi giá không được chặn việc lưu phòng.
+        try {
+            $product = $room instanceof Product ? $room : Product::withoutGlobalScopes()->find($roomId);
+
+            if ($product) {
+                app(\App\Services\PriceBoards\PriceBoardV2Service::class)->syncRoom($product);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** Đồng bộ lại mọi phòng thuộc các chi nhánh $branchIds (kể cả phòng gắn vào category con). */
