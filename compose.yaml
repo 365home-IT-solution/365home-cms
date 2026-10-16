@@ -16,8 +16,10 @@ services:
         restart: unless-stopped
         extra_hosts:
             - 'host.docker.internal:host-gateway'
+        # Chỉ bind 127.0.0.1 — nginx trên host proxy vào. Bind 0.0.0.0 thì Docker tự mở port ra internet
+        # (đi vòng qua ufw), ai biết IP VPS gọi thẳng được, bỏ qua Cloudflare + nginx.
         ports:
-            - '${APP_PORT:-80}:80'
+            - '127.0.0.1:${APP_PORT:-80}:80'
         volumes:
             - './storage:/var/www/html/storage'
             # vietnam.pmtiles (~1.2GB) bị .gitignore — image build trên GitHub Actions không có file
@@ -53,8 +55,9 @@ services:
         image: 'ghcr.io/365home-it-solution/365home-cms:${IMAGE_TAG:-production}'
         restart: unless-stopped
         command: php artisan reverb:start --host=0.0.0.0 --port=6001
+        # Chỉ bind 127.0.0.1 — trình duyệt vào qua nginx host (location /reverb/ → 127.0.0.1:6001).
         ports:
-            - '6001:6001'
+            - '127.0.0.1:6001:6001'
         env_file: .env
         networks:
             - app
