@@ -95,6 +95,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'show'])->name('escrow-settings.show');
     Route::match(['put', 'patch'], 'escrow-settings', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'update'])->name('escrow-settings.update');
     Route::get('partners/{partner}/free-trial', [\App\Http\Controllers\Api\Admin\EscrowSettingsController::class, 'partnerStatus'])->name('partners.free-trial');
+    Route::post('partners/scan-dossier', [AdminPartnerController::class, 'scanDossier'])->name('partners.scan-dossier');
+    Route::post('partners/{partner}/legal-documents/from-dossier', [AdminPartnerController::class, 'attachDossier'])->name('partners.legal-documents.from-dossier');
     Route::get('partners', [AdminPartnerController::class, 'index'])->name('partners.index');
     Route::post('partners', [AdminPartnerController::class, 'store'])->name('partners.store');
     Route::get('partners/{partner}', [AdminPartnerController::class, 'show'])->name('partners.show');
@@ -899,7 +901,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-templates'
 | PUT|PATCH /api/admin/price-boards/{id}    → sửa (items/product_ids gửi lên = thay toàn bộ phòng của bảng)
 | DELETE /api/admin/price-boards/{id}       → xoá, phòng được tính lại giá
 | POST   /api/admin/price-boards/{id}/apply → áp ngay xuống phòng, bất kể ngày hiệu lực
-| GET    /api/admin/price-boards/options?branch_id=&room_style= → bảng giá + bộ giá chọn khi tạo / sửa phòng
+| GET    /api/admin/price-boards/options?branch_id=&room_style=&kind=all|board|template → nguồn giá chung (bảng giá + bảng giá mẫu) khi tạo / sửa phòng
+| GET    /api/admin/price-boards?kind=template → danh sách bảng giá MẪU (cùng dữ liệu với GET /api/admin/price-templates, API cũ giữ nguyên)
 |        (POST|PUT /api/admin/products kèm price_board_id [+ price_board_sheet_id])
 | v2: GET /{id}/rooms · POST /preview · POST /{id}/duplicate · GET /presets · GET /presets/{code} ·
 |     POST /presets/{code}/use — body v2 = scope (rooms|branches|partner) + sheets[]; priority / days_of_week

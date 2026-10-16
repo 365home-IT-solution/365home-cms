@@ -301,36 +301,45 @@ class ProductForm
         ])->columns(1);
     }
 
-    // ── Giá gốc: lấy từ bảng giá / bảng giá mẫu (không lưu vào products, áp ở afterCreate/afterSave) ──
+    // ── Giá gốc: lấy từ bảng giá / bảng giá mẫu, HIỂN THỊ ngay khung giờ + giá và cho chỉnh riêng cho phòng này ──
+    // Các ô chọn không lưu vào bảng products (dehydrated = false); áp ở afterCreate/afterSave (trait AppliesRoomPriceSource).
     private static function priceSourceCard(): Section
     {
-        $partnerId = function ($livewire, Get $get): ?string {
-            $user = auth()->user();
+        $refresh = function (Get $get, \Filament\Forms\Set $set, $livewire): void {
+            $source = (string) ($get('pick_price_source') ?? 'none');
+            $preview = app(\App\Services\PriceBoards\RoomPriceBoardPicker::class)->preview(
+                $source,
+                filled($get('pick_price_board_id')) ? (int) $get('pick_price_board_id') : null,
+                filled($get('pick_price_sheet_id')) ? (int) $get('pick_price_sheet_id') : null,
+                filled($get('pick_price_template_id')) ? (int) $get('pick_price_template_id') : null,
+                (int) ($get('styles') ?: 1),
+                self::priceSourcePartnerId($livewire, $get),
+            );
 
-            if ($user && ! $user->seesAllPartners() && $user->partner_id) {
-                return (string) $user->partner_id;
-            }
-
-            $raw = $get('categories');
-            $id  = is_array($raw) ? ($raw[0] ?? null) : $raw;
-
-            if ($id) {
-                return Category::withoutGlobalScopes()->whereKey($id)->value('partner_id');
-            }
-
-            return isset($livewire->record) ? ($livewire->record->partner_id ?: null) : null;
+            $set('pick_price_rows', $preview['rows']);
+            $set('pick_price_title', $preview['title']);
+            $set('pick_price_daily_price', $preview['daily']['price'] ?? null);
+            $set('pick_price_daily_checkin', $preview['daily']['default_checkin'] ?? null);
+            $set('pick_price_daily_checkout', $preview['daily']['default_checkout'] ?? null);
         };
 
         return Section::make('Giá gốc của phòng')
-            ->description('Lấy khung giờ + giá (hoặc giá/đêm) từ một bảng giá hoặc bảng giá mẫu có sẵn. Không bắt buộc.')
+            ->description('Lấy khung giờ + giá (hoặc giá/đêm) từ một bảng giá hoặc bảng giá mẫu có sẵn, xem ngay bên dưới và chỉnh theo ý cho riêng phòng này. Không bắt buộc.')
             ->schema([
-                ToggleButtons::make('pick_price_source')
+                \Filament\Forms\Components\Radio::make('pick_price_source')
                     ->label('Lấy giá từ')
                     ->options(['none' => 'Không chọn', 'board' => 'Bảng giá', 'template' => 'Bảng giá mẫu'])
                     ->default('none')
-                    ->grouped()
+                    ->inline()
+                    ->inlineLabel(false)
                     ->live()
                     ->dehydrated(false)
+                    ->afterStateUpdated(function (Get $get, \Filament\Forms\Set $set, $livewire) use ($refresh) {
+                        $set('pick_price_board_id', null);
+                        $set('pick_price_sheet_id', null);
+                        $set('pick_price_template_id', null);
+                        $refresh($get, $set, $livewire);
+                    })
                     ->columnSpanFull(),
 
                 Select::make('pick_price_board_id')
@@ -338,18 +347,19 @@ class ProductForm
                     ->searchable()
                     ->dehydrated(false)
                     ->live()
-                    ->afterStateUpdated(fn (callable $set) => $set('pick_price_sheet_id', null))
-                    ->options(function ($livewire, Get $get) use ($partnerId) {
-                        $pid = $partnerId($livewire, $get);
+                    ->afterStateUpdated(function (Get $get, \Filament\Forms\Set $set, $livewire) use ($refresh) {
+                        $set('pick_price_sheet_id', null);
+                        $refresh($get, $set, $livewire);
+                    })
+                    ->options(function ($livewire, Get $get) {
+                        $pid = self::priceSourcePartnerId($livewire, $get);
 
                         if (! $pid) {
                             return [];
                         }
 
-                        $style = (int) ($get('styles') ?: 1);
-
                         return app(\App\Services\PriceBoards\RoomPriceBoardPicker::class)
-                            ->options($pid, null, $style)
+                            ->options($pid, null, (int) ($get('styles') ?: 1))
                             ->mapWithKeys(fn ($b) => [$b->id => $b->name . ($b->is_active ? '' : ' (đang tắt)')])
                             ->all();
                     })
@@ -358,6 +368,8 @@ class ProductForm
                 Select::make('pick_price_sheet_id')
                     ->label('Bộ giá')
                     ->dehydrated(false)
+                    ->live()
+                    ->afterStateUpdated(fn (Get $get, \Filament\Forms\Set $set, $livewire) => $refresh($get, $set, $livewire))
                     ->placeholder('Bộ mặc định theo loại phòng')
                     ->options(function (Get $get) {
                         $boardId = $get('pick_price_board_id');
@@ -381,10 +393,10 @@ class ProductForm
                     ->label('Bảng giá mẫu')
                     ->searchable()
                     ->dehydrated(false)
-                    ->options(function ($livewire, Get $get) use ($partnerId) {
-                        $pid = $partnerId($livewire, $get);
-
-                        return \Modules\Product\App\Models\PriceTemplate::usableBy($pid)
+                    ->live()
+                    ->afterStateUpdated(fn (Get $get, \Filament\Forms\Set $set, $livewire) => $refresh($get, $set, $livewire))
+                    ->options(function ($livewire, Get $get) {
+                        return \Modules\Product\App\Models\PriceTemplate::usableBy(self::priceSourcePartnerId($livewire, $get))
                             ->where('is_active', true)
                             ->orderBy('sort_order')->orderBy('id')
                             ->pluck('name', 'id')
@@ -392,9 +404,63 @@ class ProductForm
                     })
                     ->visible(fn (Get $get) => $get('pick_price_source') === 'template')
                     ->helperText('Chỉ dùng cho phòng theo khung giờ.'),
+
+                \Filament\Forms\Components\Hidden::make('pick_price_title')->dehydrated(false),
+
+                \Filament\Forms\Components\Placeholder::make('pick_price_title_view')
+                    ->hiddenLabel()
+                    ->content(fn (Get $get) => new \Illuminate\Support\HtmlString('<span style="font-weight:600">Đang xem: ' . e((string) $get('pick_price_title')) . '</span> — chỉnh giá bên dưới chỉ áp cho phòng này, không đổi bảng giá / mẫu.'))
+                    ->visible(fn (Get $get) => filled($get('pick_price_title')))
+                    ->columnSpanFull(),
+
+                // Phòng THEO GIỜ: bảng khung giờ + giá, sửa giá từng khung hoặc xoá khung không dùng.
+                \Filament\Forms\Components\Repeater::make('pick_price_rows')
+                    ->label('Khung giờ + giá của phòng')
+                    ->dehydrated(false)
+                    ->addActionLabel('Thêm khung giờ')
+                    ->reorderable(false)
+                    ->deletable()
+                    ->defaultItems(0)
+                    ->columns(4)
+                    ->schema([
+                        \Filament\Forms\Components\Hidden::make('timeslot_id'),
+                        \Filament\Forms\Components\TimePicker::make('start_time')->label('Từ giờ')->seconds(false)->format('H:i')->required(),
+                        \Filament\Forms\Components\TimePicker::make('end_time')->label('Đến giờ')->seconds(false)->format('H:i')->required(),
+                        \Filament\Forms\Components\Toggle::make('over_night')->label('Qua đêm')->inline(false),
+                        \Filament\Forms\Components\TextInput::make('price')->label('Giá (đ)')->numeric()->minValue(0)->step(1000)->required()->suffix('đ'),
+                    ])
+                    ->helperText('Nếu phòng thuộc bảng giá đang bật thì giá hiển thị cho khách vẫn theo bảng; giá chỉnh ở đây là giá gốc của phòng khi bảng tắt / hết hạn.')
+                    ->visible(fn (Get $get) => ((int) ($get('styles') ?: 1)) === 1 && filled($get('pick_price_rows')))
+                    ->columnSpanFull(),
+
+                // Phòng THEO NGÀY: giá/đêm + giờ nhận, trả.
+                \Filament\Forms\Components\Grid::make(3)->schema([
+                    \Filament\Forms\Components\TextInput::make('pick_price_daily_price')->label('Giá một đêm (đ)')->numeric()->minValue(0)->step(1000)->suffix('đ')->dehydrated(false),
+                    \Filament\Forms\Components\TextInput::make('pick_price_daily_checkin')->label('Giờ nhận phòng')->placeholder('14:00')->dehydrated(false),
+                    \Filament\Forms\Components\TextInput::make('pick_price_daily_checkout')->label('Giờ trả phòng')->placeholder('12:00')->dehydrated(false),
+                ])->visible(fn (Get $get) => ((int) ($get('styles') ?: 1)) === 2 && filled($get('pick_price_title')))->columnSpanFull(),
             ])
             ->columns(2)
             ->collapsible();
+    }
+
+    /** Đối tác đang làm việc trên form phòng: tài khoản đối tác / super_admin đã chọn đối tác, hoặc suy từ chi nhánh đã chọn. */
+    private static function priceSourcePartnerId($livewire, Get $get): ?string
+    {
+        $user = auth()->user();
+
+        if ($user && ! $user->seesAllPartners() && $user->partner_id) {
+            return (string) $user->partner_id;
+        }
+
+        $raw = $get('categories');
+        $id  = is_array($raw) ? ($raw[0] ?? null) : $raw;
+
+        if ($id) {
+            return Category::withoutGlobalScopes()->whereKey($id)->value('partner_id');
+        }
+
+        return isset($livewire->record) ? ($livewire->record->partner_id ?: null) : null;
     }
 
     // ── Mô tả ───────────────────────────────────────────────────────────────

@@ -22,6 +22,10 @@ trait AppliesRoomPriceSource
     {
         $source = $this->data['pick_price_source'] ?? 'none';
 
+        if ($source !== 'none' && ($rowError = $this->priceRowsError())) {
+            return $rowError;
+        }
+
         if ($source === 'board' && filled($this->data['pick_price_board_id'] ?? null)) {
             $partnerId = $this->priceSourcePartnerId($record);
             $style     = (int) ($this->data['styles'] ?? $record?->styles ?? 1);
@@ -80,6 +84,68 @@ trait AppliesRoomPriceSource
                 Notification::make()->title('Đã thêm khung giờ + giá từ bảng giá mẫu "' . $template->name . '"')->success()->send();
             }
         }
+
+        $this->applyPriceOverridesFromForm($record);
+    }
+
+    /** Giá người dùng đã CHỈNH riêng trong form (bảng khung giờ + giá / giá đêm) — chỉ áp cho phòng này, không đổi bảng giá / mẫu. */
+    private function applyPriceOverridesFromForm(Product $record): void
+    {
+        if (($this->data['pick_price_source'] ?? 'none') === 'none') {
+            return;
+        }
+
+        $rows = collect($this->data['pick_price_rows'] ?? [])
+            ->map(fn ($row) => [
+                'timeslot_id' => $row['timeslot_id'] ?? null,
+                'start_time'  => $row['start_time'] ?? null,
+                'end_time'    => $row['end_time'] ?? null,
+                'over_night'  => isset($row['over_night']) ? (bool) $row['over_night'] : null,
+                'price'       => $row['price'] ?? null,
+            ])
+            ->filter(fn ($row) => filled($row['timeslot_id']) || (filled($row['start_time']) && filled($row['end_time'])))
+            ->values()
+            ->all();
+
+        $daily = (int) ($record->styles ?? 1) === 2 ? [
+            'price'            => $this->data['pick_price_daily_price'] ?? null,
+            'default_checkin'  => $this->data['pick_price_daily_checkin'] ?? null,
+            'default_checkout' => $this->data['pick_price_daily_checkout'] ?? null,
+        ] : null;
+
+        // prune = true: khung người dùng đã xoá khỏi bảng không được giữ lại trong phòng.
+        app(RoomPriceBoardPicker::class)->applyOverrides($record->fresh(), $rows, $daily, prune: true);
+    }
+
+    /** Kiểm tra bảng khung giờ người dùng đã chỉnh: giờ hợp lệ, khung không trùng nhau, giá không âm. */
+    private function priceRowsError(): ?string
+    {
+        $seen = [];
+
+        foreach ((array) ($this->data['pick_price_rows'] ?? []) as $row) {
+            $start = substr((string) ($row['start_time'] ?? ''), 0, 5);
+            $end   = substr((string) ($row['end_time'] ?? ''), 0, 5);
+
+            if (! preg_match('/^\d{2}:\d{2}$/', $start) || ! preg_match('/^\d{2}:\d{2}$/', $end)) {
+                return 'Mỗi khung giờ cần có giờ bắt đầu và giờ kết thúc.';
+            }
+
+            if ($start === $end) {
+                return "Khung {$start} - {$end}: giờ bắt đầu và kết thúc không được trùng nhau.";
+            }
+
+            if (isset($seen["{$start}-{$end}"])) {
+                return "Khung {$start} - {$end} bị trùng — mỗi khung giờ chỉ xuất hiện một lần.";
+            }
+
+            $seen["{$start}-{$end}"] = true;
+
+            if (isset($row['price']) && $row['price'] !== '' && (float) $row['price'] < 0) {
+                return "Khung {$start} - {$end}: giá không được âm.";
+            }
+        }
+
+        return null;
     }
 
     private function priceSourceCategoryIds(?Product $record): array

@@ -355,7 +355,7 @@ class ProductController extends Controller
                 return response()->json(['message' => 'Không tìm thấy bảng giá.'], 422);
             }
 
-            $boardSheet = $picker->resolveSheet($board, (int) $data['styles'], $data['price_board_sheet_id'] ?? null);
+            $boardSheet = $picker->resolveSheet($board, (int) $data['styles'], filled($data['price_board_sheet_id'] ?? null) ? (int) $data['price_board_sheet_id'] : null);
 
             if ($error = $picker->error($board, $boardSheet, (int) $data['styles'], array_map('intval', $data['categories'] ?? []))) {
                 return response()->json(['message' => $error], 422);
@@ -397,6 +397,8 @@ class ProductController extends Controller
         if ($board && $boardSheet) {
             app(RoomPriceBoardPicker::class)->apply($board, $boardSheet, $product->fresh());
         }
+
+        $this->applyPriceOverrides($product->fresh(), $data, $template || $board);
 
         $this->handleImages($request, $product);
 
@@ -466,7 +468,7 @@ class ProductController extends Controller
             }
 
             $style      = (int) ($data['styles'] ?? $product->styles ?? 1);
-            $boardSheet = $picker->resolveSheet($board, $style, $data['price_board_sheet_id'] ?? null);
+            $boardSheet = $picker->resolveSheet($board, $style, filled($data['price_board_sheet_id'] ?? null) ? (int) $data['price_board_sheet_id'] : null);
             $cats       = $data['categories'] ?? $product->categories()->pluck('categories.id')->all();
 
             if ($error = $picker->error($board, $boardSheet, $style, array_map('intval', $cats), $product)) {
@@ -519,6 +521,8 @@ class ProductController extends Controller
         if ($board && $boardSheet) {
             app(RoomPriceBoardPicker::class)->apply($board, $boardSheet, $product->fresh());
         }
+
+        $this->applyPriceOverrides($product->fresh(), $data, $template || $board);
 
         $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug']);
 
@@ -1032,6 +1036,23 @@ class ProductController extends Controller
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /** Chỉnh giá riêng của phòng sau khi chọn nguồn giá (chỉ khi có chọn nguồn): xem RoomPriceBoardPicker::applyOverrides. */
+    private function applyPriceOverrides(Product $room, array $data, bool $hasSource): void
+    {
+        if (! $hasSource) {
+            return;
+        }
+
+        app(RoomPriceBoardPicker::class)->applyOverrides(
+            $room,
+            $data['price_overrides'] ?? [],
+            isset($data['room_price']) || isset($data['room_default_checkin']) || isset($data['room_default_checkout'])
+                ? ['price' => $data['room_price'] ?? null, 'default_checkin' => $data['room_default_checkin'] ?? null, 'default_checkout' => $data['room_default_checkout'] ?? null]
+                : null,
+            (bool) ($data['price_replace_slots'] ?? false),
+        );
+    }
+
     private function rules(bool $isUpdate = false, ?string $productId = null): array
     {
         $required = $isUpdate ? 'sometimes|required' : 'required';
@@ -1074,6 +1095,20 @@ class ProductController extends Controller
             // vào bảng. Không dùng chung với price_template_id.
             'price_board_id'       => 'nullable|integer',
             'price_board_sheet_id' => 'nullable|integer',
+            // CHỈNH GIÁ RIÊNG của phòng sau khi lấy từ nguồn (chỉ đổi giá gốc của phòng này, không sửa bảng giá / mẫu):
+            // phòng theo giờ gửi price_overrides[] = {timeslot_id, price}; phòng theo ngày gửi room_price (+ room_default_checkin/checkout).
+            'price_overrides'               => 'nullable|array',
+            // Mỗi dòng: timeslot_id (khung có sẵn) HOẶC start_time + end_time (H:i — đổi giờ / thêm khung mới); over_night tuỳ chọn.
+            'price_overrides.*.timeslot_id' => 'nullable|integer|required_without:price_overrides.*.start_time',
+            'price_overrides.*.start_time'  => 'nullable|date_format:H:i|required_without:price_overrides.*.timeslot_id|required_with:price_overrides.*.end_time',
+            'price_overrides.*.end_time'    => 'nullable|date_format:H:i|required_with:price_overrides.*.start_time',
+            'price_overrides.*.over_night'  => 'nullable|boolean',
+            'price_overrides.*.price'       => 'required_with:price_overrides|integer|min:0',
+            // true = phòng chỉ giữ đúng các khung trong price_overrides (khung khác của nguồn bị gỡ).
+            'price_replace_slots'           => 'nullable|boolean',
+            'room_price'                    => 'nullable|integer|min:0',
+            'room_default_checkin'          => 'nullable|date_format:H:i',
+            'room_default_checkout'         => 'nullable|date_format:H:i',
             // Chỉ thêm các khung giờ NÀY trong mẫu (timeslot_id); bỏ trống = thêm cả mẫu.
             'price_template_timeslot_ids'   => 'nullable|array|min:1',
             'price_template_timeslot_ids.*' => 'integer',

@@ -37,6 +37,81 @@ class PartnerController extends Controller
         return response()->json($partners->through(fn (Partner $partner) => $this->format($partner, $documents)));
     }
 
+    /**
+     * POST /api/admin/partners/scan-dossier — QUÉT BỘ HỒ SƠ để tự điền hồ sơ đối tác (multipart): gpkd (Giấy phép kinh doanh),
+     * cccd_front + cccd_back (CCCD hai mặt, đọc mã QR), antt (Giấy chứng nhận an ninh trật tự). Cần ít nhất một tệp. Trả GỢI Ý
+     * cho các ô của hồ sơ đối tác + cảnh báo đối chiếu chéo; KHÔNG lưu gì — người nhập kiểm tra rồi gửi POST /partners.
+     */
+    public function scanDossier(Request $request, \App\Services\PartnerDossierScanner $scanner): JsonResponse
+    {
+        $this->superAdmin($request);
+
+        $files = $request->validate([
+            'gpkd'       => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            'cccd_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'cccd_back'  => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'antt'       => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ], [], ['gpkd' => 'Giấy phép kinh doanh', 'cccd_front' => 'CCCD mặt trước', 'cccd_back' => 'CCCD mặt sau', 'antt' => 'Giấy An ninh trật tự']);
+
+        $uploaded = [];
+        foreach (['gpkd', 'cccd_front', 'cccd_back', 'antt'] as $key) {
+            if ($request->hasFile($key)) {
+                $uploaded[$key] = $request->file($key);
+            }
+        }
+
+        if ($uploaded === []) {
+            throw ValidationException::withMessages(['gpkd' => ['Tải lên ít nhất một giấy tờ (gpkd, cccd_front, cccd_back, antt).']]);
+        }
+
+        // GPKD / ANTT đọc bằng OCR.space; chỉ có CCCD (mã QR) thì không cần cấu hình OCR.
+        abort_if(! $scanner->isConfigured() && (isset($uploaded['gpkd']) || isset($uploaded['antt'])), 503, 'Chức năng quét giấy tờ chưa được cấu hình (OCR.space). Vui lòng tự nhập thông tin.');
+
+        $result = $scanner->scan($uploaded);
+        $filled = count(array_filter($result['fields'], fn ($value) => filled($value)));
+
+        return response()->json([
+            'message' => "Đã đọc được {$filled}/" . count($result['fields']) . ' ô. Vui lòng kiểm tra lại trước khi tạo đối tác.',
+            'data'    => $result,
+        ]);
+    }
+
+    /**
+     * POST /api/admin/partners/{partner}/legal-documents/from-dossier — quét bộ hồ sơ (cùng 4 tệp như scan-dossier) rồi ĐƯA vào hồ sơ pháp lý
+     * của đối tác: mỗi giấy thành một tài liệu CHỜ DUYỆT (không tự duyệt). Giấy nào không đọc được thì để bản nháp; CCCD cần đủ hai mặt + mã QR.
+     */
+    public function attachDossier(Request $request, Partner $partner, \App\Services\PartnerDossierScanner $scanner): JsonResponse
+    {
+        $this->superAdmin($request);
+        $request->validate([
+            'gpkd'       => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            'cccd_front' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'cccd_back'  => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'antt'       => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ]);
+
+        $uploaded = [];
+        foreach (['gpkd', 'cccd_front', 'cccd_back', 'antt'] as $key) {
+            if ($request->hasFile($key)) {
+                $uploaded[$key] = $request->file($key);
+            }
+        }
+
+        if ($uploaded === []) {
+            throw ValidationException::withMessages(['gpkd' => ['Tải lên ít nhất một giấy tờ (gpkd, cccd_front, cccd_back, antt).']]);
+        }
+
+        abort_if(! $scanner->isConfigured() && (isset($uploaded['gpkd']) || isset($uploaded['antt'])), 503, 'Chức năng quét giấy tờ chưa được cấu hình (OCR.space). Vui lòng tự nhập thông tin.');
+
+        $scan = $scanner->scan($uploaded);
+        $result = $scanner->attach($partner, $uploaded, $scan['scans'], (string) $request->user()->id);
+
+        return response()->json([
+            'message'  => count($result['created']) . ' giấy tờ đã được đưa vào hồ sơ pháp lý.',
+            'data'     => ['created' => $result['created'], 'skipped' => $result['skipped'], 'warnings' => $scan['warnings']],
+        ], $result['created'] === [] ? 422 : 201);
+    }
+
     public function store(Request $request, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
