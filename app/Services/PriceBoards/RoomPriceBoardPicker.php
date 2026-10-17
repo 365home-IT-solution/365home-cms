@@ -169,6 +169,147 @@ class RoomPriceBoardPicker
         $this->v2->rematerialize($board->fresh(), [(string) $room->id]);
     }
 
+    /**
+     * Người dùng CHỈNH GIÁ RIÊNG cho phòng sau khi chọn nguồn (bảng giá / bảng giá mẫu): chỉ đổi giá GỐC của phòng này, không sửa bảng giá
+     * hay mẫu. Phòng theo giờ: $rows = [{timeslot_id, price}], $prune = true thì khung không còn trong $rows bị gỡ. Phòng theo ngày: $daily =
+     * {price, default_checkin, default_checkout}. Ghi nhận như sửa giá tay ở "Hệ thống giá" (cập nhật giá gốc dùng để khôi phục).
+     * Lưu ý: nếu phòng đang thuộc bảng ĐANG BẬT thì giá hiển thị vẫn theo bảng; giá chỉnh ở đây là giá gốc khi bảng tắt / hết hạn.
+     *
+     * @param list<array{timeslot_id?:int|string|null, start_time?:?string, end_time?:?string, over_night?:?bool, price?:int|string|null}> $rows
+     *        Có start_time + end_time (H:i) thì dòng đó là khung theo GIỜ (chưa có thì tạo khung mới) — dùng để đổi giờ hoặc thêm khung.
+     * @param array{price?:int|string|null, default_checkin?:?string, default_checkout?:?string}|null $daily
+     */
+    public function applyOverrides(Product $room, array $rows = [], ?array $daily = null, bool $prune = false): void
+    {
+        if ($rows === [] && ! $daily) {
+            return;
+        }
+
+        $before = $this->sync->snapshotPricing($room);
+
+        DB::transaction(function () use ($room, $rows, $daily, $prune) {
+            if ((int) ($room->styles ?? 1) === 2) {
+                $changes = array_filter([
+                    'price'            => isset($daily['price']) && $daily['price'] !== '' ? max(0, (int) $daily['price']) : null,
+                    'default_checkin'  => $daily['default_checkin'] ?? null,
+                    'default_checkout' => $daily['default_checkout'] ?? null,
+                ], fn ($v) => $v !== null && $v !== '');
+
+                if ($changes) {
+                    $room->forceFill($changes)->save();
+                }
+
+                return;
+            }
+
+            $keep       = [];
+            $randomizer = app(\App\Services\RoomSlotRandomizer::class);
+
+            foreach ($rows as $row) {
+                $start = filled($row['start_time'] ?? null) ? substr((string) $row['start_time'], 0, 5) : null;
+                $end   = filled($row['end_time'] ?? null) ? substr((string) $row['end_time'], 0, 5) : null;
+                $over  = array_key_exists('over_night', $row) && $row['over_night'] !== null ? (bool) $row['over_night'] : null;
+
+                // Có giờ → tìm khung trùng giờ của đối tác / hệ thống, chưa có thì tạo khung riêng (không tạo trùng).
+                if ($start && $end) {
+                    $over ??= $end <= $start;
+                    $timeslotId = (int) $randomizer->findOrCreateSlot($room->partner_id, $start, $end, $over)->id;
+                } else {
+                    $timeslotId = (int) ($row['timeslot_id'] ?? 0);
+                }
+
+                if (! $timeslotId) {
+                    continue;
+                }
+
+                $keep[] = $timeslotId;
+                $price  = isset($row['price']) && $row['price'] !== '' ? max(0, (int) $row['price']) : null;
+
+                $slot = RoomTimeSlot::where('room_id', $room->id)->where('timeslot_id', $timeslotId)->whereNull('date')->first();
+
+                if ($slot) {
+                    $slot->update(array_filter(['price' => $price, 'over_night' => $over], fn ($v) => $v !== null));
+                } elseif ($price !== null) {
+                    RoomTimeSlot::create([
+                        'room_id' => $room->id, 'timeslot_id' => $timeslotId, 'date' => null,
+                        'price' => $price, 'over_night' => (bool) $over, 'status' => 'available',
+                    ]);
+                }
+            }
+
+            if ($prune && $keep) {
+                RoomTimeSlot::where('room_id', $room->id)->whereNull('date')->whereNotIn('timeslot_id', $keep)
+                    ->whereHas('timeSlot', fn ($q) => $q->where(fn ($q2) => $q2->whereNull('type')->orWhere('type', '!=', 'date')))
+                    ->get()->each(function (RoomTimeSlot $slot) {
+                        $slot->promotions()->detach();
+                        $slot->coupons()->detach();
+                        $slot->delete();
+                    });
+            }
+        });
+
+        $this->sync->afterManualPriceEdit($room->fresh(), $before);
+    }
+
+    /**
+     * Khung giờ + giá của nguồn đang chọn để HIỂN THỊ NGAY trên form tạo phòng (và cho người dùng chỉnh).
+     *
+     * @return array{rows: list<array{timeslot_id:int,label:string,price:int,over_night:bool}>, daily: ?array{price:?int,default_checkin:?string,default_checkout:?string}, title: ?string}
+     */
+    public function preview(string $source, ?int $boardId, ?int $sheetId, ?int $templateId, int $style, ?string $partnerId): array
+    {
+        $empty = ['rows' => [], 'daily' => null, 'title' => null];
+
+        if (! $partnerId) {
+            return $empty;
+        }
+
+        if ($source === 'board' && $boardId) {
+            $board = $this->usableBoard($partnerId, $boardId);
+            $sheet = $board ? $this->resolveSheet($board, $style, $sheetId) : null;
+
+            if (! $board || ! $sheet || ! $this->eligible($sheet, $style)) {
+                return $empty;
+            }
+
+            if ($style === 2) {
+                return ['rows' => [], 'title' => $board->name . ' — ' . $sheet->name, 'daily' => [
+                    'price' => $sheet->price === null ? null : (int) $sheet->price,
+                    'default_checkin' => $sheet->default_checkin ?: '14:00',
+                    'default_checkout' => $sheet->default_checkout ?: '12:00',
+                ]];
+            }
+
+            return ['daily' => null, 'title' => $board->name . ' — ' . $sheet->name, 'rows' => $sheet->slots->map(fn ($s) => [
+                'timeslot_id' => (int) $s->timeslot_id,
+                'start_time'  => substr((string) $s->timeslot?->start_time, 0, 5),
+                'end_time'    => substr((string) $s->timeslot?->end_time, 0, 5),
+                'label'       => ($s->timeslot?->label ?: substr((string) $s->timeslot?->start_time, 0, 5) . ' - ' . substr((string) $s->timeslot?->end_time, 0, 5)),
+                'price'       => (int) $s->price,
+                'over_night'  => (bool) $s->over_night,
+            ])->values()->all()];
+        }
+
+        if ($source === 'template' && $templateId && $style === 1) {
+            $template = \Modules\Product\App\Models\PriceTemplate::usableBy($partnerId)->where('is_active', true)->with('slots.timeSlot')->find($templateId);
+
+            if (! $template) {
+                return $empty;
+            }
+
+            return ['daily' => null, 'title' => $template->name, 'rows' => $template->slots->filter(fn ($s) => $s->price !== null)->map(fn ($s) => [
+                'timeslot_id' => (int) $s->timeslot_id,
+                'start_time'  => substr((string) $s->timeSlot?->start_time, 0, 5),
+                'end_time'    => substr((string) $s->timeSlot?->end_time, 0, 5),
+                'label'       => $s->timeSlot?->label ?: substr((string) $s->timeSlot?->start_time, 0, 5) . ' - ' . substr((string) $s->timeSlot?->end_time, 0, 5),
+                'price'       => (int) $s->price,
+                'over_night'  => (bool) $s->over_night,
+            ])->values()->all()];
+        }
+
+        return $empty;
+    }
+
     private function writeBase(PriceBoardSheet $sheet, Product $room): void
     {
         if ((int) ($room->styles ?? 1) === 2) {

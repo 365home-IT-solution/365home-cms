@@ -59,6 +59,43 @@ class CreatePartner extends CreateRecord
         PartnerForm::syncAssignments($record, $this->pendingBranchIds, $this->pendingUserIds);
 
         PartnerForm::applyTrialPlan($record, $this->pendingPlanId);
+
+        $this->attachDossierDocuments($record);
+    }
+
+    // Giấy tờ đã tải ở khối "Tải hồ sơ để tự điền" → hồ sơ pháp lý của đối tác, trạng thái CHỜ DUYỆT (Super Admin xem lại và duyệt).
+    private function attachDossierDocuments(Model $record): void
+    {
+        $files = array_filter([
+            'gpkd'       => PartnerForm::firstUploadedFile($this->data['dossier_gpkd'] ?? null),
+            'cccd_front' => PartnerForm::firstUploadedFile($this->data['dossier_cccd_front'] ?? null),
+            'cccd_back'  => PartnerForm::firstUploadedFile($this->data['dossier_cccd_back'] ?? null),
+            'antt'       => PartnerForm::firstUploadedFile($this->data['dossier_antt'] ?? null),
+        ]);
+
+        if ($files === []) {
+            return;
+        }
+
+        try {
+            $scans = json_decode((string) ($this->data['dossier_scans'] ?? ''), true) ?: [];
+            $result = app(\App\Services\PartnerDossierScanner::class)->attach($record, $files, $scans, (string) auth()->id());
+        } catch (\Throwable $exception) {
+            report($exception);
+            \Filament\Notifications\Notification::make()->title('Đã tạo đối tác nhưng chưa đưa được giấy tờ vào hồ sơ pháp lý — tải lại ở tab Tài liệu & Xác minh.')->warning()->send();
+
+            return;
+        }
+
+        if ($result['created'] !== []) {
+            \Filament\Notifications\Notification::make()
+                ->title('Đã đưa ' . count($result['created']) . ' giấy tờ vào hồ sơ pháp lý (chờ duyệt)')
+                ->success()->send();
+        }
+
+        foreach ($result['skipped'] as $message) {
+            \Filament\Notifications\Notification::make()->title($message)->warning()->send();
+        }
     }
 
     protected function getRedirectUrl(): string

@@ -60,6 +60,7 @@ class PriceBoardController extends Controller
         $user = $request->user();
 
         $request->validate([
+            'kind'       => ['nullable', Rule::in(['board', 'template'])],
             'branch_id'  => 'nullable|integer',
             'product_id' => 'nullable|string',
             'scope'      => ['nullable', Rule::in([PriceBoard::SCOPE_ROOMS, PriceBoard::SCOPE_BRANCHES, PriceBoard::SCOPE_PARTNER])],
@@ -67,6 +68,14 @@ class PriceBoardController extends Controller
             'page'       => 'nullable|integer|min:1',
             'per_page'   => 'nullable|integer|min:1|max:100',
         ]);
+
+        // kind=template: danh sách bảng giá MẪU (price_templates) — cùng dữ liệu và định dạng với GET /price-templates, thêm kind.
+        if ($request->input('kind') === 'template') {
+            $response = app(PriceTemplateController::class)->index($request)->getData(true);
+            $rows     = array_map(fn (array $t) => ['kind' => 'template'] + $t, $response['data'] ?? []);
+
+            return response()->json(['data' => $rows, 'meta' => ['kind' => 'template', 'total' => count($rows), 'phase' => PriceBoard::phase2Enabled() ? 2 : 1]]);
+        }
 
         $query = PriceBoard::visibleTo($user)->with(['branch:id,name', 'scopeBranches:id,name'])->withCount(['items', 'sheets']);
 
@@ -360,15 +369,24 @@ class PriceBoardController extends Controller
         $data = $request->validate([
             'branch_id'  => 'nullable|integer',
             'room_style' => ['nullable', Rule::in([1, 2])],
+            'kind'       => ['nullable', Rule::in(['all', 'board', 'template'])],
         ]);
 
-        $boards = app(\App\Services\PriceBoards\RoomPriceBoardPicker::class)->options(
+        $kind  = $data['kind'] ?? 'all';
+        $style = isset($data['room_style']) ? (int) $data['room_style'] : null;
+
+        $boards = $kind === 'template' ? collect() : app(\App\Services\PriceBoards\RoomPriceBoardPicker::class)->options(
             (string) $user->partner_id,
             isset($data['branch_id']) ? (int) $data['branch_id'] : null,
-            isset($data['room_style']) ? (int) $data['room_style'] : null,
+            $style,
         );
 
-        return response()->json(['data' => $boards->map(fn (PriceBoard $b) => [
+        // Bảng giá MẪU (price_templates) chỉ gồm khung giờ + giá nên chỉ dùng cho phòng theo giờ.
+        $templates = ($kind === 'board' || $style === 2) ? [] : $this->templateOptionItems($request);
+
+        $boardItems = $boards->map(fn (PriceBoard $b) => [
+            'kind'       => 'board',
+            'use'        => ['field' => 'price_board_id', 'id' => $b->id, 'sheet_field' => 'price_board_sheet_id'],
             'id'         => $b->id,
             'name'       => $b->name,
             'scope'      => $b->scope ?: PriceBoard::SCOPE_ROOMS,
@@ -396,7 +414,54 @@ class PriceBoardController extends Controller
                 'default_checkin'  => $s->default_checkin,
                 'default_checkout' => $s->default_checkout,
             ])->values(),
-        ])->values()]);
+        ])->values()->all();
+
+        return response()->json(['data' => array_merge($boardItems, $templates)]);
+    }
+
+    /**
+     * Bảng giá MẪU (price_templates) trình bày cùng dạng với bảng giá trong /options (kind = template): một bộ giá duy nhất
+     * "Khung giờ + giá". Dùng khi tạo phòng bằng `price_template_id` — id là id của bảng giá mẫu, KHÔNG đổi so với API /price-templates.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function templateOptionItems(Request $request): array
+    {
+        $request->query->set('is_active', '1');
+        $items = app(PriceTemplateController::class)->index($request)->getData(true)['data'] ?? [];
+
+        return array_map(fn (array $t) => [
+            'kind'         => 'template',
+            'use'          => ['field' => 'price_template_id', 'id' => $t['id'], 'sheet_field' => null],
+            'id'           => $t['id'],
+            'name'         => $t['name'],
+            'scope'        => null,
+            'is_active'    => true,
+            'status'       => 'template',
+            'is_system'    => $t['is_system'],
+            'start_date'   => null,
+            'end_date'     => null,
+            'priority'     => 0,
+            'days_of_week' => [],
+            'branches'     => [],
+            'sheets'       => [[
+                'id'         => null,
+                'name'       => 'Khung giờ + giá',
+                'room_style' => 1,
+                'is_default' => true,
+                'time_slots' => array_map(fn (array $s) => [
+                    'timeslot_id' => (int) $s['timeslot_id'],
+                    'label'       => $s['time_slot']['label'] ?? null,
+                    'start_time'  => $s['time_slot']['start_time'] ?? null,
+                    'end_time'    => $s['time_slot']['end_time'] ?? null,
+                    'price'       => (int) $s['price'],
+                    'over_night'  => (bool) $s['over_night'],
+                ], $t['slots']),
+                'price'            => null,
+                'default_checkin'  => null,
+                'default_checkout' => null,
+            ]],
+        ], $items);
     }
 
     public function presets(Request $request): JsonResponse

@@ -41,6 +41,8 @@ class PartnerForm
         $isMinihouse = Filament::getCurrentPanel()?->getId() === 'minihouse-admin';
 
         return $form->schema([
+            self::dossierScanSection($isMinihouse),
+
             Forms\Components\Tabs::make('partner_tabs')
                 ->tabs([
                     self::representativeTab(),
@@ -96,6 +98,115 @@ class PartnerForm
     }
 
     // ── TAB 1: Người đại diện ────────────────────────────────────────────────
+    // ── Tải hồ sơ để TỰ ĐIỀN (chỉ khi tạo đối tác Homestay) ────────────────────────────────────────────
+    // GPKD + CCCD hai mặt + giấy An ninh trật tự → App\Services\PartnerDossierScanner (OCR.space cho GPKD/ANTT, mã QR cho CCCD)
+    // → điền nháp các ô của hồ sơ, kèm cảnh báo đối chiếu chéo. Chỉ gợi ý: người nhập kiểm tra rồi mới bấm Tạo.
+    private static function dossierScanSection(bool $isMinihouse): Forms\Components\Section
+    {
+        $upload = fn (string $name, string $label, array $types) => Forms\Components\FileUpload::make($name)
+            ->label($label)
+            ->acceptedFileTypes($types)
+            ->maxSize(10240)
+            ->storeFiles(false)
+            ->dehydrated(false);
+
+        $image = ['image/jpeg', 'image/png', 'image/webp'];
+
+        return Forms\Components\Section::make('Tải hồ sơ để tự điền')
+            ->description('Tải Giấy phép kinh doanh, CCCD (2 mặt) và Giấy An ninh trật tự rồi bấm "Quét và điền": hệ thống đọc giấy tờ và điền nháp các ô bên dưới. Chỉ là gợi ý — kiểm tra lại từng ô trước khi tạo đối tác.')
+            ->icon('heroicon-o-document-magnifying-glass')
+            ->collapsible()
+            ->visible(fn (string $operation) => $operation === 'create' && ! $isMinihouse)
+            ->schema([
+                Forms\Components\Grid::make(2)->schema([
+                    $upload('dossier_gpkd', 'Giấy phép kinh doanh', [...$image, 'application/pdf']),
+                    $upload('dossier_antt', 'Giấy An ninh trật tự', [...$image, 'application/pdf']),
+                    $upload('dossier_cccd_front', 'CCCD — mặt trước', $image),
+                    $upload('dossier_cccd_back', 'CCCD — mặt sau', $image),
+                ]),
+
+                Forms\Components\Actions::make([
+                    Forms\Components\Actions\Action::make('scanDossier')
+                        ->label('Quét và điền')
+                        ->icon('heroicon-o-sparkles')
+                        ->action(function (Forms\Get $get, Forms\Set $set) {
+                            $file = fn (string $key) => self::firstUploadedFile($get($key));
+                            $files = array_filter([
+                                'gpkd'       => $file('dossier_gpkd'),
+                                'cccd_front' => $file('dossier_cccd_front'),
+                                'cccd_back'  => $file('dossier_cccd_back'),
+                                'antt'       => $file('dossier_antt'),
+                            ]);
+
+                            if ($files === []) {
+                                Notification::make()->title('Tải lên ít nhất một giấy tờ trước.')->warning()->send();
+
+                                return;
+                            }
+
+                            $scanner = app(\App\Services\PartnerDossierScanner::class);
+
+                            if (! $scanner->isConfigured() && (isset($files['gpkd']) || isset($files['antt']))) {
+                                Notification::make()->title('Chưa cấu hình OCR.space nên chưa quét được GPKD / An ninh trật tự. Có thể quét riêng CCCD hoặc tự nhập.')->warning()->send();
+
+                                return;
+                            }
+
+                            $result = $scanner->scan($files);
+                            $filled = [];
+
+                            foreach ($result['fields'] as $field => $value) {
+                                if (filled($value)) {
+                                    $set($field, $value);
+                                    $filled[] = $result['labels'][$field] ?? $field;
+                                }
+                            }
+
+                            $html = '<div style="font-size:0.85rem;line-height:1.5">'
+                                . '<strong>Đã tự điền ' . count($filled) . '/' . count($result['fields']) . ' ô:</strong> ' . e(implode(', ', $filled) ?: '—');
+
+                            if ($result['warnings'] !== []) {
+                                $html .= '<ul style="margin:8px 0 0 18px;list-style:disc;color:#b45309">'
+                                    . implode('', array_map(fn (string $w) => '<li>' . e($w) . '</li>', $result['warnings'])) . '</ul>';
+                            }
+
+                            $set('dossier_report', $html . '</div>');
+                            // Giữ kết quả quét từng giấy để lúc bấm Tạo đưa giấy tờ vào hồ sơ pháp lý (không phải quét lại).
+                            $set('dossier_scans', json_encode($result['scans'] ?? [], JSON_UNESCAPED_UNICODE));
+
+                            Notification::make()
+                                ->title('Đã quét hồ sơ: điền ' . count($filled) . ' ô')
+                                ->body($result['warnings'] === [] ? 'Kiểm tra lại các ô trước khi tạo đối tác.' : 'Có ' . count($result['warnings']) . ' cảnh báo — xem bên dưới khu vực tải hồ sơ.')
+                                ->color($result['warnings'] === [] ? 'success' : 'warning')
+                                ->send();
+                        }),
+                ]),
+
+                Forms\Components\Hidden::make('dossier_report')->dehydrated(false),
+                Forms\Components\Hidden::make('dossier_scans')->dehydrated(false),
+                Forms\Components\Placeholder::make('dossier_report_view')
+                    ->hiddenLabel()
+                    ->content(fn (Forms\Get $get) => new HtmlString((string) ($get('dossier_report') ?? '')))
+                    ->visible(fn (Forms\Get $get) => filled($get('dossier_report'))),
+            ]);
+    }
+
+    /** Tệp đầu tiên của ô FileUpload (state có thể là TemporaryUploadedFile hoặc chuỗi "livewire-file:…"). */
+    public static function firstUploadedFile(mixed $state): ?\Illuminate\Http\UploadedFile
+    {
+        $item = is_array($state) ? reset($state) : $state;
+
+        if ($item instanceof \Illuminate\Http\UploadedFile) {
+            return $item;
+        }
+
+        if (is_string($item) && str_starts_with($item, 'livewire-file:')) {
+            return \Livewire\Features\SupportFileUploads\TemporaryUploadedFile::createFromLivewire(substr($item, 14));
+        }
+
+        return null;
+    }
+
     private static function representativeTab(): Forms\Components\Tabs\Tab
     {
         return Forms\Components\Tabs\Tab::make('Người đại diện')
