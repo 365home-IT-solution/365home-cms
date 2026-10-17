@@ -101,17 +101,38 @@
 
                     {{-- Ảnh phòng --}}
                     @php
-                        $mainImg = $product->hasMedia('Ảnh bìa')
-                            ? $product->getFirstMedia('Ảnh bìa')->getUrl()
-                            : 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=900&q=80';
+                        // Ảnh gốc ~300–400KB/ảnh (PageSpeed "Improve image delivery" ~2MB). Ô ảnh trên
+                        // trang dùng conversion "wide" (avif 1080), lightbox dùng "full" (avif 1440) — xem
+                        // Product::registerMediaConversions(). Ảnh chưa sinh conversion thì dùng ảnh gốc.
+                        $pdConv = fn ($m, $c) => $m->hasGeneratedConversion($c) ? $m->getUrl($c) : $m->getUrl();
+                        $pdCover = $product->getFirstMedia('Ảnh bìa');
+                        $pdFallbackImg = 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=900&q=80';
+                        $mainImg = $pdCover ? $pdConv($pdCover, 'full') : $pdFallbackImg;
+                        $mainTile = $pdCover ? $pdConv($pdCover, 'wide') : $pdFallbackImg;
                         $galleryImgs = $mediaSecond ?? collect([]);
-                        $allImgs = collect([$mainImg])->merge($galleryImgs->map(fn($m) => $m->getUrl()));
+                        $allImgs = collect([$mainImg])->merge($galleryImgs->map(fn($m) => $pdConv($m, 'full')));
+                        $tileImgs = collect([$mainTile])->merge($galleryImgs->map(fn($m) => $pdConv($m, 'wide')));
                         $totalImgCount = $allImgs->count();
                         $videoSettingPd = is_array($product->setting_video_room) ? $product->setting_video_room : [];
                         $videoResolvedPd = \Modules\BladeThemeV1\Support\VideoEmbedResolver::resolve($videoSettingPd);
                         $hasVideoPd = $videoResolvedPd !== null;
                     @endphp
 
+
+                    {{-- Video tự phát (muted) có 2 bản — slider mobile và lưới desktop, bản kia bị ẩn bằng
+                         CSS nhưng iframe vẫn tải (~1.5MB YouTube mỗi bản, đo 2026-10-16). pdDeferSrc() chỉ gắn
+                         src cho bản khớp kích thước màn hình, sau sự kiện load để không tranh băng thông
+                         với ảnh/CSS. wire:ignore trên iframe/video: Livewire morph không xoá src gắn bằng JS. --}}
+                    <script>
+                        window.pdDeferSrc = window.pdDeferSrc || function (el, mq) {
+                            var go = function () {
+                                if (el.getAttribute('src') || !window.matchMedia(mq).matches) return;
+                                el.src = el.dataset.src;
+                            };
+                            if (document.readyState === 'complete') setTimeout(go, 300);
+                            else window.addEventListener('load', function () { setTimeout(go, 300); }, { once: true });
+                        };
+                    </script>
 
                     {{-- Alpine gallery component. Khi phòng có video: video luôn là slide ĐẦU TIÊN
                          (index 0) trong lightbox chung, theo sau là ảnh chính rồi các ảnh phụ, theo
@@ -170,13 +191,19 @@
                                             }
                                         }">
                                             @if ($videoResolvedPd['isEmbed'])
-                                                <iframe x-ref="pdVidFrameM" src="{{ $videoResolvedPd['mutedEmbedUrl'] }}"
+                                                {{-- Poster thật (<img>, preload scanner thấy ngay) nằm dưới iframe tới khi video
+                                                     tải — ảnh nền CSS bị phát hiện muộn, LCP mobile từng lên 10s. --}}
+                                                <img src="{{ $mainTile }}" alt="{{ $product->name ?? 'Video phòng' }}" fetchpriority="high"
+                                                    style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">
+                                                <iframe x-ref="pdVidFrameM" data-src="{{ $videoResolvedPd['mutedEmbedUrl'] }}" wire:ignore
+                                                    x-init="pdDeferSrc($el, '(max-width: 767.98px)')"
                                                     title="{{ e($product->name ?? 'Video phòng') }}"
-                                                    style="width:100%;height:100%;border:none;display:block;"
+                                                    style="position:relative;width:100%;height:100%;border:none;display:block;"
                                                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                                     allowfullscreen></iframe>
                                             @else
-                                                <video x-ref="pdVidFrameM" :muted="muted" src="{{ $videoResolvedPd['embedUrl'] }}"
+                                                <video x-ref="pdVidFrameM" :muted="muted" data-src="{{ $videoResolvedPd['embedUrl'] }}" wire:ignore
+                                                    x-init="pdDeferSrc($el, '(max-width: 767.98px)')" poster="{{ $mainTile }}"
                                                     autoplay loop playsinline
                                                     style="width:100%;height:100%;object-fit:cover;display:block;"></video>
                                             @endif
@@ -192,7 +219,7 @@
                                     @else
                                         <div class="pd-mobile-slide" style="cursor:pointer;"
                                             @click="show(0)">
-                                            <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}">
+                                            <img src="{{ $mainTile }}" alt="{{ $product->name ?? 'Video phòng' }}">
                                             <span class="pd-mobile-play-btn">
                                                 <svg viewBox="0 0 24 24" fill="#111827">
                                                     <polygon points="6,4 20,12 6,20" />
@@ -201,10 +228,11 @@
                                         </div>
                                     @endif
                                 @endif
-                                @foreach ($allImgs->values() as $i => $img)
+                                @foreach ($tileImgs->values() as $i => $img)
                                     <div class="pd-mobile-slide"
                                         @if ($totalImgCount > 1 || $hasVideoPd) style="cursor:pointer;" @click="show({{ $i + ($hasVideoPd ? 1 : 0) }})" @endif>
-                                        <img src="{{ $img }}" alt="{{ $product->name ?? 'Ảnh' }} {{ $i + 1 }}">
+                                        <img src="{{ $img }}" alt="{{ $product->name ?? 'Ảnh' }} {{ $i + 1 }}"
+                                            @if ($i > 0 || $hasVideoPd) loading="lazy" decoding="async" @else fetchpriority="high" @endif>
                                     </div>
                                 @endforeach
                             </div>
@@ -237,13 +265,17 @@
                                         }
                                     }">
                                         @if ($videoResolvedPd['isEmbed'])
-                                            <iframe x-ref="pdVidFrame" src="{{ $videoResolvedPd['mutedEmbedUrl'] }}"
+                                            <img src="{{ $mainTile }}" alt="{{ $product->name ?? 'Video phòng' }}"
+                                                class="absolute inset-0 w-full h-full object-cover">
+                                            <iframe x-ref="pdVidFrame" data-src="{{ $videoResolvedPd['mutedEmbedUrl'] }}" wire:ignore
+                                                x-init="pdDeferSrc($el, '(min-width: 768px)')"
                                                 title="{{ e($product->name ?? 'Video phòng') }}"
                                                 class="absolute inset-0 w-full h-full" style="border:none;"
                                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                                 allowfullscreen></iframe>
                                         @else
-                                            <video x-ref="pdVidFrame" :muted="muted" src="{{ $videoResolvedPd['embedUrl'] }}"
+                                            <video x-ref="pdVidFrame" :muted="muted" data-src="{{ $videoResolvedPd['embedUrl'] }}" wire:ignore
+                                                x-init="pdDeferSrc($el, '(min-width: 768px)')" poster="{{ $mainTile }}"
                                                 autoplay loop playsinline
                                                 class="absolute inset-0 w-full h-full object-cover"></video>
                                         @endif
@@ -263,7 +295,7 @@
                                     {{-- TikTok/Facebook: embed không có API mute/unmute qua postMessage
                                          đáng tin cậy — giữ hành vi cũ (poster + click mở lightbox). --}}
                                     <div class="col-span-2 row-span-2 relative">
-                                        <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}"
+                                        <img src="{{ $mainTile }}" alt="{{ $product->name ?? 'Video phòng' }}"
                                             class="absolute inset-0 w-full h-full object-cover cursor-pointer"
                                             @click="show(0)">
                                         <button type="button" @click="show(0)"
@@ -276,7 +308,7 @@
                                 @endif
                             @else
                                 <div class="col-span-2 row-span-2 relative">
-                                    <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
+                                    <img src="{{ $mainTile }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
                                         class="absolute inset-0 w-full h-full object-cover"
                                         @if ($totalImgCount > 1) @click="show(0)" style="cursor:pointer;" @endif>
                                 </div>
@@ -284,7 +316,7 @@
                             @for ($i = 1; $i <= 4; $i++)
                                 <div class="relative">
                                     @if ($allImgs->has($i))
-                                        <img src="{{ $allImgs->values()->get($i) }}" alt="Ảnh {{ $i + 1 }}"
+                                        <img src="{{ $tileImgs->values()->get($i) }}" alt="Ảnh {{ $i + 1 }}" loading="lazy" decoding="async"
                                             class="absolute inset-0 w-full h-full object-cover cursor-pointer"
                                             @click="show({{ $i + ($hasVideoPd ? 1 : 0) }})">
                                     @else

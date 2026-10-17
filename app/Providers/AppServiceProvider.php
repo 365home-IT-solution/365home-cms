@@ -178,7 +178,11 @@ class AppServiceProvider extends ServiceProvider
             // (e.g. app.js's owl.carousel/fancybox/aos imports) — Vite doesn't give that chunk its
             // own manifest key, so Vite.php's manifest lookup by `file` comes up empty. Treat that
             // the same as the legacy (non-"home") bundle rather than crashing on the type hint.
-            if (str_contains($url, 'build-bladethemev1') && ($src === null || ! str_contains($src, 'home'))) {
+            // app.scss (Tailwind + preflight, layout của mọi trang không phải trang chủ) cũng PHẢI áp
+            // ngay: nạp non-blocking thì trang chi tiết phòng vẽ HTML trần (body còn margin 8px mặc
+            // định) rồi restyle → Lighthouse mobile CLS 1.0 (đo 2026-10-16). Chỉ còn các chunk CSS do
+            // JS import ($src null: owl.carousel/fancybox/aos) là nạp non-blocking.
+            if (str_contains($url, 'build-bladethemev1') && $src === null) {
                 return [
                     'media' => 'print',
                     'onload' => "this.media='all'",

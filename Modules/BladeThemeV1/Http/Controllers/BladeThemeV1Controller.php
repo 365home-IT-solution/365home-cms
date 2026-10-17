@@ -773,6 +773,15 @@ class BladeThemeV1Controller extends Controller
         $offerPrice     = $product->discount > 0
                             ? (float) $product->price - (float) $product->discount
                             : (float) $product->price;
+        // products.price của phòng luôn = 0 (giá thật nằm ở từng khung giờ room_time_slots, trang hiển
+        // thị bằng Livewire) → schema từng ra "price": "0" ở mọi phòng, Google có thể hiện 0đ hoặc gỡ
+        // rich result vì lệch giá trên trang. Dùng khoảng giá các khung giờ thường (date = null; khung
+        // "ngày đặc biệt" là giá chốt riêng 1 ngày) làm AggregateOffer lowPrice/highPrice.
+        $slotPrices = $product->roomTimeSlots()
+            ->whereNull('date')
+            ->where('price', '>', 0)
+            ->selectRaw('MIN(price) as low, MAX(price) as high, COUNT(*) as n')
+            ->first();
 
         // Extract YouTube video IDs from description
         preg_match_all(
@@ -805,6 +814,9 @@ class BladeThemeV1Controller extends Controller
             'og_type'            => 'product',
             'canonical_url'      => $canonicalUrl,
             'offer_price'        => $offerPrice,
+            'offer_low_price'    => $slotPrices?->n ? (int) $slotPrices->low : null,
+            'offer_high_price'   => $slotPrices?->n ? (int) $slotPrices->high : null,
+            'offer_count'        => (int) ($slotPrices?->n ?? 0),
             'offer_currency'     => 'VND',
             'offer_availability' => $product->is_in_stock ? 'InStock' : 'OutOfStock',
             'offer_url'          => $canonicalUrl,

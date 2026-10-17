@@ -15,7 +15,7 @@ $groupedTags = $productTagsCollection->groupBy(fn($tag) => $tag->tag_type ?: 'Kh
         <div class="{{ $loop->index >= 6 ? 'hidden md:flex' : 'flex' }} items-center gap-3">
             <div class="w-8 h-8 shrink-0">
                 @if (!empty($tag->tag_image))
-                <img src="{{ asset('storage/'.$tag->tag_image) }}"
+                <img src="{{ asset('storage/'.$tag->tag_image) }}" width="32" height="32" loading="lazy"
                              class="w-full h-full" alt="{{ $tag->tag_name }}">
                     @else
                 <div class="w-full h-full bg-gray-200 rounded-lg flex items-center justify-center">

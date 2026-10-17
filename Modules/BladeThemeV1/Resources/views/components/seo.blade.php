@@ -135,48 +135,24 @@
                 $schema['sku'] = (string) $seoData['offer_sku'];
             }
 
-            if (isset($seoData['offer_price'])) {
-                $schema['offers'] = [
-                    '@type'         => 'Offer',
-                    'priceCurrency' => $seoData['offer_currency']   ?? 'VND',
-                    'price'         => (string) $seoData['offer_price'],
-                    'availability'  => 'https://schema.org/' . ($seoData['offer_availability'] ?? 'InStock'),
-                    'url'           => $seoData['offer_url']        ?? url()->current(),
-                    'shippingDetails' => [
-                        '@type'               => 'OfferShippingDetails',
-                        'shippingRate'        => [
-                            '@type'    => 'MonetaryAmount',
-                            'value'    => '0',
-                            'currency' => 'VND',
-                        ],
-                        'shippingDestination' => [
-                            '@type'          => 'DefinedRegion',
-                            'addressCountry' => 'VN',
-                        ],
-                        'deliveryTime' => [
-                            '@type'        => 'ShippingDeliveryTime',
-                            'handlingTime' => [
-                                '@type'    => 'QuantitativeValue',
-                                'minValue' => 0,
-                                'maxValue' => 1,
-                                'unitCode' => 'DAY',
-                            ],
-                            'transitTime' => [
-                                '@type'    => 'QuantitativeValue',
-                                'minValue' => 1,
-                                'maxValue' => 3,
-                                'unitCode' => 'DAY',
-                            ],
-                        ],
-                    ],
-                    'hasMerchantReturnPolicy' => [
-                        '@type'                => 'MerchantReturnPolicy',
-                        'applicableCountry'    => 'VN',
-                        'returnPolicyCategory' => 'https://schema.org/MerchantReturnFiniteReturnWindow',
-                        'merchantReturnDays'   => 7,
-                        'returnMethod'         => 'https://schema.org/ReturnByMail',
-                        'returnFees'           => 'https://schema.org/FreeReturn',
-                    ],
+            // Không gắn shippingDetails / hasMerchantReturnPolicy: đặt phòng không giao hàng, không đổi
+            // trả qua bưu điện — thông tin sai sự thật trong schema có thể bị Google coi là spam.
+            // Phòng: giá theo khung giờ → AggregateOffer (lowPrice/highPrice). Không có giá > 0 nào thì
+            // bỏ hẳn offers thay vì ghi "price": "0" (Google hiện 0đ / gỡ rich result vì lệch giá).
+            $offerBase = [
+                'priceCurrency' => $seoData['offer_currency']   ?? 'VND',
+                'availability'  => 'https://schema.org/' . ($seoData['offer_availability'] ?? 'InStock'),
+                'url'           => $seoData['offer_url']        ?? url()->current(),
+            ];
+            if (!empty($seoData['offer_low_price'])) {
+                $schema['offers'] = ['@type' => 'AggregateOffer'] + $offerBase + [
+                    'lowPrice'   => (string) $seoData['offer_low_price'],
+                    'highPrice'  => (string) $seoData['offer_high_price'],
+                    'offerCount' => (int) $seoData['offer_count'],
+                ];
+            } elseif (!empty($seoData['offer_price']) && (float) $seoData['offer_price'] > 0) {
+                $schema['offers'] = ['@type' => 'Offer'] + $offerBase + [
+                    'price' => (string) $seoData['offer_price'],
                 ];
             }
 

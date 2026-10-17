@@ -167,12 +167,9 @@
         </style>
         @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
     @else
+        {{-- app.css nạp chặn render như stylesheet thường (xem AppServiceProvider) — nạp non-blocking
+             từng làm trang vẽ HTML trần rồi restyle (CLS 1.0 trên trang chi tiết phòng). --}}
         @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
-        {{-- app.css nạp kiểu media="print" + onload (xem AppServiceProvider) — tắt JS thì onload
-             không chạy, trang không có CSS. <noscript> nạp lại đúng file đó theo cách thường. --}}
-        @unless (\Illuminate\Support\Facades\Vite::isRunningHot())
-            <noscript><link rel="stylesheet" href="{{ \Illuminate\Support\Facades\Vite::asset('Resources/assets/sass/app.scss', 'build-bladethemev1') }}"></noscript>
-        @endunless
     @endif
     {{-- Real-time "khung giờ đang bị admin giữ chỗ" (xem App\Services\TimeslotHoldService) — nhúng
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn
