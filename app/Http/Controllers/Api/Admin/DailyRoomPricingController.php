@@ -87,6 +87,13 @@ class DailyRoomPricingController extends Controller
             'default_checkin'  => $room->default_checkin ?? '14:00',
             'default_checkout' => $room->default_checkout ?? '12:00',
             'options'          => $this->pricing->options($request->user()),
+            // App ẩn/hiện nút sửa theo cờ này — xem canEditDates().
+            'permissions'      => [
+                'can_edit_dates'      => $this->canEditDates($request->user()),
+                // Giá gốc + cấu hình chung (cọc, giờ nhận/trả mặc định, số khách) — POST /api/admin/rooms/{id}/pricing.
+                'can_edit_base_price'    => true,
+                'can_edit_room_settings' => true,
+            ],
             'dates'            => $dates,
         ]);
     }
@@ -96,6 +103,9 @@ class DailyRoomPricingController extends Controller
         $room = $this->visibleRoom($request->user(), $id);
         if (! $room) {
             return response()->json(['message' => 'Không tìm thấy phòng theo ngày.'], 404);
+        }
+        if ($denied = $this->denyUnlessCanEditDates($request->user())) {
+            return $denied;
         }
 
         $data = $request->validate([
@@ -174,6 +184,9 @@ class DailyRoomPricingController extends Controller
         if (! $room) {
             return response()->json(['message' => 'Không tìm thấy phòng theo ngày.'], 404);
         }
+        if ($denied = $this->denyUnlessCanEditDates($request->user())) {
+            return $denied;
+        }
 
         $request->merge(['date' => $date]);
         $data = $request->validate([
@@ -213,6 +226,10 @@ class DailyRoomPricingController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng theo ngày.'], 404);
         }
 
+        if ($denied = $this->denyUnlessCanEditDates($request->user())) {
+            return $denied;
+        }
+
         validator(['date' => $date], ['date' => 'required|date_format:Y-m-d'])->validate();
 
         $this->pricing->clearDates($room, [$date]);
@@ -221,6 +238,28 @@ class DailyRoomPricingController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Thiết lập THEO NGÀY (giá ghi đè, KM, phụ thu, mã, giờ riêng) chỉ super_admin được sửa — cùng
+     * quy ước với lịch "Ngày đặc biệt & Khuyến mãi" ở admin web (chỉ hiện cho super_admin). Đối tác
+     * chỉ xem (GET) và chỉnh giá gốc + cấu hình chung (cọc, giờ, số khách) qua POST /api/admin/rooms/{id}/pricing.
+     */
+    private function canEditDates(?User $user): bool
+    {
+        return (bool) $user?->isSuperAdmin();
+    }
+
+    private function denyUnlessCanEditDates(?User $user): ?JsonResponse
+    {
+        if ($this->canEditDates($user)) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'Chỉ super admin được chỉnh giá, khuyến mãi và phụ thu theo từng ngày. Đối tác chỉnh giá gốc, tiền cọc, giờ nhận/trả mặc định và số khách qua POST /api/admin/rooms/{id}/pricing.',
+            'error'   => 'date_pricing_forbidden',
+        ], 403);
+    }
 
     /** Phòng theo ngày đang hoạt động mà $user quản lý (super_admin: mọi phòng). */
     private function visibleRoom(User $user, string $id): ?Product

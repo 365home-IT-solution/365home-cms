@@ -113,8 +113,13 @@ class HeroSection extends Component
 
     private function loadLocations(?string $roomTypeSlug = null): void
     {
+        // Chỉ tỉnh có chi nhánh đang hoạt động VÀ có ít nhất 1 phòng đang bán — cùng nguồn với modal
+        // chọn khu vực, bảng đặt phòng trang chủ và API (AvailableProvinceService). Trước đây chỉ cần
+        // có bản ghi province_branches bật là hiện, nên tỉnh chưa có phòng nào vẫn lọt vào danh sách.
+        $availableIds = array_column(app(\App\Services\AvailableProvinceService::class)->get(), 'id');
+
         if (!$roomTypeSlug) {
-            $this->locations = Province::whereHas('branches', fn($q) => $q->where('status', true))
+            $this->locations = Province::whereIn('id', $availableIds)
                 ->orderBy('name')
                 ->get(['id', 'name', 'slug', 'lat', 'lng'])
                 ->toArray();
@@ -123,10 +128,10 @@ class HeroSection extends Component
 
         // Chỉ lấy tỉnh nào có sản phẩm thuộc loại phòng đã chọn,
         // duyệt qua: province_branches → category (branch) → products (hoặc qua children categories)
-        $this->locations = Province::whereHas('branches', function ($q) use ($roomTypeSlug) {
+        $this->locations = Province::whereIn('id', $availableIds)->whereHas('branches', function ($q) use ($roomTypeSlug) {
             $q->where('status', true)
               ->whereHas('category', function ($catQ) use ($roomTypeSlug) {
-                  $catQ->where(function ($inner) use ($roomTypeSlug) {
+                  $catQ->where('status', true)->where(function ($inner) use ($roomTypeSlug) {
                       // Sản phẩm gắn thẳng vào category branch
                       $inner->whereHas('products', function ($p) use ($roomTypeSlug) {
                           $p->whereHas('roomType', fn($r) => $r->where('slug', $roomTypeSlug))

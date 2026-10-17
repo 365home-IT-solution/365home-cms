@@ -108,7 +108,11 @@ class RoomTimeSlotController extends Controller
             return null;
         }
 
-        $usable  = TimeSlot::usableBy($room->partner_id)->whereIn('id', $timeslotIds)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        // Bỏ time_slots type=date (1 bản ghi / NGÀY của phòng theo ngày): giá theo ngày chỉ sửa qua
+        // /api/admin/rooms/{id}/date-pricing (super_admin) — không cho lách qua API khung giờ.
+        $usable  = TimeSlot::usableBy($room->partner_id)
+            ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
+            ->whereIn('id', $timeslotIds)->pluck('id')->map(fn ($id) => (int) $id)->all();
         $foreign = array_diff($timeslotIds, $usable);
 
         return $foreign

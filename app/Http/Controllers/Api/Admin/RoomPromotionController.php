@@ -65,6 +65,10 @@ class RoomPromotionController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
+        if ($denied = $this->denyDailyRoomForPartner($request->user(), $room)) {
+            return $denied;
+        }
+
         $data = $request->validate([
             'promotion_id'      => 'required|integer|exists:promotions,id',
             'room_time_slot_id' => 'required|integer',
@@ -108,6 +112,10 @@ class RoomPromotionController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
+        if ($denied = $this->denyDailyRoomForPartner($request->user(), $room)) {
+            return $denied;
+        }
+
         $data = $request->validate([
             'room_time_slot_id' => 'required|integer',
         ]);
@@ -130,6 +138,20 @@ class RoomPromotionController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Phòng theo ngày (styles=2): KM gắn theo ngày chỉ super_admin được sửa — cùng quy ước với
+     *  DailyRoomPricingController::canEditDates(); đối tác chỉnh giá gốc + cấu hình chung. */
+    private function denyDailyRoomForPartner(User $user, Product $room): ?JsonResponse
+    {
+        if ((int) ($room->styles ?? 1) !== 2 || $user->isSuperAdmin()) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'Chỉ super admin được chỉnh khuyến mãi theo ngày của phòng theo ngày. Đối tác chỉnh giá gốc, tiền cọc, giờ nhận/trả và số khách qua POST /api/admin/rooms/{id}/pricing.',
+            'error'   => 'date_pricing_forbidden',
+        ], 403);
+    }
 
     private function visibleRoom(User $user, string $id): ?Product
     {

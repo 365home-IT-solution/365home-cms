@@ -74,7 +74,10 @@ class ProvinceList extends Component
         }
 
         $this->provinces = $provinceModels->map(function ($province) use ($roomCountByBranchCat, $imageByBranchCat, $allBranchCatIds) {
-            $provinceBranchCatIds = $province->branches->pluck('categorie_id')->toArray();
+            // Chỉ tính chi nhánh có phòng đang bán — chi nhánh rỗng không đáng hiện / đếm.
+            $provinceBranchCatIds = $province->branches->pluck('categorie_id')
+                ->filter(fn ($id) => ($roomCountByBranchCat[$id] ?? 0) > 0)
+                ->values()->toArray();
 
             $roomCount = array_sum(array_map(
                 fn ($id) => $roomCountByBranchCat[$id] ?? 0,
@@ -94,9 +97,13 @@ class ProvinceList extends Component
                 'slug'         => $province->slug,
                 'image'        => $image,
                 'room_count'   => $roomCount,
-                'branch_count' => $province->branches->count(),
+                'branch_count' => count($provinceBranchCatIds),
             ];
-        })->values()->toArray();
+        })
+        // Bỏ tỉnh chưa có phòng nào đang bán (trước đây vẫn hiện thẻ "0 phòng") — khớp
+        // AvailableProvinceService dùng ở modal chọn khu vực / trang chủ / API.
+        ->filter(fn ($p) => $p['room_count'] > 0)
+        ->values()->toArray();
     }
 
     public function render()
