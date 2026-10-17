@@ -1,450 +1,293 @@
 @php
-    use Modules\Promotion\App\Models\Promotion;
-    use Modules\Promotion\App\Models\Coupon;
-    use Modules\DataPermission\Entities\UserBranchPermission;
-
-    $authUser    = auth()->user();
-    $branchFilter = null;
-
-    if ($authUser && ! $authUser->isSuperAdmin()) {
-        $branchIds    = UserBranchPermission::where('user_id', $authUser->id)->pluck('category_id');
-        $branchFilter = UserBranchPermission::whereIn('category_id', $branchIds)->pluck('user_id');
-    }
-
-    $promotionOptions = Promotion::where('is_active', true)
-        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
-        ->pluck('name', 'id')->all();
-
-    // Danh sách KM (Giảm giá): percentage, fixed
-    $promotionDiscountOptions = Promotion::where('is_active', true)
-        ->whereIn('type', ['percentage', 'fixed'])
-        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
-        ->pluck('name', 'id')->all();
-
-    // Danh sách Phụ thu (Tăng giá): increase_percentage, increase_fixed
-    $promotionSurchargeOptions = Promotion::where('is_active', true)
-        ->whereIn('type', ['increase_percentage', 'increase_fixed'])
-        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
-        ->pluck('name', 'id')->all();
-
-    // Bỏ bản sao cá nhân (customer_id != null — voucher hạng cấp riêng cho từng khách, hàng nghìn
-    // bản): list này render vào 3 modal × mỗi phòng, để nguyên sẽ ra HTML vài chục MB → hết RAM, 500.
-    $couponOptions = Coupon::where('is_active', true)
-        ->whereNull('customer_id')
-        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
-        ->pluck('name', 'id')->all();
-    $state            = $getState() ?? [];
-    $statePath        = $getStatePath();
-    $roomId           = $getRoomId();
+    // Danh sách KM / phụ thu / mã được gắn — chỉ loại CÒN tác dụng (xem
+    // DailyRoomPricingService::options(): bỏ KM hết hạn/thiếu ngày, bỏ voucher cá nhân — trước đây
+    // 3791 voucher cá nhân bị render 3 lần × mỗi phòng → HTML ~50MB → hết RAM, 500). Render bằng
+    // Alpine x-for từ JSON nên mỗi phòng chỉ mang 1 bản dữ liệu.
+    $options   = app(\App\Services\DailyRoomPricingService::class)->options(auth()->user());
+    $statePath = $getStatePath();
+    $roomId    = $getRoomId();
 @endphp
 
-@include('book::filament.forms.components.partials._styles')
+@once
+    @include('book::filament.forms.components.partials._styles')
+@endonce
 
+{{-- Chỉ dùng nháy ĐƠN trong JS của x-data (attribute nằm trong nháy kép). --}}
 <div
     x-data="{
         slots: $wire.$entangle('{{ $statePath }}'),
         roomId: @js($roomId),
         basePrice: @js($getBasePrice()),
+        defaultCheckin:  @js($getDefaultCheckin()),
+        defaultCheckout: @js($getDefaultCheckout()),
+        promoOptions:     @js($options['promotions']),
+        surchargeOptions: @js($options['surcharges']),
+        couponOptions:    @js($options['coupons']),
+        promoMeta: {},
+        weekdayNames: [[1,'T2'],[2,'T3'],[3,'T4'],[4,'T5'],[5,'T6'],[6,'T7'],[7,'CN']],
         viewYear:  new Date().getFullYear(),
         viewMonth: new Date().getMonth(),
-        editingDate:    null,
-        editId:         null,
-        editPrice:      '',
-        editPromotions: [],
-        editSurcharges: [],
-        editCoupons:    [],
-        promoOptions:      @js($promotionDiscountOptions),
-        surchargeOptions:  @js($promotionSurchargeOptions),
 
-        todayIso: new Date().toISOString().split('T')[0],
+        day:  { open:false, date:null, price:'', checkin:'', checkout:'', promos:[], coupons:[], showCoupons:false, couponQ:'', busy:false, qDir:'down', qUnit:'percent', qValue:'', qBusy:false },
+        bulk: { open:false, mode:'add', action:'promo', from:'', to:'', weekdays:[], price:'', checkin:'', checkout:'', promos:[], coupons:[], replace:false, removeKind:'all', couponQ:'', busy:false,
+                promoMode:'custom', cDir:'down', cUnit:'percent', cValue:'' },
 
-isPast(d) {
-    return this.isoDate(d) < this.todayIso;
-},
+        // ── KM nhập theo giá trị: Giảm/Tăng × %/số tiền → loại Promotion tương ứng ──
+        quickType(dir, unit) { return (dir==='up' ? 'increase_' : '') + (unit==='percent' ? 'percentage' : 'fixed'); },
+        quickValid(unit, v) { const n = parseInt(v,10); return n > 0 && (unit!=='percent' || n <= 100); },
+        quickLabel(dir, unit, v) { const n = parseInt(v,10)||0; return (dir==='up' ? 'Tăng ' : 'Giảm ') + (unit==='percent' ? n+'%' : n.toLocaleString('vi-VN')+'đ'); },
+        // KM ảo id -1 để xem trước giá khi đang nhập giá trị (chưa tạo trên server).
+        customMeta() { const b = this.bulk; return { id:-1, type: this.quickType(b.cDir, b.cUnit), value: parseInt(b.cValue,10)||0, start_at:'1970-01-01 00:00:00', end_at:'9999-12-31 23:59:59' }; },
+        addOption(opt) {
+            const list = this.isUp(opt) ? this.surchargeOptions : this.promoOptions;
+            const i = list.findIndex(o => o.id === opt.id);
+            if (i >= 0) list.splice(i, 1, opt); else list.unshift(opt);
+            this.promoMeta[opt.id] = opt;
+        },
+        async addDayQuick() {
+            const d = this.day;
+            if (d.qBusy || !this.quickValid(d.qUnit, d.qValue)) return;
+            d.qBusy = true;
+            const opt = await $wire.call('createQuickPromotion', this.roomId, this.quickType(d.qDir, d.qUnit), parseInt(d.qValue,10), d.date, d.date);
+            d.qBusy = false;
+            if (!opt) return;
+            this.addOption(opt);
+            if (!d.promos.includes(opt.id)) d.promos.push(opt.id);
+            d.qValue = '';
+        },
 
-        // ── Unified action modal ──
-        showActionModal: false,
-        actionTab:       'override',
-        bulkPrice:       '',
-        startDate:      null,
-        endDate:        null,
-        activeCalendar: null,
-        calViewYear:    new Date().getFullYear(),
-        calViewMonth:   new Date().getMonth(),
+        init() { [...this.promoOptions, ...this.surchargeOptions].forEach(p => { this.promoMeta[p.id] = p; }); },
 
-        // ── Time picker state ──
-        activeTimePicker: null,
-        checkinHour:    14,
-        checkinMinute:  0,
-        checkoutHour:   12,
-        checkoutMinute: 0,
-
-        // ── Single-date edit time picker ──
-        editCheckinHour:    14,
-        editCheckinMinute:  0,
-        editCheckoutHour:   12,
-        editCheckoutMinute: 0,
-        activeEditTimePicker: null,
-
-        // ── Loading states ──
-        savingDate:   false,
-        deletingDate: false,
-        applyingBulk: false,
-        removingBulk: false,
-
-        // ── Single-date calendar ──
+        // ── Ngày / định dạng ──
+        // Ngày theo giờ MÁY (VN) — toISOString() là UTC nên trước 7h sáng sẽ ra hôm qua.
+        localIso(dt) { return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); },
+        get todayIso() { return this.localIso(new Date()); },
+        isoDate(d) { return this.viewYear+'-'+String(this.viewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); },
+        isPast(d) { return this.isoDate(d) < this.todayIso; },
+        isoWeekday(iso) { const w = new Date(iso+'T00:00:00').getDay(); return w===0?7:w; },
         get daysInMonth() { return new Date(this.viewYear, this.viewMonth+1, 0).getDate(); },
         get firstDayOffset() { const d=new Date(this.viewYear,this.viewMonth,1).getDay(); return d===0?6:d-1; },
         get monthLabel() { return new Date(this.viewYear,this.viewMonth,1).toLocaleDateString('vi-VN',{month:'long',year:'numeric'}); },
-        isoDate(d) { return this.viewYear+'-'+String(this.viewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); },
-        getSlot(iso) { if(!this.slots) return null; return this.slots.find(s=>s.date&&String(s.date).slice(0,10)===iso)??null; },
-        openDate(d) {
-            const iso=this.isoDate(d);
-            if(this.editingDate===iso){this.editingDate=null;return;}
-            this.editingDate=iso;
-            this.activeEditTimePicker=null;
-            const slot=this.getSlot(iso);
-            if(slot){
-                this.editId=slot.id??null;
-                this.editPrice=String(slot.price??'').replace(/[^0-9]/g,'');
-                if(slot.checkin){const p=slot.checkin.split(':');this.editCheckinHour=parseInt(p[0],10);this.editCheckinMinute=parseInt(p[1]||0,10);}
-                else{this.editCheckinHour=14;this.editCheckinMinute=0;}
-                if(slot.checkout){const p=slot.checkout.split(':');this.editCheckoutHour=parseInt(p[0],10);this.editCheckoutMinute=parseInt(p[1]||0,10);}
-                else{this.editCheckoutHour=12;this.editCheckoutMinute=0;}
-                this.editPromotions=(slot.promotions??[]).map(Number);
-                this.editSurcharges=(slot.surcharges??[]).map(Number);
-                this.editCoupons=(slot.coupons??[]).map(Number);
-            }
-            else{
-                this.editId=null;this.editPrice='';
-                this.editCheckinHour=14;this.editCheckinMinute=0;
-                this.editCheckoutHour=12;this.editCheckoutMinute=0;
-                this.editPromotions=[];this.editSurcharges=[];this.editCoupons=[];
-            }
-        },
-        toggleEditPromo(id)     { const n=Number(id),i=this.editPromotions.indexOf(n); if(i>=0)this.editPromotions.splice(i,1); else this.editPromotions.push(n); },
-        toggleEditSurcharge(id) { const n=Number(id),i=this.editSurcharges.indexOf(n); if(i>=0)this.editSurcharges.splice(i,1); else this.editSurcharges.push(n); },
-        toggleEditCoupon(id)    { const n=Number(id),i=this.editCoupons.indexOf(n); if(i>=0)this.editCoupons.splice(i,1); else this.editCoupons.push(n); },
-        async saveDate() {
-            if(!this.editingDate||this.savingDate) return;
-            const hasData = this.editPrice!=='' || this.editPromotions.length>0 || this.editSurcharges.length>0 || this.editCoupons.length>0;
-            if(!hasData) return;
-            this.savingDate=true;
-            const priceVal=this.editPrice!=='' ? parseInt(this.editPrice) : null;
-            const checkin=String(this.editCheckinHour).padStart(2,'0')+':'+String(this.editCheckinMinute).padStart(2,'0');
-            const checkout=String(this.editCheckoutHour).padStart(2,'0')+':'+String(this.editCheckoutMinute).padStart(2,'0');
-            await $wire.call('saveSingleDate', this.roomId, this.editingDate, priceVal, checkin, checkout, [...this.editPromotions], [...this.editSurcharges], [...this.editCoupons]);
-            this.savingDate=false;
-            this.editingDate=null;
-            this.activeEditTimePicker=null;
-        },
-        async deleteDate() {
-            if(!this.editingDate||this.deletingDate) return;
-            this.deletingDate=true;
-            await $wire.call('deleteSingleDate', this.roomId, this.editingDate);
-            this.deletingDate=false;
-            this.editingDate=null;
-            this.activeEditTimePicker=null;
-        },
-        prevMonth() { if(this.viewMonth===0){this.viewMonth=11;this.viewYear--;}else this.viewMonth--; this.editingDate=null; },
-        nextMonth() { if(this.viewMonth===11){this.viewMonth=0;this.viewYear++;}else this.viewMonth++; this.editingDate=null; },
+        prevMonth() { if(this.viewMonth===0){this.viewMonth=11;this.viewYear--;}else this.viewMonth--; },
+        nextMonth() { if(this.viewMonth===11){this.viewMonth=0;this.viewYear++;}else this.viewMonth++; },
+        formatDate(iso, withDay=false) { if(!iso) return ''; return new Date(iso+'T00:00:00').toLocaleDateString('vi-VN', withDay ? {weekday:'short',day:'2-digit',month:'2-digit'} : {day:'2-digit',month:'2-digit',year:'numeric'}); },
         formatPrice(p) { const n=parseInt(String(p??'').replace(/[^0-9]/g,''),10); return isNaN(n)?'':n.toLocaleString('vi-VN')+'đ'; },
+        formatShort(n) { n=Number(n)||0; if(n>=1000000) return (Math.round(n/100000)/10).toLocaleString('vi-VN')+'tr'; if(n>=1000) return Math.round(n/1000)+'k'; return String(n); },
         parsePrice(p) { const n=parseInt(String(p??'').replace(/[^0-9]/g,''),10); return isNaN(n)?0:n; },
-        isSurcharge(slot) { return slot?.price!=null && this.parsePrice(slot.price)>this.basePrice; },
+        hhmm(t, fallback) { return String(t||fallback||'').slice(0,5); },
+        toggle(arr, id) { const n=Number(id), i=arr.indexOf(n); if(i>=0) arr.splice(i,1); else arr.push(n); },
+        wdLabel(wd) { return wd.length ? this.weekdayNames.filter(w => wd.includes(w[0])).map(w => w[1]).join(', ') : 'mọi ngày'; },
 
-        // ── Time picker ──
-        get checkinTimeStr()  { return String(this.checkinHour).padStart(2,'0')+':'+String(this.checkinMinute).padStart(2,'0'); },
-        get checkoutTimeStr() { return String(this.checkoutHour).padStart(2,'0')+':'+String(this.checkoutMinute).padStart(2,'0'); },
-        toggleTimePicker(type) { this.activeTimePicker = this.activeTimePicker===type ? null : type; },
-        clampHour(v)   { return Math.max(0, Math.min(23, parseInt(v)||0)); },
-        clampMinute(v) { return Math.max(0, Math.min(59, parseInt(v)||0)); },
-        setPreset(type, h, m) {
-            if(type==='checkin') { this.checkinHour=h; this.checkinMinute=m; }
-            else { this.checkoutHour=h; this.checkoutMinute=m; }
-            this.activeTimePicker=null;
+        // ── Giá cuối 1 đêm — CÙNG công thức PromotionCalculator::calculateForDate() của mọi luồng đặt
+        //    phòng: giá ghi đè (hoặc giá gốc) → cộng phụ thu → trừ KM (KM % tính trên giá sau phụ thu).
+        getSlot(iso) { if(!this.slots||!iso) return null; return this.slots.find(s=>s.date&&String(s.date).slice(0,10)===iso)??null; },
+        slotPromoIds(slot) { return [...(slot?.surcharges||[]), ...(slot?.promotions||[])].map(Number); },
+        isUp(p) { return !!p && (p.type==='increase_percentage'||p.type==='increase_fixed'); },
+        promoApplies(p, iso) { return !!p && !!p.start_at && !!p.end_at && (iso+' 00:00:00') < p.end_at && (iso+' 23:59:59') > p.start_at; },
+        promoShort(p) { if(!p) return ''; const v=Number(p.value); return ({percentage:'−'+v+'%', fixed:'−'+this.formatShort(v), increase_percentage:'+'+v+'%', increase_fixed:'+'+this.formatShort(v)})[p.type]||''; },
+        calcFinal(base, ids, iso) {
+            const promos = (ids||[]).map(id => Number(id) === -1 ? this.customMeta() : this.promoMeta[Number(id)]).filter(p => this.promoApplies(p, iso));
+            let afterInc = base;
+            promos.forEach(p => { if (p.type==='increase_fixed') afterInc += p.value; else if (p.type==='increase_percentage') afterInc += Math.round(afterInc*p.value/100); });
+            let fin = afterInc;
+            promos.forEach(p => { if (p.type==='fixed') fin -= Math.min(fin, p.value); else if (p.type==='percentage') fin -= Math.round(afterInc*p.value/100); });
+            return Math.max(0, fin);
         },
-        isPresetActive(type, h, m) {
-            if(type==='checkin')  return this.checkinHour===h  && this.checkinMinute===m;
-            return this.checkoutHour===h && this.checkoutMinute===m;
+        nightInfo(iso) {
+            const slot = this.getSlot(iso), override = slot?.price != null && slot.price !== '';
+            const base = override ? this.parsePrice(slot.price) : this.basePrice;
+            return { base, fin: this.calcFinal(base, this.slotPromoIds(slot), iso), override, slot };
         },
-        get editCheckinStr()  { return String(this.editCheckinHour).padStart(2,'0')+':'+String(this.editCheckinMinute).padStart(2,'0'); },
-        get editCheckoutStr() { return String(this.editCheckoutHour).padStart(2,'0')+':'+String(this.editCheckoutMinute).padStart(2,'0'); },
-        toggleEditTimePicker(type) { this.activeEditTimePicker = this.activeEditTimePicker===type ? null : type; },
-
-        // ── Bulk range calendar ──
-        get calDaysInMonth() { return new Date(this.calViewYear,this.calViewMonth+1,0).getDate(); },
-        get calFirstDayOffset() { const d=new Date(this.calViewYear,this.calViewMonth,1).getDay(); return d===0?6:d-1; },
-        get calMonthLabel() { return new Date(this.calViewYear,this.calViewMonth,1).toLocaleDateString('vi-VN',{month:'long',year:'numeric'}); },
-        calIsoDate(d) { return this.calViewYear+'-'+String(this.calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); },
-        calPrev() { if(this.calViewMonth===0){this.calViewMonth=11;this.calViewYear--;}else this.calViewMonth--; },
-        calNext() { if(this.calViewMonth===11){this.calViewMonth=0;this.calViewYear++;}else this.calViewMonth++; },
-        openCalendar(type) {
-            if(this.activeCalendar===type){this.activeCalendar=null;return;}
-            this.activeCalendar=type;
-            const ref=type==='start'?this.startDate:this.endDate;
-            if(ref){const dt=new Date(ref+'T00:00:00');this.calViewYear=dt.getFullYear();this.calViewMonth=dt.getMonth();}
-            else{this.calViewYear=new Date().getFullYear();this.calViewMonth=new Date().getMonth();}
+        cellClass(d) {
+            const iso = this.isoDate(d), slot = this.getSlot(iso);
+            if (this.day.open && this.day.date === iso) return 'cal-cell--editing';
+            if (this.isPast(d)) return 'cal-cell--past';
+            if (slot?.price != null) return 'cal-cell--has-slot';
+            if (slot && (this.slotPromoIds(slot).length || (slot.coupons||[]).length)) return 'cal-cell--has-promo';
+            return 'cal-cell--normal';
         },
-        selectCalDate(d) {
-            const iso=this.calIsoDate(d);
-            if(this.activeCalendar==='start'){this.startDate=iso; if(this.endDate&&iso>=this.endDate)this.endDate=null;}
-            else{this.endDate=iso; if(this.startDate&&iso<=this.startDate)this.startDate=null;}
-            this.activeCalendar=null;
-        },
-        isCalEndpoint(d) { const iso=this.calIsoDate(d); return (this.activeCalendar==='start'&&iso===this.startDate)||(this.activeCalendar==='end'&&iso===this.endDate); },
-        isCalOther(d)    { const iso=this.calIsoDate(d); return (this.activeCalendar==='start'&&iso===this.endDate)||(this.activeCalendar==='end'&&iso===this.startDate); },
-        isCalInRange(d)  { if(!this.startDate||!this.endDate)return false; const iso=this.calIsoDate(d); return iso>this.startDate&&iso<this.endDate; },
-        isCalStripStart(d){ return !!this.startDate&&!!this.endDate&&this.calIsoDate(d)===this.startDate; },
-        isCalStripEnd(d)  { return !!this.startDate&&!!this.endDate&&this.calIsoDate(d)===this.endDate; },
-        formatDate(iso)  { if(!iso)return''; return new Date(iso+'T00:00:00').toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'}); },
-        get nightsCount() { if(!this.startDate||!this.endDate)return 0; return Math.round((new Date(this.endDate)-new Date(this.startDate))/86400000); },
-        get bulkPriceDisplay() { if(!this.bulkPrice)return''; return parseInt(this.bulkPrice).toLocaleString('vi-VN')+'đ'; },
-        get totalPrice()  { if(!this.bulkPrice||!this.nightsCount)return''; return(parseInt(this.bulkPrice)*this.nightsCount).toLocaleString('vi-VN')+'đ'; },
-        get canApply()    { return !!this.startDate && !!this.endDate && !!this.bulkPrice; },
-
-        openActionModal(tab='override') {
-            this.showActionModal=true; this.actionTab=tab; this.bulkPrice='';
-            this.startDate=null; this.endDate=null; this.activeCalendar=null;
-            this.activeTimePicker=null;
-            this.checkinHour=14; this.checkinMinute=0;
-            this.checkoutHour=12; this.checkoutMinute=0;
-            this.selectedPromos=[]; this.selectedSurcharges=[]; this.selectedCoupons=[];
-            this.calViewYear=new Date().getFullYear(); this.calViewMonth=new Date().getMonth();
-        },
-        closeActionModal() { this.showActionModal=false; this.activeCalendar=null; this.activeTimePicker=null; },
-
-        // ── Bulk REMOVE modal ──
-        showRemoveModal: false,
-        removeTab: 'override',
-        removingPromo: false,
-        removingCoupon: false,
-        removeSelectedPromos:      [],
-        removeSelectedSurcharges:  [],
-        removeSelectedCoupons:     [],
-        removeStart: null,
-        removeEnd:   null,
-        activeRemoveCal: null,
-        removeCalYear:  new Date().getFullYear(),
-        removeCalMonth: new Date().getMonth(),
-        get removeCalDays()   { return new Date(this.removeCalYear,this.removeCalMonth+1,0).getDate(); },
-        get removeCalOffset() { const d=new Date(this.removeCalYear,this.removeCalMonth,1).getDay(); return d===0?6:d-1; },
-        get removeCalLabel()  { return new Date(this.removeCalYear,this.removeCalMonth,1).toLocaleDateString('vi-VN',{month:'long',year:'numeric'}); },
-        removeCalIso(d)       { return this.removeCalYear+'-'+String(this.removeCalMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); },
-        removeCalPrev()       { if(this.removeCalMonth===0){this.removeCalMonth=11;this.removeCalYear--;}else this.removeCalMonth--; },
-        removeCalNext()       { if(this.removeCalMonth===11){this.removeCalMonth=0;this.removeCalYear++;}else this.removeCalMonth++; },
-        get removeNights()    { if(!this.removeStart||!this.removeEnd)return 0; return Math.round((new Date(this.removeEnd)-new Date(this.removeStart))/86400000); },
-        get canRemove()       { return !!this.removeStart&&!!this.removeEnd&&this.removeNights>0; },
-        toggleRemovePromoSel(id)      { const n=Number(id),i=this.removeSelectedPromos.indexOf(n); if(i>=0)this.removeSelectedPromos.splice(i,1); else this.removeSelectedPromos.push(n); },
-        toggleRemoveSurchargeSel(id)  { const n=Number(id),i=this.removeSelectedSurcharges.indexOf(n); if(i>=0)this.removeSelectedSurcharges.splice(i,1); else this.removeSelectedSurcharges.push(n); },
-        toggleRemoveCouponSel(id)     { const n=Number(id),i=this.removeSelectedCoupons.indexOf(n); if(i>=0)this.removeSelectedCoupons.splice(i,1); else this.removeSelectedCoupons.push(n); },
-        openRemoveCalendar(type) {
-            if(this.activeRemoveCal===type){this.activeRemoveCal=null;return;}
-            this.activeRemoveCal=type;
-            const ref=type==='start'?this.removeStart:this.removeEnd;
-            if(ref){const dt=new Date(ref+'T00:00:00');this.removeCalYear=dt.getFullYear();this.removeCalMonth=dt.getMonth();}
-            else{this.removeCalYear=new Date().getFullYear();this.removeCalMonth=new Date().getMonth();}
-        },
-        selectRemoveDate(d) {
-            const iso=this.removeCalIso(d);
-            if(this.activeRemoveCal==='start'){this.removeStart=iso;if(this.removeEnd&&iso>=this.removeEnd)this.removeEnd=null;}
-            else{this.removeEnd=iso;if(this.removeStart&&iso<=this.removeStart)this.removeStart=null;}
-            this.activeRemoveCal=null;
-        },
-        isRemoveEndpoint(d)  { const iso=this.removeCalIso(d); return iso===this.removeStart||iso===this.removeEnd; },
-        isRemoveInRange(d)   { if(!this.removeStart||!this.removeEnd)return false; const iso=this.removeCalIso(d); return iso>this.removeStart&&iso<this.removeEnd; },
-        isRemoveStripStart(d){ return !!this.removeStart&&!!this.removeEnd&&this.removeCalIso(d)===this.removeStart; },
-        isRemoveStripEnd(d)  { return !!this.removeStart&&!!this.removeEnd&&this.removeCalIso(d)===this.removeEnd; },
-        openRemoveModal()  { this.showRemoveModal=true; this.removeTab='override'; this.removeStart=null; this.removeEnd=null; this.activeRemoveCal=null; this.removeCalYear=new Date().getFullYear(); this.removeCalMonth=new Date().getMonth(); this.removeSelectedPromos=[]; this.removeSelectedSurcharges=[]; this.removeSelectedCoupons=[]; },
-        closeRemoveModal() { this.showRemoveModal=false; this.activeRemoveCal=null; },
-        async applyRemove() {
-            if(!this.canRemove||this.removingBulk) return;
-            this.removingBulk=true;
-            await $wire.call('removeBulkOverride', this.roomId, this.removeStart, this.removeEnd);
-            this.removingBulk=false;
-            this.closeRemoveModal();
-        },
-        async applyRemovePromo() {
-            if(!this.canRemove||this.removingPromo) return;
-            this.removingPromo=true;
-            await $wire.call('removeBulkPromotion', this.roomId, this.removeStart, this.removeEnd, [...this.removeSelectedPromos]);
-            this.removingPromo=false;
-            this.closeRemoveModal();
-        },
-        async applyRemoveSurcharge() {
-            if(!this.canRemove||this.removingPromo) return;
-            this.removingPromo=true;
-            await $wire.call('removeBulkPromotion', this.roomId, this.removeStart, this.removeEnd, [...this.removeSelectedSurcharges]);
-            this.removingPromo=false;
-            this.closeRemoveModal();
-        },
-        async applyRemoveCoupon() {
-            if(!this.canRemove||this.removingCoupon) return;
-            this.removingCoupon=true;
-            await $wire.call('removeBulkCoupon', this.roomId, this.removeStart, this.removeEnd, [...this.removeSelectedCoupons]);
-            this.removingCoupon=false;
-            this.closeRemoveModal();
+        cellPriceClass(iso) {
+            const n = this.nightInfo(iso);
+            if (n.fin < n.base) return 'cal-price-tag--discount';
+            if (n.fin > n.base) return 'cal-price-tag--surcharge';
+            return n.override ? 'cal-price-tag' : 'cal-price-tag--base';
         },
 
-        // ── Promotion & coupon (shared via unified action modal) ──
-        selectedPromos:     [],
-        selectedSurcharges: [],
-        selectedCoupons:    [],
-        couponOptions:      @js($couponOptions),
-        togglePromoSel(id)     { const n=Number(id),i=this.selectedPromos.indexOf(n); if(i>=0)this.selectedPromos.splice(i,1); else this.selectedPromos.push(n); },
-        toggleSurchargeSel(id) { const n=Number(id),i=this.selectedSurcharges.indexOf(n); if(i>=0)this.selectedSurcharges.splice(i,1); else this.selectedSurcharges.push(n); },
-        toggleCouponSel(id)    { const n=Number(id),i=this.selectedCoupons.indexOf(n); if(i>=0)this.selectedCoupons.splice(i,1); else this.selectedCoupons.push(n); },
-        get canApplyPromo()      { return !!this.startDate&&!!this.endDate&&this.nightsCount>0&&this.selectedPromos.length>0; },
-        get canApplySurcharge()  { return !!this.startDate&&!!this.endDate&&this.nightsCount>0&&this.selectedSurcharges.length>0; },
-        get canApplyCoupon()     { return !!this.startDate&&!!this.endDate&&this.nightsCount>0&&this.selectedCoupons.length>0; },
-        async applyPromos() {
-            if(!this.canApplyPromo||this.applyingBulk) return;
-            this.applyingBulk=true;
-            await $wire.call('applyBulkPromotion', this.roomId, this.startDate, this.endDate, [...this.selectedPromos]);
-            this.applyingBulk=false;
-            this.closeActionModal();
+        // ══ POPUP 1 NGÀY ══
+        openDay(d) {
+            if (this.isPast(d)) return;
+            const iso = this.isoDate(d), slot = this.getSlot(iso);
+            this.day = { open:true, date:iso,
+                price: slot?.price != null ? String(slot.price).replace(/[^0-9]/g,'') : '',
+                checkin: this.hhmm(slot?.checkin, this.defaultCheckin), checkout: this.hhmm(slot?.checkout, this.defaultCheckout),
+                promos: this.slotPromoIds(slot), coupons: (slot?.coupons||[]).map(Number),
+                showCoupons: (slot?.coupons||[]).length > 0, couponQ:'', busy:false, qDir:'down', qUnit:'percent', qValue:'', qBusy:false };
         },
-        async applySurcharges() {
-            if(!this.canApplySurcharge||this.applyingBulk) return;
-            this.applyingBulk=true;
-            await $wire.call('applyBulkPromotion', this.roomId, this.startDate, this.endDate, [...this.selectedSurcharges]);
-            this.applyingBulk=false;
-            this.closeActionModal();
+        closeDay() { this.day.open = false; },
+        get dayBase()  { return this.day.price!=='' ? parseInt(this.day.price,10) : this.basePrice; },
+        get dayFinal() { return this.day.date ? this.calcFinal(this.dayBase, this.day.promos, this.day.date) : 0; },
+        get dayApplied() { return this.day.promos.map(id => this.promoMeta[id]).filter(p => p && this.promoApplies(p, this.day.date)); },
+        get dayHasSlot() { return !!this.getSlot(this.day.date); },
+        get dayEmpty() { return this.day.price==='' && !this.day.promos.length && !this.day.coupons.length && this.day.checkin===this.defaultCheckin && this.day.checkout===this.defaultCheckout; },
+        async saveDay() {
+            if (this.day.busy) return;
+            if (this.dayEmpty) { if (this.dayHasSlot) await this.resetDay(); else this.closeDay(); return; }
+            this.day.busy = true;
+            await $wire.call('saveSingleDate', this.roomId, this.day.date, this.day.price!=='' ? parseInt(this.day.price,10) : null,
+                this.day.checkin || null, this.day.checkout || null, [...this.day.promos], [], [...this.day.coupons]);
+            this.day.busy = false; this.closeDay();
         },
-        async applyCoupons() {
-            if(!this.canApplyCoupon||this.applyingBulk) return;
-            this.applyingBulk=true;
-            await $wire.call('applyBulkCoupon', this.roomId, this.startDate, this.endDate, [...this.selectedCoupons]);
-            this.applyingBulk=false;
-            this.closeActionModal();
+        async resetDay() {
+            if (this.day.busy) return;
+            this.day.busy = true;
+            await $wire.call('deleteSingleDate', this.roomId, this.day.date);
+            this.day.busy = false; this.closeDay();
         },
-        async applyBulk() {
-            if(!this.canApply||this.applyingBulk) return;
-            this.applyingBulk=true;
-            await $wire.call('applyBulkOverride', this.roomId, this.startDate, this.endDate, parseInt(this.bulkPrice), this.checkinTimeStr, this.checkoutTimeStr);
-            this.applyingBulk=false;
-            this.closeActionModal();
+        filteredCoupons(q) { q=(q||'').toLowerCase().trim(); const list = q ? this.couponOptions.filter(c => c.label.toLowerCase().includes(q)) : this.couponOptions; return list.slice(0, 60); },
+
+        // ══ POPUP HÀNG LOẠT (thêm + gỡ gộp 1 chỗ) ══
+        openBulk(mode='add') {
+            this.bulk = { open:true, mode, action: mode==='add' ? 'promo' : 'reset', from:this.todayIso, to:'', weekdays:[], price:'',
+                checkin:this.defaultCheckin, checkout:this.defaultCheckout, promos:[], coupons:[], replace:false, removeKind:'all', couponQ:'', busy:false, promoMode:'custom', cDir:'down', cUnit:'percent', cValue:'' };
+        },
+        closeBulk() { this.bulk.open = false; },
+        setMode(mode) { this.bulk.mode = mode; this.bulk.action = mode==='add' ? 'promo' : 'reset'; this.bulk.promos=[]; this.bulk.coupons=[]; this.bulk.replace=false; },
+        setRange(kind) {
+            const t = new Date(); t.setHours(0,0,0,0);
+            const from = new Date(t), to = new Date(t);
+            if (kind==='7d') to.setDate(to.getDate()+6);
+            if (kind==='30d') to.setDate(to.getDate()+29);
+            if (kind==='month') { to.setMonth(to.getMonth()+1, 0); }
+            if (kind==='next') { from.setMonth(from.getMonth()+1, 1); to.setMonth(to.getMonth()+2, 0); }
+            if (kind==='year') { to.setFullYear(to.getFullYear(), 11, 31); }
+            this.bulk.from = this.localIso(from); this.bulk.to = this.localIso(to);
+        },
+        get bulkDates() {
+            const b = this.bulk, out = [];
+            if (!b.from || !b.to || b.to < b.from) return out;
+            for (let dt = new Date(b.from+'T00:00:00'); this.localIso(dt) <= b.to && out.length < 400; dt.setDate(dt.getDate()+1)) {
+                const iso = this.localIso(dt);
+                if (!b.weekdays.length || b.weekdays.includes(this.isoWeekday(iso))) out.push(iso);
+            }
+            return out;
+        },
+        get bulkTooLong() { const b=this.bulk; return !!b.from && !!b.to && (new Date(b.to)-new Date(b.from))/86400000 + 1 > 400; },
+        // Giá 1 ngày mẫu TRƯỚC / SAU thao tác — để thấy ngay kết quả khi kết hợp nhiều thiết lập.
+        bulkAfter(iso) {
+            const b = this.bulk, n = this.nightInfo(iso), ids = this.slotPromoIds(n.slot);
+            const kindOf = id => this.isUp(this.promoMeta[id]) ? 'surcharge' : 'discount';
+            if (b.mode==='add') {
+                if (b.action==='price')  return this.calcFinal(b.price!=='' ? parseInt(b.price,10) : n.base, ids, iso);
+                if (b.action==='promo')  { const add = b.promoMode==='custom' ? [-1] : b.promos; return this.calcFinal(n.base, b.replace ? add : [...new Set([...ids, ...add])], iso); }
+                return n.fin;
+            }
+            if (b.action==='reset') return this.basePrice;
+            if (b.action==='price') return this.calcFinal(this.basePrice, ids, iso);
+            if (b.action==='promo') {
+                const keep = b.promos.length ? ids.filter(id => !b.promos.includes(id)) : ids.filter(id => b.removeKind!=='all' && kindOf(id)!==b.removeKind);
+                return this.calcFinal(n.base, keep, iso);
+            }
+            return n.fin;
+        },
+        get bulkSamples() { return this.bulkDates.slice(0, 3).map(iso => ({ iso, before: this.nightInfo(iso).fin, after: this.bulkAfter(iso) })); },
+        get bulkCanSubmit() {
+            const b = this.bulk;
+            if (b.busy || !this.bulkDates.length || this.bulkTooLong) return false;
+            if (b.mode==='add' && b.action==='price')  return b.price!=='';
+            if (b.mode==='add' && b.action==='promo')  return b.promoMode==='custom' ? this.quickValid(b.cUnit, b.cValue) : b.promos.length > 0;
+            if (b.mode==='add' && b.action==='coupon') return b.coupons.length > 0;
+            return true;
+        },
+        get bulkSubmitLabel() {
+            const b = this.bulk, n = this.bulkDates.length;
+            const promoVerb = b.mode==='add' && b.action==='promo' && b.promoMode==='custom' && this.quickValid(b.cUnit, b.cValue) ? this.quickLabel(b.cDir, b.cUnit, b.cValue) : (b.replace ? 'Thay KM' : 'Gắn KM');
+            const verb = b.mode==='add' ? ({price:'Ghi đè giá', promo: promoVerb, coupon:'Gắn mã'})[b.action] : ({reset:'Về giá gốc', price:'Gỡ giá ghi đè', promo:'Gỡ KM', coupon:'Gỡ mã'})[b.action];
+            return n ? verb+' · '+n+' ngày' : verb;
+        },
+        async submitBulk() {
+            if (!this.bulkCanSubmit) return;
+            const b = this.bulk, wd = [...b.weekdays], n = this.bulkDates.length;
+            if (b.mode==='remove' && b.action==='reset' && !confirm('Xoá MỌI thiết lập (giá ghi đè, KM, phụ thu, mã) của '+n+' ngày? Các ngày này về giá gốc.')) return;
+            b.busy = true;
+            if (b.mode==='add') {
+                if (b.action==='price')       await $wire.call('applyBulkOverride', this.roomId, b.from, b.to, parseInt(b.price,10), b.checkin || null, b.checkout || null, wd);
+                else if (b.action==='promo') {
+                    let ids = [...b.promos];
+                    if (b.promoMode==='custom') {
+                        // Tạo / dùng lại KM đúng giá trị vừa nhập, rồi gắn như KM có sẵn.
+                        const opt = await $wire.call('createQuickPromotion', this.roomId, this.quickType(b.cDir, b.cUnit), parseInt(b.cValue,10), b.from, b.to);
+                        if (!opt) { b.busy = false; return; }
+                        this.addOption(opt);
+                        ids = [opt.id];
+                    }
+                    await $wire.call('applyBulkPromotion', this.roomId, b.from, b.to, ids, wd, b.replace);
+                }
+                else                          await $wire.call('applyBulkCoupon', this.roomId, b.from, b.to, [...b.coupons], wd, b.replace);
+            } else {
+                if (b.action==='reset')       await $wire.call('removeBulkAll', this.roomId, b.from, b.to, wd);
+                else if (b.action==='price')  await $wire.call('removeBulkOverride', this.roomId, b.from, b.to, wd);
+                else if (b.action==='promo')  await $wire.call('removeBulkPromotion', this.roomId, b.from, b.to, [...b.promos], wd, b.promos.length ? null : (b.removeKind==='all' ? null : b.removeKind));
+                else                          await $wire.call('removeBulkCoupon', this.roomId, b.from, b.to, [...b.coupons], wd);
+            }
+            b.busy = false; this.closeBulk();
         },
     }"
     class="w-full"
 >
-    {{-- ══════════════════════════════════
-         MAIN CALENDAR (Ngày đặc biệt)
-    ══════════════════════════════════ --}}
-
-    {{-- Header --}}
-    <div class="flex items-center justify-between mb-3">
-        <button type="button" @click="prevMonth()"
-                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-            </svg>
-        </button>
-        <span class="text-sm font-bold text-gray-700 capitalize" x-text="monthLabel"></span>
-        <button type="button" @click="nextMonth()"
-                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-            </svg>
-        </button>
+    {{-- Thanh công cụ --}}
+    <div class="dp-toolbar">
+        <div class="dp-month">
+            <button type="button" @click="prevMonth()" class="dp-icon-btn" aria-label="Tháng trước">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <span class="dp-month__label" x-text="monthLabel"></span>
+            <button type="button" @click="nextMonth()" class="dp-icon-btn" aria-label="Tháng sau">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            </button>
+        </div>
+        <span class="dp-base">Giá gốc <strong x-text="formatPrice(basePrice)"></strong>/đêm · nhận <span x-text="defaultCheckin"></span> · trả <span x-text="defaultCheckout"></span></span>
+        <div class="dp-toolbar__actions">
+            <button type="button" class="dp-btn dp-btn--primary" @click="openBulk('add')">Thiết lập hàng loạt</button>
+            <button type="button" class="dp-btn dp-btn--ghost" @click="openBulk('remove')">Gỡ / về giá gốc</button>
+        </div>
     </div>
 
-    {{-- Day labels --}}
+    {{-- Lịch tháng: ô hiện GIÁ CUỐI khách trả cho đêm đó, gạch giá trước KM nếu khác --}}
     <div class="grid grid-cols-7 mb-1">
-        <template x-for="day in ['T2','T3','T4','T5','T6','T7','CN']">
-            <div class="text-center text-[10px] font-bold text-gray-400 py-1 uppercase tracking-widest" x-text="day"></div>
+        <template x-for="w in ['T2','T3','T4','T5','T6','T7','CN']">
+            <div class="text-center text-[10px] font-bold text-gray-400 py-1 uppercase tracking-widest" x-text="w"></div>
         </template>
     </div>
-
-    {{-- Days --}}
     <div class="grid grid-cols-7 gap-1">
         <template x-for="n in firstDayOffset"><div></div></template>
         <template x-for="d in daysInMonth" :key="d">
-          <button type="button" 
-        @click="if(!isPast(d)) openDate(d)" 
-        :disabled="isPast(d)"
-        class="cal-cell focus:outline-none"
-        :class="{
-            'cal-cell--editing':  editingDate === isoDate(d),
-            'cal-cell--has-slot': getSlot(isoDate(d))?.price != null && editingDate !== isoDate(d),
-            'cal-cell--has-promo': getSlot(isoDate(d)) && getSlot(isoDate(d))?.price == null && (getSlot(isoDate(d))?.promotions?.length > 0) && editingDate !== isoDate(d),
-            'cal-cell--normal':   (!getSlot(isoDate(d)) || (getSlot(isoDate(d))?.price == null && !getSlot(isoDate(d))?.promotions?.length)) && editingDate !== isoDate(d),
-            /* Thêm class past ở đây */
-            'cal-cell--past':     isPast(d) 
-        }">
+            <button type="button" @click="openDay(d)" :disabled="isPast(d)" class="cal-cell focus:outline-none" :class="cellClass(d)"
+                    :title="(()=>{const n=nightInfo(isoDate(d));return (n.override?'Giá ghi đè ':'Giá gốc ')+formatPrice(n.base)+(n.fin!==n.base?' → còn '+formatPrice(n.fin):'');})()">
                 <span class="cal-cell__day" x-text="d"></span>
-                <span x-show="getSlot(isoDate(d))?.price != null && isSurcharge(getSlot(isoDate(d)))" class="cal-price-tag--surcharge"
-                      x-text="formatPrice(getSlot(isoDate(d))?.price)"></span>
-                <span x-show="getSlot(isoDate(d))?.price != null && !isSurcharge(getSlot(isoDate(d)))" class="cal-price-tag"
-                      x-text="formatPrice(getSlot(isoDate(d))?.price)"></span>
-                <span x-show="!getSlot(isoDate(d)) || getSlot(isoDate(d))?.price == null" class="cal-price-tag--base"
-                      x-text="formatPrice(basePrice)"></span>
-      <!-- Cập nhật class thành Line -->
-<div class="cal-indicator-wrapper">
-    <span x-show="getSlot(isoDate(d))?.promotions?.length > 0" class="cal-promo-line"></span>
-    <span x-show="getSlot(isoDate(d))?.surcharges?.length > 0" class="cal-surcharge-line"></span>
-    <span x-show="getSlot(isoDate(d))?.coupons?.length > 0" class="cal-coupon-line"></span>
-</div>
+                <span :class="cellPriceClass(isoDate(d))" x-text="formatShort(nightInfo(isoDate(d)).fin)"></span>
+                <span class="cal-price-old" x-show="nightInfo(isoDate(d)).fin !== nightInfo(isoDate(d)).base" x-text="formatShort(nightInfo(isoDate(d)).base)"></span>
+                <div class="cal-indicator-wrapper">
+                    <span x-show="getSlot(isoDate(d))?.promotions?.length > 0" class="cal-promo-line"></span>
+                    <span x-show="getSlot(isoDate(d))?.surcharges?.length > 0" class="cal-surcharge-line"></span>
+                    <span x-show="getSlot(isoDate(d))?.coupons?.length > 0" class="cal-coupon-line"></span>
+                </div>
             </button>
         </template>
     </div>
 
-    @include('book::filament.forms.components.partials._edit-modal')
-
-    {{-- ── Footer legend ── --}}
-   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 px-1 border-t pt-3">
-        <div class="flex items-center gap-1.5">
-            <span class="inline-block w-3 h-3 rounded-sm" style="background:rgb(52 211 153 / 0.35)"></span>
-            <span class="text-xs text-gray-500 font-medium">Giá ghi đè</span>
-        </div>
-        
-        <!-- Đường kẻ Khuyến mãi -->
-        <div class="flex items-center gap-1.5">
-            <span class="inline-block w-5 h-1 rounded-full" style="background:#f97316"></span>
-            <span class="text-xs text-gray-500 font-medium">Khuyến mãi</span>
-        </div>
-
-        <!-- Đường kẻ Phụ thu -->
-        <div class="flex items-center gap-1.5">
-            <span class="inline-block w-5 h-1 rounded-full" style="background:#eef122"></span>
-            <span class="text-xs text-gray-500 font-medium">Phụ thu</span>
-        </div>
-
-        <!-- Đường kẻ Mã khuyến mãi -->
-        <div class="flex items-center gap-1.5">
-            <span class="inline-block w-5 h-1 rounded-full" style="background:#ef4444"></span>
-            <span class="text-xs text-gray-500 font-medium">Mã khuyến mãi</span>
-        </div>
-
-
-        <button type="button" @click="openActionModal('override')"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-            Hàng loạt
-        </button>
-
-        <button type="button" @click="openRemoveModal()"
-                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all"
-                style="border:1.5px dashed #fca5a5;background:#fff5f5;color:#dc2626"
-                onmouseover="this.style.borderStyle='solid';this.style.background='#fee2e2'"
-                onmouseout="this.style.borderStyle='dashed';this.style.background='#fff5f5'">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-            </svg>
-            Gỡ hàng loạt
-        </button>
-
-        <div class="ml-auto flex items-center gap-2">
-            <span class="text-xs text-gray-500">Tổng <strong x-text="(slots||[]).length"></strong> ngày đặc biệt</span>
-            <button type="button" x-show="slots&&slots.length>0"
-                    @click.prevent="if(confirm('Xóa tất cả ngày đặc biệt?')){await $wire.call('deleteAllDates', roomId);editingDate=null;}"
-                    class="text-[11px] text-red-400 hover:text-red-600 underline">Xóa tất cả</button>
-        </div>
+    {{-- Chú thích --}}
+    <div class="dp-legend">
+        <span><i style="background:rgb(52 211 153 / 0.35)"></i>Giá ghi đè</span>
+        <span><i class="dp-legend__line" style="background:#f97316"></i>Khuyến mãi</span>
+        <span><i class="dp-legend__line" style="background:#eab308"></i>Phụ thu</span>
+        <span><i class="dp-legend__line" style="background:#ef4444"></i>Mã giảm giá</span>
+        <span class="dp-legend__count">
+            <strong x-text="(slots||[]).length"></strong> ngày đặc biệt
+            <button type="button" x-show="slots&&slots.length>0" class="dp-link-danger"
+                    @click.prevent="if(confirm('Xoá TẤT CẢ ngày đặc biệt của phòng này (giá ghi đè, KM, phụ thu, mã)? Mọi ngày sẽ về giá gốc.')){await $wire.call('deleteAllDates', roomId);}">Xoá tất cả</button>
+        </span>
     </div>
 
+    @include('book::filament.forms.components.partials._edit-modal')
     @include('book::filament.forms.components.partials._action-modal')
-
-    @include('book::filament.forms.components.partials._remove-modal')
-
 </div>

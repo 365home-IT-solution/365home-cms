@@ -90,7 +90,7 @@
                             @include('bladethemev1::livewire.book._pricing')
                         </div>
                     </div>
-                @else
+                @elseif(empty($category['daily']))
                     <div style="padding:2.5rem 1rem; text-align:center;">
                         <svg style="width:40px;height:40px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -98,6 +98,8 @@
                         <p style="color:#6b7280;font-size:14px;margin:0;">Không có phòng khả dụng cho danh mục này.</p>
                     </div>
                 @endif
+
+                @include('bladethemev1::livewire.book._daily-cards')
 
             </div>
             @endif

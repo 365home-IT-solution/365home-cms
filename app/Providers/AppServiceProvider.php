@@ -48,6 +48,10 @@ class AppServiceProvider extends ServiceProvider
             return new MemoizedModuleRepository($app, $app['config']->get('modules.paths.modules'));
         });
 
+        // 1 instance / request: nhớ options() KM/mã — lịch giá theo ngày gọi nó cho MỖI phòng
+        // trên trang SettingBook (và mỗi action Livewire lọc id theo nó).
+        $this->app->scoped(\App\Services\DailyRoomPricingService::class);
+
         KnowledgeBasePanel::configureUsing(
             fn(KnowledgeBasePanel $panel) => $panel
                 ->viteTheme('resources/css/filament/admin/theme.css')

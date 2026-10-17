@@ -113,7 +113,12 @@ trait HasRoomPricingFormFields
 
                             Select::make('timeslot_id')
                                 ->label('Khung giờ')
-                                ->options(TimeSlot::forCurrentAdmin()->pluck('label', 'id'))
+                                // Bỏ time_slots type=date (1 bản ghi / NGÀY do lịch giá phòng theo ngày tạo ra —
+                                // không phải khung giờ, và mỗi ngày thiết lập lại phình thêm option ở MỌI ô
+                                // chọn của MỌI phòng). type NULL = khung giờ cũ trước khi có cột type.
+                                ->options(fn () => TimeSlot::forCurrentAdmin()
+                                    ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
+                                    ->pluck('label', 'id'))
                                 ->preload()
                                 ->searchable()
                                 ->createOptionForm([

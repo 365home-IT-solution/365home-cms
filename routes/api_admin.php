@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\RoomPricingController as AdminRoomPricingController;
+use App\Http\Controllers\Api\Admin\DailyRoomPricingController as AdminDailyRoomPricingController;
 use App\Http\Controllers\Api\Admin\RoomPromotionController as AdminRoomPromotionController;
 use App\Http\Controllers\Api\Admin\RoomTimeSlotController as AdminRoomTimeSlotController;
 use App\Http\Controllers\Api\Admin\RoomTypeController as AdminRoomTypeController;
@@ -417,6 +418,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET /api/admin/rooms/{id}/dates
 |                          → lịch phòng theo NGÀY (styles=2) — ?month=YYYY-MM (calendar) hoặc
 |                            ?from=&to= (xem trước 1 khoảng, có subtotal/deposit/holding).
+| GET /api/admin/rooms/{id}/date-pricing        → THIẾT LẬP giá theo ngày (styles=2): giá gốc, options
+|                            KM/phụ thu/mã, từng ngày override_price/final_price/promotion_ids/...
+| POST /api/admin/rooms/{id}/date-pricing/bulk  → sửa hàng loạt theo khoảng ngày + lọc thứ (weekdays[]
+|                            1=T2…7=CN): set_price/clear_price/attach_promotions/detach_promotions/
+|                            attach_coupons/detach_coupons/clear.
+| PUT/DELETE /api/admin/rooms/{id}/date-pricing/{Y-m-d} → thay thế / xoá thiết lập 1 ngày.
+|                          Cùng service ghi với lịch ở /homestay/admin/books — xem docblock
+|                          App\Http\Controllers\Api\Admin\DailyRoomPricingController.
 | POST/DELETE /api/admin/rooms/{id}/hold
 |                          → giữ/bỏ giữ tạm 1 khoảng ngày cho phòng theo NGÀY — cùng nguyên tắc với
 |                            time-slot-hold ở trên (định danh admin:{user_id}, dùng chung kho dữ
@@ -494,6 +503,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
     Route::delete('rooms/{id}/time-slot-hold', [AdminTimeSlotHoldController::class, 'release'])->name('rooms.time-slot-hold.release');
     Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
+    Route::get('rooms/{id}/date-pricing', [AdminDailyRoomPricingController::class, 'show'])->name('rooms.date-pricing.show');
+    Route::post('rooms/{id}/date-pricing/bulk', [AdminDailyRoomPricingController::class, 'bulk'])->name('rooms.date-pricing.bulk');
+    Route::put('rooms/{id}/date-pricing/{date}', [AdminDailyRoomPricingController::class, 'update'])
+        ->where('date', '\d{4}-\d{2}-\d{2}')->name('rooms.date-pricing.update');
+    Route::delete('rooms/{id}/date-pricing/{date}', [AdminDailyRoomPricingController::class, 'destroy'])
+        ->where('date', '\d{4}-\d{2}-\d{2}')->name('rooms.date-pricing.destroy');
     Route::post('rooms/{id}/hold',   [AdminDailyRoomHoldController::class, 'hold'])->name('rooms.daily-hold');
     Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
     Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');

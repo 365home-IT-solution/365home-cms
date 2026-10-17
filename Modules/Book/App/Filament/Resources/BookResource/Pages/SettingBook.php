@@ -17,13 +17,12 @@ use Filament\Forms\Components\DatePicker;
 use Modules\Book\App\Filament\Forms\Components\DatePriceCalendarField;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
-use Modules\Product\App\Models\TimeSlot;
 use Modules\Promotion\App\Models\Promotion;
 use Filament\Notifications\Notification;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\DataPermission\Entities\UserBranchPermission;
-use App\Services\SlotRealtimeService;
 use App\Services\PriceBoardSyncService;
+use App\Services\DailyRoomPricingService;
 use Modules\Product\App\Models\PriceBoardPriceLog;
 use Filament\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
@@ -91,6 +90,11 @@ class SettingBook extends Page implements HasForms
     public ?string $branchId = null;
     public int $page = 1;
 
+    /** ?product_id= (mở nhanh từ Dashboard) — cũng chỉ đọc 1 lần ở mount() như trên: trước đây đọc
+     *  lại request()->query() trong currentRoomIds()/form(), nên sau thao tác đầu tiên trên lịch
+     *  (request AJAX, không còn query string) phòng đó rơi khỏi form nếu nằm ngoài trang hiện tại. */
+    public ?string $preselectProductId = null;
+
     /** Cache trong 1 request — currentRoomIds() bị gọi cả ở mount() lẫn form(), không muốn chạy
      *  lại query phân trang 2 lần. */
     private ?\Illuminate\Support\Collection $currentRoomIdsCache = null;
@@ -143,7 +147,7 @@ class SettingBook extends Page implements HasForms
 
         $ids = $paginator->getCollection()->pluck('id');
 
-        $preselectId = request()->query('product_id');
+        $preselectId = $this->preselectProductId;
         if ($preselectId && ! $ids->contains($preselectId) && $this->baseProductQuery()->whereKey($preselectId)->exists()) {
             $ids->push($preselectId);
         }
@@ -281,22 +285,6 @@ class SettingBook extends Page implements HasForms
         $query->orderByRaw("(FIELD(id, {$placeholders}) = 0), FIELD(id, {$placeholders})", array_merge($priorityIds, $priorityIds));
     }
 
-    /** Báo cho khách đang xem lịch phòng (book.blade/product-detail) biết các ngày này vừa đổi
-     *  giá/khuyến mãi/mã giảm giá — đẩy qua Node WS (room:{roomId}:{date}, event slot.updated,
-     *  status "available") để trang khách tự fetch lại thay vì phải F5. Không throw nếu WS server
-     *  không chạy — SlotRealtimeService tự bắt lỗi + timeout ngắn (xem app/Services/
-     *  SlotRealtimeService.php), nên an toàn gọi vô điều kiện sau mỗi lần lưu ở đây. */
-    private function broadcastDatesChanged(string $roomId, array $dates): void
-    {
-        $dates = array_values(array_unique(array_filter($dates)));
-
-        if (empty($dates)) {
-            return;
-        }
-
-        app(SlotRealtimeService::class)->broadcastBlockedRange($roomId, $dates, [], 'available');
-    }
-
     // So sánh danh sách khung giờ (RoomTimeSlot) của 1 phòng TRƯỚC/SAU khi save() xoá-tạo-lại, ghi
     // 1 dòng audit log DUY NHẤT liệt kê khung giờ đã tăng/bớt — thay cho việc để mỗi khung giờ tự
     // bắn 1 dòng log riêng (đã tắt qua RoomTimeSlot::withoutAuditLog() ở save()). $oldSlots là
@@ -339,22 +327,11 @@ class SettingBook extends Page implements HasForms
         );
     }
 
-    /** Danh sách ngày (Y-m-d) từ $start đến $end (bao gồm cả 2 đầu) — dùng để báo realtime cho các
-     *  thao tác hàng loạt theo khoảng ngày (applyBulkOverride, removeBulkPromotion...). */
-    private function dateRange(\Carbon\Carbon $start, \Carbon\Carbon $end): array
-    {
-        $dates = [];
-        for ($day = $start->copy(); $day->lte($end); $day->addDay()) {
-            $dates[] = $day->format('Y-m-d');
-        }
-
-        return $dates;
-    }
-
     public function mount(): void
     {
         $this->branchId = request()->query('branch_id') ?: null;
         $this->page     = max(1, (int) request()->query('page', 1));
+        $this->preselectProductId = request()->query('product_id') ?: null;
 
         $this->fillFormData();
     }
@@ -402,7 +379,10 @@ class SettingBook extends Page implements HasForms
                 })->toArray();
             } else {
                 $roomData['dateTimeSlots'] = $product->roomTimeSlots
-                    ->filter(fn($s) => $s->timeslot && $s->timeslot->type === 'date')
+                    // Chỉ gửi từ đầu tháng trước trở đi — ngày đã qua lâu không sửa được nữa (lịch
+                    // khoá ngày quá khứ) mà mỗi năm phình thêm ~365 dòng/phòng vào state Livewire.
+                    ->filter(fn($s) => $s->timeslot && $s->timeslot->type === 'date'
+                        && $s->timeslot->label >= now()->subMonthNoOverflow()->startOfMonth()->format('Y-m-d'))
                     ->map(fn($slot) => [
                         'id'         => $slot->id,
                         'date'       => $slot->timeslot->label,
@@ -477,6 +457,7 @@ class SettingBook extends Page implements HasForms
                         DatePriceCalendarField::make($prefix . 'dateTimeSlots')
                             ->roomId($product->id)
                             ->basePrice((int) ($product->price ?? 0))
+                            ->defaultTimes($product->default_checkin, $product->default_checkout)
                             ->label('')
                             ->columnSpan('full'),
                     ]);
@@ -498,7 +479,7 @@ class SettingBook extends Page implements HasForms
         // con của chính phòng), thay vì luôn mở tab đầu tiên rồi phải tự tìm lại.
         $activeStyleTab = 1;
         $activeRoomTab  = 1;
-        $preselectId    = request()->query('product_id');
+        $preselectId    = $this->preselectProductId;
 
         if ($preselectId) {
             $slotIndex = $slotRooms->search(fn ($p) => (string) $p->id === (string) $preselectId);
@@ -618,64 +599,10 @@ class SettingBook extends Page implements HasForms
                         ->get()
                         ->keyBy(fn ($slot) => (string) $slot->id);
 
-                    // Style=2: lưu dateTimeSlots → room_time_slots qua timeslot type=date
-                    if ($productStyle === 2 && isset($roomData['dateTimeSlots']) && is_array($roomData['dateTimeSlots'])) {
-                        RoomTimeSlot::withoutAuditLog(function () use ($roomData, $productId) {
-                            $existingDateIds = collect($roomData['dateTimeSlots'])->pluck('id')->filter()->toArray();
-                            $dateSlotsToDelete = RoomTimeSlot::where('room_id', $productId)
-                                ->whereHas('timeslot', fn($q) => $q->where('type', 'date'))
-                                ->when(!empty($existingDateIds), fn($q) => $q->whereNotIn('id', $existingDateIds))
-                                ->get();
-
-                            foreach ($dateSlotsToDelete as $s) {
-                                $s->promotions()->detach();
-                                $s->delete();
-                            }
-
-                            $changedDates = [];
-
-                            foreach ($roomData['dateTimeSlots'] as $slot) {
-                                if (empty($slot['date'])) continue;
-
-                                $dateLabel = \Carbon\Carbon::parse($slot['date'])->format('Y-m-d');
-                                $changedDates[] = $dateLabel;
-                                $timeSlot  = TimeSlot::firstOrCreate(
-                                    ['label' => $dateLabel, 'type' => 'date'],
-                                    ['start_time' => null, 'end_time' => null]
-                                );
-
-                                $dateSlotData = [
-                                    'room_id'     => $productId,
-                                    'timeslot_id' => $timeSlot->id,
-                                    'price'       => $slot['price'] !== null
-                                        ? (int) str_replace(['.', ','], '', $slot['price'])
-                                        : null,
-                                    'status'      => 'available',
-                                    'checkin'     => $slot['checkin'] ?? null,
-                                    'checkout'    => $slot['checkout'] ?? null,
-                                ];
-
-                                $dateSlotModel = null;
-                                if (!empty($slot['id'])) {
-                                    $dateSlotModel = RoomTimeSlot::find($slot['id']);
-                                    if ($dateSlotModel) $dateSlotModel->update($dateSlotData);
-                                } else {
-                                    $dateSlotModel = RoomTimeSlot::create($dateSlotData);
-                                }
-
-                                if ($dateSlotModel) {
-                                    $allPromoIds = array_merge(
-                                        array_map('intval', $slot['promotions'] ?? []),
-                                        array_map('intval', $slot['surcharges'] ?? [])
-                                    );
-                                    $dateSlotModel->promotions()->sync($allPromoIds);
-                                    $dateSlotModel->coupons()->sync(array_map('intval', $slot['coupons'] ?? []));
-                                }
-                            }
-
-                            $this->broadcastDatesChanged($productId, $changedDates);
-                        });
-                    }
+                    // Style=2: lịch "Ngày đặc biệt" KHÔNG lưu ở đây — mỗi thao tác trên lịch đã tự
+                    // ghi DB ngay qua các action bên dưới (DailyRoomPricingService). Trước đây nút
+                    // Lưu ghi lại toàn bộ ngày từ state form (xoá ngày không có trong state, sync lại
+                    // KM/mã) → state cũ (mở 2 tab / 2 người cùng sửa) đè mất thay đổi lịch vừa làm.
 
                     // Style=1: lưu roomTimeSlots (timeslot_id NOT NULL)
                     if ($productStyle === 1 && isset($roomData['roomTimeSlots']) && is_array($roomData['roomTimeSlots'])) {
@@ -755,63 +682,105 @@ class SettingBook extends Page implements HasForms
         }
     }
 
-    /**
-     * Ghi đè giá hàng loạt cho một khoảng ngày.
-     * Được gọi từ Alpine.js trong blade: $wire.call('applyBulkOverride', ...)
-     */
+    // ═════════════════════════════════════════════════════════════════════════
+    //  LỊCH GIÁ THEO NGÀY (phòng styles=2) — gọi từ Alpine trong
+    //  date-price-calendar.blade.php qua $wire.call(...). Mọi thao tác ghi đi qua
+    //  App\Services\DailyRoomPricingService (dùng CHUNG với API admin cho app).
+    //
+    //  $weekdays: thứ ISO (1 = Thứ 2 … 7 = Chủ nhật) — rỗng = mọi ngày trong khoảng.
+    //  Khoảng ngày luôn BAO GỒM cả 2 đầu ($startDate..$endDate), 1 ngày = đêm bắt
+    //  đầu từ ngày đó.
+    // ═════════════════════════════════════════════════════════════════════════
+
     public function applyBulkOverride(
         string  $roomId,
         string  $startDate,
         string  $endDate,
         int     $price,
         ?string $checkinTime,
-        ?string $checkoutTime
+        ?string $checkoutTime,
+        array   $weekdays = []
     ): void {
-        $product = Product::find($roomId);
-        if (!$product || (int)($product->styles ?? 1) !== 2) {
-            Notification::make()->title('Phòng không hợp lệ')->danger()->send();
+        if ($price < 0) {
+            Notification::make()->title('Giá không hợp lệ')->warning()->send();
             return;
         }
 
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, 'Đã ghi đè giá',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->setPrice($room, $dates, $price, $checkinTime, $checkoutTime));
+    }
 
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
-            return;
-        }
+    /** $replace = thay toàn bộ KM + phụ thu của các ngày đó (thay vì gắn thêm). */
+    public function applyBulkPromotion(string $roomId, string $startDate, string $endDate, array $promotionIds, array $weekdays = [], bool $replace = false): void
+    {
+        $promotionIds = $this->onlyAllowedIds($promotionIds, 'promotion');
 
-        $count = 0;
-        for ($day = $start->copy(); $day->lte($end); $day->addDay()) {
-            $dateStr = $day->format('Y-m-d');
-
-            $timeSlot = TimeSlot::firstOrCreate(
-                ['label' => $dateStr, 'type' => 'date'],
-                ['start_time' => null, 'end_time' => null]
-            );
-
-            RoomTimeSlot::updateOrCreate(
-                ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
-                ['price' => $price, 'status' => 'available', 'checkin' => $checkinTime, 'checkout' => $checkoutTime]
-            );
-
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
-
-        // Reload form state để calendar cập nhật ngay
-        $this->fillFormData();
-
-        Notification::make()
-            ->title("Đã áp dụng giá cho {$count} ngày")
-            ->body(\Carbon\Carbon::parse($startDate)->format('d/m/Y') . ' → ' . \Carbon\Carbon::parse($endDate)->format('d/m/Y'))
-            ->success()
-            ->send();
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, $replace ? 'Đã thay khuyến mãi/phụ thu' : 'Đã gắn khuyến mãi/phụ thu',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->attachPromotions($room, $dates, $promotionIds, $replace));
     }
 
     /**
-     * Lưu 1 ngày đơn lẻ trực tiếp (gọi từ Alpine saveDate).
+     * Tạo (hoặc dùng lại) KM theo GIÁ TRỊ nhập tay — "Giảm 40%", "Giảm 50.000đ", "Phụ thu 10%"...
+     * — rồi trả về dạng option để Alpine thêm vào danh sách và gắn ngay (applyBulkPromotion /
+     * saveSingleDate). $type: percentage | fixed | increase_percentage | increase_fixed.
+     */
+    public function createQuickPromotion(string $roomId, string $type, int $value, string $from, string $to): ?array
+    {
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
+            return null;
+        }
+
+        try {
+            $service = app(DailyRoomPricingService::class);
+
+            return $service->promotionOption($service->quickPromotion($room, $type, $value, $from, $to, auth()->user()));
+        } catch (\InvalidArgumentException $e) {
+            Notification::make()->title($e->getMessage())->warning()->send();
+            return null;
+        }
+    }
+
+    public function applyBulkCoupon(string $roomId, string $startDate, string $endDate, array $couponIds, array $weekdays = [], bool $replace = false): void
+    {
+        $couponIds = $this->onlyAllowedIds($couponIds, 'coupon');
+
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, $replace ? 'Đã thay mã giảm giá' : 'Đã gắn mã giảm giá',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->attachCoupons($room, $dates, $couponIds, $replace));
+    }
+
+    /** Gỡ giá ghi đè + giờ riêng, giữ KM/mã. */
+    public function removeBulkOverride(string $roomId, string $startDate, string $endDate, array $weekdays = []): void
+    {
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, 'Đã gỡ giá ghi đè',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->clearPrice($room, $dates));
+    }
+
+    /** $promoIds rỗng = gỡ tất cả thuộc nhóm $kind ('discount' | 'surcharge'). */
+    public function removeBulkPromotion(string $roomId, string $startDate, string $endDate, array $promoIds = [], array $weekdays = [], ?string $kind = null): void
+    {
+        $kind = in_array($kind, ['discount', 'surcharge'], true) ? $kind : null;
+
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, $kind === 'surcharge' ? 'Đã gỡ phụ thu' : 'Đã gỡ khuyến mãi',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->detachPromotions($room, $dates, $promoIds, $kind));
+    }
+
+    /** $couponIds rỗng = gỡ tất cả mã. */
+    public function removeBulkCoupon(string $roomId, string $startDate, string $endDate, array $couponIds = [], array $weekdays = []): void
+    {
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, 'Đã gỡ mã giảm giá',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->detachCoupons($room, $dates, $couponIds));
+    }
+
+    /** Xoá MỌI cấu hình (giá, giờ, KM, phụ thu, mã) trong khoảng → về giá gốc. */
+    public function removeBulkAll(string $roomId, string $startDate, string $endDate, array $weekdays = []): void
+    {
+        $this->runDailyBulk($roomId, $startDate, $endDate, $weekdays, 'Đã xoá cấu hình',
+            fn (DailyRoomPricingService $s, Product $room, array $dates) => $s->clearDates($room, $dates));
+    }
+
+    /**
+     * Lưu TRỌN 1 ngày (thay thế toàn bộ cấu hình ngày đó). Bỏ trống hết = ngày về giá gốc.
      */
     public function saveSingleDate(
         string  $roomId,
@@ -823,422 +792,166 @@ class SettingBook extends Page implements HasForms
         array   $surchargeIds = [],
         array   $couponIds    = []
     ): void {
-        $hasData = $price !== null || !empty($promoIds) || !empty($surchargeIds) || !empty($couponIds);
-        if (! $hasData) {
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
             return;
         }
 
-        $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
+        if ($price !== null && $price < 0) {
+            Notification::make()->title('Giá không hợp lệ')->warning()->send();
+            return;
+        }
 
-        $timeSlot = TimeSlot::firstOrCreate(
-            ['label' => $dateLabel, 'type' => 'date'],
-            ['start_time' => null, 'end_time' => null]
+        app(DailyRoomPricingService::class)->saveDate(
+            $room,
+            $date,
+            $price,
+            $checkin,
+            $checkout,
+            $this->onlyAllowedIds(array_merge($promoIds, $surchargeIds), 'promotion', $this->attachedIds($room, $date, 'promotions')),
+            $this->onlyAllowedIds($couponIds, 'coupon', $this->attachedIds($room, $date, 'coupons')),
         );
-
-        $slotModel = RoomTimeSlot::updateOrCreate(
-            ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
-            ['price' => $price, 'status' => 'available', 'checkin' => $checkin, 'checkout' => $checkout]
-        );
-
-        $allPromoIds = array_merge(
-            array_map('intval', $promoIds),
-            array_map('intval', $surchargeIds)
-        );
-        $slotModel->promotions()->sync($allPromoIds);
-        $slotModel->coupons()->sync(array_map('intval', $couponIds));
-
-        $this->broadcastDatesChanged($roomId, [$dateLabel]);
 
         $this->fillFormData();
 
-        Notification::make()
-            ->title('Đã lưu ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
-            ->success()
-            ->send();
+        Notification::make()->title('Đã lưu ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))->success()->send();
     }
 
-    public function applyBulkPromotion(
-        string $roomId,
-        string $startDate,
-        string $endDate,
-        array  $promotionIds
-    ): void {
-        $product = Product::find($roomId);
-
-        if (!$product) {
-            Notification::make()->title('Phòng không hợp lệ')->danger()->send();
-            return;
-        }
-
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
-
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
-            return;
-        }
-
-        $count = 0;
-
-        for ($day = $start->copy(); $day->lte($end); $day->addDay()) {
-            $dateStr = $day->format('Y-m-d');
-
-            $timeSlot = TimeSlot::firstOrCreate(
-                ['label' => $dateStr, 'type' => 'date'],
-                ['start_time' => null, 'end_time' => null]
-            );
-
-            // firstOrCreate: nếu slot đã có → giữ nguyên giá ghi đè
-            //                nếu chưa có → tạo mới với price=null (không ghi đè, dùng giá gốc phòng)
-            $slotModel = RoomTimeSlot::firstOrCreate(
-                ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
-                ['price' => null, 'status' => 'available']
-            );
-
-            $slotModel->promotions()->sync($promotionIds);
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title("Đã áp dụng khuyến mãi cho {$count} ngày")
-            ->body(
-                \Carbon\Carbon::parse($startDate)->format('d/m/Y')
-                . ' → '
-                . \Carbon\Carbon::parse($endDate)->format('d/m/Y')
-            )
-            ->success()
-            ->send();
-    }
-
-    /**
-     * Gỡ ghi đè hàng loạt: xóa price, checkin, checkout trong khoảng ngày.
-     * Promotion giữ nguyên. Slot không có promotion → xóa hẳn record.
-     */
-    public function removeBulkOverride(
-        string $roomId,
-        string $startDate,
-        string $endDate
-    ): void {
-        $product = Product::find($roomId);
-        if (!$product || (int)($product->styles ?? 1) !== 2) {
-            Notification::make()->title('Phòng không hợp lệ')->danger()->send();
-            return;
-        }
-
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
-
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
-            return;
-        }
-
-        $slots = RoomTimeSlot::with(['timeslot', 'promotions'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('type', 'date')
-                ->whereBetween('label', [$start->format('Y-m-d'), $end->format('Y-m-d')]))
-            ->get();
-
-        $count = 0;
-        foreach ($slots as $slot) {
-            if ($slot->promotions->isEmpty()) {
-                // Không có promotion → xóa hẳn slot
-                $slot->delete();
-            } else {
-                // Có promotion → giữ slot nhưng xóa giá ghi đè & checkin/checkout
-                $slot->update(['price' => null, 'checkin' => null, 'checkout' => null]);
-            }
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title("Đã gỡ ghi đè cho {$count} ngày")
-            ->body(\Carbon\Carbon::parse($startDate)->format('d/m/Y') . ' → ' . \Carbon\Carbon::parse($endDate)->format('d/m/Y'))
-            ->success()->send();
-    }
-
-    /**
-     * Xóa ghi đè của 1 ngày đơn lẻ.
-     * Logic: slot có promotion → chỉ xóa price/checkin/checkout; không có → xóa hẳn record.
-     */
+    /** Xoá toàn bộ cấu hình của 1 ngày → về giá gốc. */
     public function deleteSingleDate(string $roomId, string $date): void
     {
-        $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
-
-        $slot = RoomTimeSlot::with('promotions')
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('label', $dateLabel)->where('type', 'date'))
-            ->first();
-
-        if ($slot) {
-            if ($slot->promotions->isEmpty()) {
-                $slot->delete();
-            } else {
-                $slot->update(['price' => null, 'checkin' => null, 'checkout' => null]);
-            }
-        }
-
-        $this->broadcastDatesChanged($roomId, [$dateLabel]);
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title('Đã xóa ghi đè ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
-            ->success()->send();
-    }
-
-    /**
-     * Gỡ khuyến mãi hàng loạt cho khoảng ngày.
-     * $promoIds rỗng = gỡ tất cả khuyến mãi.
-     */
-    public function removeBulkPromotion(
-        string $roomId,
-        string $startDate,
-        string $endDate,
-        array  $promoIds = []
-    ): void {
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
-
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
             return;
         }
 
-        $slots = RoomTimeSlot::with(['timeslot', 'promotions', 'coupons'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('type', 'date')
-                ->whereBetween('label', [$start->format('Y-m-d'), $end->format('Y-m-d')]))
-            ->get();
-
-        $count = 0;
-        foreach ($slots as $slot) {
-            if (empty($promoIds)) {
-                $slot->promotions()->detach();
-            } else {
-                $slot->promotions()->detach($promoIds);
-            }
-
-            $slot->refresh();
-            if ($slot->promotions->isEmpty() && $slot->coupons->isEmpty() && $slot->price === null) {
-                $slot->delete();
-            }
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+        app(DailyRoomPricingService::class)->clearDates($room, [$date]);
 
         $this->fillFormData();
 
-        Notification::make()
-            ->title("Đã gỡ khuyến mãi cho {$count} ngày")
-            ->body(\Carbon\Carbon::parse($startDate)->format('d/m/Y') . ' → ' . \Carbon\Carbon::parse($endDate)->format('d/m/Y'))
-            ->success()->send();
+        Notification::make()->title('Đã xoá thiết lập ngày ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))->success()->send();
     }
 
-    /**
-     * Gỡ mã giảm giá hàng loạt cho khoảng ngày.
-     * $couponIds rỗng = gỡ tất cả mã giảm giá.
-     */
-    public function removeBulkCoupon(
-        string $roomId,
-        string $startDate,
-        string $endDate,
-        array  $couponIds = []
-    ): void {
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
-
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
-            return;
-        }
-
-        $slots = RoomTimeSlot::with(['timeslot', 'promotions', 'coupons'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('type', 'date')
-                ->whereBetween('label', [$start->format('Y-m-d'), $end->format('Y-m-d')]))
-            ->get();
-
-        $count = 0;
-        foreach ($slots as $slot) {
-            if (empty($couponIds)) {
-                $slot->coupons()->detach();
-            } else {
-                $slot->coupons()->detach($couponIds);
-            }
-
-            $slot->refresh();
-            if ($slot->promotions->isEmpty() && $slot->coupons->isEmpty() && $slot->price === null) {
-                $slot->delete();
-            }
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title("Đã gỡ mã giảm giá cho {$count} ngày")
-            ->body(\Carbon\Carbon::parse($startDate)->format('d/m/Y') . ' → ' . \Carbon\Carbon::parse($endDate)->format('d/m/Y'))
-            ->success()->send();
-    }
-
-    /**
-     * Gỡ 1 khuyến mãi / phụ thu khỏi 1 ngày đơn lẻ.
-     * Dùng chung cho cả KM (percentage/fixed) và phụ thu (increase_*).
-     */
     public function removeSinglePromotion(string $roomId, string $date, int $promotionId): void
     {
-        $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
-
-        $slot = RoomTimeSlot::with(['promotions', 'coupons'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('label', $dateLabel)->where('type', 'date'))
-            ->first();
-
-        if ($slot) {
-            $slot->promotions()->detach($promotionId);
-            $slot->refresh();
-            // Slot rỗng (không còn KM, coupon và không có giá ghi đè) → xóa hẳn
-            if ($slot->promotions->isEmpty() && $slot->coupons->isEmpty() && $slot->price === null) {
-                $slot->delete();
-            }
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
+            return;
         }
 
-        $this->broadcastDatesChanged($roomId, [$dateLabel]);
-
+        app(DailyRoomPricingService::class)->detachPromotions($room, [$date], [$promotionId]);
         $this->fillFormData();
-
-        Notification::make()
-            ->title('Đã gỡ khuyến mãi ngày ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
-            ->success()->send();
     }
 
-    /**
-     * Gỡ 1 mã giảm giá khỏi 1 ngày đơn lẻ.
-     */
     public function removeSingleCoupon(string $roomId, string $date, int $couponId): void
     {
-        $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
+            return;
+        }
 
-        $slot = RoomTimeSlot::with(['promotions', 'coupons'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('label', $dateLabel)->where('type', 'date'))
+        app(DailyRoomPricingService::class)->detachCoupons($room, [$date], [$couponId]);
+        $this->fillFormData();
+    }
+
+    /** Xoá tất cả ngày đặc biệt của phòng. */
+    public function deleteAllDates(string $roomId): void
+    {
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
+            return;
+        }
+
+        $count = app(DailyRoomPricingService::class)->clearAll($room);
+
+        $this->fillFormData();
+
+        Notification::make()->title("Đã xoá {$count} ngày đặc biệt")->success()->send();
+    }
+
+    // ── Helpers lịch giá theo ngày ───────────────────────────────────────────
+
+    private function runDailyBulk(string $roomId, string $startDate, string $endDate, array $weekdays, string $title, \Closure $op): void
+    {
+        $room = $this->dailyRoomOrNotify($roomId);
+        if (! $room) {
+            return;
+        }
+
+        $service = app(DailyRoomPricingService::class);
+
+        try {
+            $dates = $service->dates($startDate, $endDate, $weekdays);
+        } catch (\InvalidArgumentException $e) {
+            Notification::make()->title($e->getMessage())->warning()->send();
+            return;
+        }
+
+        if ($dates === []) {
+            Notification::make()->title('Không có ngày nào khớp thứ đã chọn trong khoảng này')->warning()->send();
+            return;
+        }
+
+        $count = $op($service, $room, $dates);
+
+        $this->fillFormData();
+
+        Notification::make()
+            ->title("{$title}: {$count} ngày")
+            ->body(\Carbon\Carbon::parse($startDate)->format('d/m/Y') . ' → ' . \Carbon\Carbon::parse($endDate)->format('d/m/Y')
+                . ($weekdays ? ' · ' . $this->weekdayLabel($weekdays) : ''))
+            ->success()
+            ->send();
+    }
+
+    /** Phòng theo ngày mà user được sửa lịch giá — lịch này chỉ hiện cho super_admin (xem form()),
+     *  nên action gọi thẳng qua $wire cũng phải chặn đúng như vậy. */
+    private function dailyRoomOrNotify(string $roomId): ?Product
+    {
+        $room = auth()->user()?->isSuperAdmin()
+            ? $this->baseProductQuery()->whereKey($roomId)->first()
+            : null;
+
+        if (! $room || (int) ($room->styles ?? 1) !== 2) {
+            Notification::make()->title('Phòng không hợp lệ hoặc bạn không có quyền sửa lịch giá')->danger()->send();
+            return null;
+        }
+
+        return $room;
+    }
+
+    /** Lọc id KM/mã về đúng danh sách được phép chọn (DailyRoomPricingService::options()), giữ
+     *  thêm $keep (id đang gắn sẵn ở ngày đó — KM đã hết hạn không còn trong danh sách chọn, lưu
+     *  lại ngày không được âm thầm gỡ mất). */
+    private function onlyAllowedIds(array $ids, string $kind, array $keep = []): array
+    {
+        $options = app(DailyRoomPricingService::class)->options(auth()->user());
+
+        $allowed = $kind === 'coupon'
+            ? array_column($options['coupons'], 'id')
+            : array_merge(array_column($options['promotions'], 'id'), array_column($options['surcharges'], 'id'));
+
+        $allowed = array_merge($allowed, $keep);
+
+        return array_values(array_filter(array_map('intval', $ids), fn ($id) => in_array($id, $allowed, true)));
+    }
+
+    private function attachedIds(Product $room, string $date, string $relation): array
+    {
+        $slot = RoomTimeSlot::where('room_id', $room->id)
+            ->whereHas('timeslot', fn ($q) => $q->where('type', 'date')->where('label', \Carbon\Carbon::parse($date)->format('Y-m-d')))
+            ->with($relation)
             ->first();
 
-        if ($slot) {
-            $slot->coupons()->detach($couponId);
-            $slot->refresh();
-            // Slot rỗng → xóa hẳn
-            if ($slot->promotions->isEmpty() && $slot->coupons->isEmpty() && $slot->price === null) {
-                $slot->delete();
-            }
-        }
-
-        $this->broadcastDatesChanged($roomId, [$dateLabel]);
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title('Đã gỡ mã giảm giá ngày ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
-            ->success()->send();
+        return $slot ? $slot->{$relation}->pluck('id')->map(fn ($id) => (int) $id)->all() : [];
     }
 
-    /**
-     * Xóa tất cả ngày đặc biệt của phòng.
-     */
-    public function deleteAllDates(string $roomId): void    {
-        $slots = RoomTimeSlot::with(['promotions', 'timeslot'])
-            ->where('room_id', $roomId)
-            ->whereHas('timeslot', fn($q) => $q->where('type', 'date'))
-            ->get();
+    private function weekdayLabel(array $weekdays): string
+    {
+        $names = [1 => 'T2', 2 => 'T3', 3 => 'T4', 4 => 'T5', 5 => 'T6', 6 => 'T7', 7 => 'CN'];
+        $days  = array_unique(array_map('intval', $weekdays));
+        sort($days);
 
-        $deletedDates = $slots->pluck('timeslot.label')->filter()->all();
-
-        foreach ($slots as $slot) {
-            $slot->promotions()->detach();
-            $slot->delete();
-        }
-
-        $this->broadcastDatesChanged($roomId, $deletedDates);
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title('Đã xóa tất cả ngày đặc biệt')
-            ->success()->send();
-    }
-
-    /**
-     * Áp mã giảm giá hàng loạt cho khoảng ngày.
-     * Lưu vào pivot coupon_room_time_slot.
-     */
-    public function applyBulkCoupon(
-        string $roomId,
-        string $startDate,
-        string $endDate,
-        array  $couponIds
-    ): void {
-        $product = Product::find($roomId);
-        if (!$product || (int)($product->styles ?? 1) !== 2) {
-            Notification::make()->title('Phòng không hợp lệ')->danger()->send();
-            return;
-        }
-
-        $start = \Carbon\Carbon::parse($startDate)->startOfDay();
-        $end   = \Carbon\Carbon::parse($endDate)->startOfDay();
-
-        if ($start->gt($end)) {
-            Notification::make()->title('Ngày bắt đầu phải nhỏ hơn ngày kết thúc')->warning()->send();
-            return;
-        }
-
-        $basePrice = (int) ($product->price ?? 0);
-        $count = 0;
-
-        for ($day = $start->copy(); $day->lte($end); $day->addDay()) {
-            $dateStr = $day->format('Y-m-d');
-
-            $timeSlot = TimeSlot::firstOrCreate(
-                ['label' => $dateStr, 'type' => 'date'],
-                ['start_time' => null, 'end_time' => null]
-            );
-
-            // Tạo slot nếu chưa có (giữ giá ghi đè nếu đã có)
-            $slotModel = RoomTimeSlot::firstOrCreate(
-                ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
-                ['price' => null, 'status' => 'available']
-            );
-
-            // Sync coupons vào pivot coupon_room_time_slot
-            foreach ($couponIds as $couponId) {
-                $slotModel->coupons()->syncWithoutDetaching([$couponId]);
-            }
-
-            $count++;
-        }
-
-        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
-
-        $this->fillFormData();
-
-        Notification::make()
-            ->title("Đã áp mã giảm giá cho {$count} ngày")
-            ->body(
-                \Carbon\Carbon::parse($startDate)->format('d/m/Y')
-                . ' → '
-                . \Carbon\Carbon::parse($endDate)->format('d/m/Y')
-            )
-            ->success()->send();
+        return implode(', ', array_map(fn ($d) => $names[$d] ?? $d, $days));
     }
 }

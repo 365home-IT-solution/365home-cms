@@ -455,6 +455,9 @@ class RoomController extends Controller
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
+            // Luồng đặt phòng app phải đi: 'slot' → GET /api/slots + POST /api/orders type=slot;
+            // 'daily' → GET /api/rooms/{id}/dates + price-preview + hold + POST /api/orders type=daily.
+            'booking_type'      => (int) ($room->styles ?? 1) === 2 ? 'daily' : 'slot',
             'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
             'video'               => $this->buildVideo($room),
             'amenities'           => $this->buildAmenities($room),
@@ -722,12 +725,46 @@ class RoomController extends Controller
         return ['slots' => $slots];
     }
 
+    /**
+     * Phòng theo ngày: đủ thông tin để app dựng màn chọn ngày trước khi gọi /dates — giá gốc, giờ
+     * nhận/trả mặc định, "giá từ" thấp nhất 30 ngày tới (cùng công thức đặt phòng), điều kiện cọc
+     * và số khách miễn phí. Giá từng ngày cụ thể lấy ở GET /api/rooms/{id}/dates.
+     */
     private function buildDailyPrice(Product $room): array
     {
+        $base       = (float) $room->price;
+        $calculator = app(\App\Services\PromotionCalculator::class);
+        $resolver   = app(\App\Services\PriceBoards\StayPriceResolver::class);
+        $slots      = $room->roomTimeSlots
+            ->filter(fn ($rts) => $rts->timeSlot?->type === 'date')
+            ->keyBy(fn ($rts) => $rts->timeSlot?->label);
+
+        $from = null;
+        for ($day = now()->startOfDay(), $i = 0; $i < 30; $i++, $day->addDay()) {
+            $date  = $day->format('Y-m-d');
+            $rts   = $slots->get($date);
+            $price = $rts?->price !== null ? (float) $rts->price : $resolver->nightPrice($room, $date, $base);
+            $final = $calculator->calculateForDate($rts, $price, $date)['final_price'];
+            $from  = $from === null ? $final : min($from, $final);
+        }
+
+        $config = (array) ($room->room_config ?? []);
+
         return [
-            'amount'           => (float) $room->price,
-            'default_checkin'  => $room->default_checkin,
-            'default_checkout' => $room->default_checkout,
+            'amount'           => $base,
+            'unit_label'       => '/ đêm',
+            'from_amount'      => (int) ($from ?? $base),
+            'default_checkin'  => substr((string) ($room->default_checkin ?? '14:00'), 0, 5),
+            'default_checkout' => substr((string) ($room->default_checkout ?? '12:00'), 0, 5),
+            'deposit'          => [
+                'one_night_percent'   => (int) ($room->deposit_1_night ?? 100),
+                'multi_night_percent' => (int) ($room->deposit_multi_night ?? 50),
+                'min_nights'          => (int) ($room->deposit_min_nights ?? 2),
+            ],
+            'guests'           => [
+                'max_free'      => (int) ($config['max_free_guests'] ?? 2),
+                'extra_fee'     => (int) ($config['extra_guest_fee'] ?? 0),
+            ],
             'promotions'       => $this->buildDailyPromotions($room),
         ];
     }
