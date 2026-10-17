@@ -27,7 +27,10 @@
         ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
         ->pluck('name', 'id')->all();
 
+    // Bỏ bản sao cá nhân (customer_id != null — voucher hạng cấp riêng cho từng khách, hàng nghìn
+    // bản): list này render vào 3 modal × mỗi phòng, để nguyên sẽ ra HTML vài chục MB → hết RAM, 500.
     $couponOptions = Coupon::where('is_active', true)
+        ->whereNull('customer_id')
         ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
         ->pluck('name', 'id')->all();
     $state            = $getState() ?? [];
