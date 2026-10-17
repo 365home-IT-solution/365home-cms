@@ -34,7 +34,7 @@
                     @php
                         $sku = $product->sku;
                         $originalPrice = $product->price;
-                        $discountPrice = $product->discount;
+                        $discountPrice = 0; // products.discount không còn tham gia giá (khớp trang chi tiết / API)
                         $hasDiscount = $discountPrice > 0 && $discountPrice < $originalPrice;
                         $discountPercentage = $hasDiscount
                             ? round((($originalPrice - $discountPrice) / $originalPrice) * 100)
@@ -86,7 +86,7 @@
                                 @php
                                     $sku = $product->sku;
                                     $originalPrice = $product->price;
-                                    $discountPrice = $product->discount;
+                                    $discountPrice = 0; // products.discount không còn tham gia giá (khớp trang chi tiết / API)
                                     $hasDiscount = $discountPrice > 0 && $discountPrice < $originalPrice;
                                     $discountPercentage = $hasDiscount
                                         ? round((($originalPrice - $discountPrice) / $originalPrice) * 100)

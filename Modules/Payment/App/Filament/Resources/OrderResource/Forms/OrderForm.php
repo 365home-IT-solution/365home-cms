@@ -515,7 +515,7 @@ class OrderForm
                                                                                     $set('name', $product->name);
                                                                                     $set('product_style', (int)($product->styles ?? 1));
                                                                                     $set('price_per_night', (float)($product->price ?? 0));
-                                                                                    $displayPrice = $product->discount ?: $product->price;
+                                                                                    $displayPrice = $product->price; // products.discount không còn tham gia giá (khớp web / API)
                                                                                     $set('discount', $displayPrice);
 
                                                                                     // Đổi phòng — XOÁ SẠCH giá + khung giờ/ngày đã chọn của phòng

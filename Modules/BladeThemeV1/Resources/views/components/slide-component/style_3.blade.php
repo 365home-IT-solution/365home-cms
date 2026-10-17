@@ -24,9 +24,8 @@
                 {{-- styles=2: Compact booking calendar --}}
                 @php
                 $s3Price = (float)($room->price ?? 0);
-                $s3Disc = (float)($room->discount ?? 0);
-                $s3DisplayPrice = $s3Disc > 0 ? number_format(round($s3Price * (1 - $s3Disc / 100))) :
-                number_format((int)$s3Price);
+                // products.discount không còn tham gia giá (khớp trang chi tiết / API)
+                $s3DisplayPrice = number_format((int)$s3Price);
                 $s3Url = route('product.detail', ['slug' => $room->pslug]);
                 $s3Booked = collect($room->orderItems ?? [])->map(fn($it) => [
                 'start' => \Carbon\Carbon::parse($it->checkin_date)->format('Y-m-d'),
@@ -55,7 +54,7 @@
                 <div class="text-[11px] text-gray-400 mb-2 line-clamp-1">{!! $room->psd !!}</div>
                 {{-- Always-visible calendar --}}
                 <div
-                    x-data="roomCalendar({{ Js::from($s3Booked) }}, '{{ $s3Url }}', {{ (int)$s3Price }}, {{ (int)$s3Disc }}, {{ Js::from($s3DayPrices) }}, {{ Js::from($s3DatePrices) }})">
+                    x-data="roomCalendar({{ Js::from($s3Booked) }}, '{{ $s3Url }}', {{ (int)$s3Price }}, 0, {{ Js::from($s3DayPrices) }}, {{ Js::from($s3DatePrices) }})">
                     <div class="flex items-center justify-between mb-2">
                         <button type="button" @click="prevMonth()" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
                                             <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
@@ -195,7 +194,7 @@
                     if (this.datePrices[isoStr] !== undefined) return this.datePrices[isoStr];
                     var dow = new Date(isoStr + 'T00:00:00').getDay();
                     if (this.dayPrices[dow] !== undefined && this.dayPrices[dow] > 0) return this.dayPrices[dow];
-                    return this.discount > 0 ? Math.round(this.basePrice * (1 - this.discount / 100)) : this.basePrice;
+                    return this.basePrice;
                 },
                 selectDay(d) {
                     if (this.isPast(d) || this.isBooked(d)) return;

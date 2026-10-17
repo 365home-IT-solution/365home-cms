@@ -1,7 +1,6 @@
 {{-- Date Range Picker Component - 1 tháng + Info panel --}}
 @php
     $pricePerNight      = $pricePerNight      ?? 0;
-    $productDiscount    = $productDiscount    ?? 0;
     $bookedRanges       = $bookedRanges       ?? [];
     $adminBlockedRanges = $adminBlockedRanges ?? [];
     $datePrices         = $datePrices         ?? [];
@@ -26,7 +25,6 @@ function dateRangePicker(pricePerNight) {
         adminBlockedRanges: @json($adminBlockedRanges),
         datePrices: @json($datePrices),
         dayPrices: @json($dayPrices),
-        productDiscount: {{ (int)$productDiscount }},
         promoDiscounts: @json($promoDiscounts),
         promoLabels: @json($promoLabels),
         surchargeData: @json($surchargeData),
@@ -220,8 +218,8 @@ function dateRangePicker(pricePerNight) {
             }
             var dow = new Date(isoStr + 'T00:00:00').getDay();
             if (this.dayPrices[dow] !== undefined && this.dayPrices[dow] > 0) return this.dayPrices[dow];
-            var d = this.productDiscount || 0;
-            return d > 0 ? Math.round(this.pricePerNight * (1 - d / 100)) : this.pricePerNight;
+            // Không trừ products.discount — khớp giá server tính khi đặt (ProductDetail / API).
+            return this.pricePerNight;
         },
         priceSourceForDate(isoStr) {
             if (Object.prototype.hasOwnProperty.call(this.datePrices, isoStr) && this.datePrices[isoStr] !== null) {

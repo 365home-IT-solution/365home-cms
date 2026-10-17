@@ -770,9 +770,9 @@ class BladeThemeV1Controller extends Controller
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
                             ? $product->getFirstMedia('Ảnh bìa')->getUrl()
                             : null;
-        $offerPrice     = $product->discount > 0
-                            ? (float) $product->price - (float) $product->discount
-                            : (float) $product->price;
+        // products.discount không còn tham gia giá (web / API / admin cùng 1 công thức) — schema
+        // dùng đúng giá khách thấy trên trang.
+        $offerPrice     = (float) $product->price;
         // products.price của phòng luôn = 0 (giá thật nằm ở từng khung giờ room_time_slots, trang hiển
         // thị bằng Livewire) → schema từng ra "price": "0" ở mọi phòng, Google có thể hiện 0đ hoặc gỡ
         // rich result vì lệch giá trên trang. Dùng khoảng giá các khung giờ thường (date = null; khung

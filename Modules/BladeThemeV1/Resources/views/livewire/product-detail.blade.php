@@ -1312,7 +1312,6 @@
                 @php
                     $product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
                     $pricePerNight = $product->price ?? 0;
-                    $productDiscount = (int) ($product->discount ?? 0);
                     $bookedRanges = \Modules\Payment\Entities\OrderItem::where('product_id', $product->id)
                         ->whereNotNull('checkin_date')
                         ->whereNotNull('checkout_date')
@@ -1399,7 +1398,6 @@
                 <div wire:ignore id="pd-timeslots-section">
                     @include('bladethemev1::components.product-detail.daterange-picker', [
                         'pricePerNight' => $pricePerNight,
-                        'productDiscount' => $productDiscount,
                         'bookedRanges' => $bookedRanges,
                         'adminBlockedRanges' => $adminBlockedRanges,
                         'datePrices' => $datePrices,

@@ -89,7 +89,7 @@ class CreateOrder extends CreateRecord
         // product_style, price_per_night, discount, quantity), nếu không 'name' sẽ null và lưu
         // đơn thất bại (order_items.name NOT NULL). checkin_date/checkout_date/price sẽ được
         // recalculateItemFromSelectedSlots() ở dưới ghi đè lại đúng theo khung giờ đã chọn.
-        $displayPrice = $product->discount ?: $product->price;
+        $displayPrice = $product->price; // products.discount không còn tham gia giá (khớp web / API)
 
         $fill = [
             'category_id' => $branchCategory->id,

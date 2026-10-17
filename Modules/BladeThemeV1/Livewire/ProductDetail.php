@@ -500,8 +500,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
 
             $basePrice = (float) ($this->product->price ?? 0);
-            $productDisc = (float) ($this->product->discount ?? 0);
-            $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
+            // products.discount KHÔNG còn tham gia tính giá — web phải ra đúng số với API / app / lịch
+            // admin; giảm giá cả phòng dùng KM theo ngày (lịch "Ngày đặc biệt & Khuyến mãi").
+            $effectiveBase = $basePrice;
 
             $this->product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
             $dateSlotMap = [];
@@ -1037,8 +1038,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         $calculator  = app(PromotionCalculator::class);
         $basePrice   = (float) ($this->product->price ?? 0);
-        $productDisc = (float) ($this->product->discount ?? 0);
-        $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
+        // Không trừ products.discount — cùng công thức với API (BuildsRoomBooking / DailyRoomController).
+        $effectiveBase = $basePrice;
 
         $totalBeforePromo = 0;
         $totalAfterPromo  = 0;
@@ -1259,8 +1260,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
 
         $basePrice     = (float) ($this->product->price ?? 0);
-        $productDisc   = (float) ($this->product->discount ?? 0);
-        $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
+        // Không trừ products.discount — cùng công thức với API.
+        $effectiveBase = $basePrice;
 
         $calculator = new \App\Services\PromotionCalculator();
         $rtsMap     = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
