@@ -63,7 +63,7 @@ class NotificationController extends Controller
     {
         $user = $request->user();
 
-        $query = $user->notifications();
+        $query = $this->scopedToActivePartner($user->notifications(), $user);
 
         if ($request->has('unread') && $request->boolean('unread')) {
             $query->whereNull('read_at');
@@ -80,8 +80,20 @@ class NotificationController extends Controller
                 'total'        => $notifications->total(),
                 'per_page'     => $notifications->perPage(),
             ],
-            'unread_count' => $user->unreadNotifications()->count(),
+            'unread_count' => $this->scopedToActivePartner($user->unreadNotifications(), $user)->count(),
         ]);
+    }
+
+    // super_admin đang chọn đối tác (header X-Partner-Id) chỉ thấy thông báo gắn với đối tác đó
+    // (viewData.partner_id, xem AdminNotificationService::notify()). Chưa chọn đối tác = thấy hết.
+    // Tài khoản đối tác/nhân viên đã chỉ nhận đúng thông báo của đối tác mình nên không cần lọc thêm.
+    private function scopedToActivePartner($query, $user)
+    {
+        $partnerId = $user->actingPartnerId();
+
+        return $partnerId === null
+            ? $query
+            : $query->where('data->viewData->partner_id', $partnerId);
     }
 
     /**

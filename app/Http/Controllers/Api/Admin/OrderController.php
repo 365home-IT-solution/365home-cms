@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Api\Concerns\BuildsRoomBooking;
 use App\Http\Controllers\Controller;
+use App\Support\PartnerLabel;
 use App\Models\User;
 use App\Services\CccdDeclarationService;
 use App\Services\CccdIntakeService;
@@ -1023,6 +1024,7 @@ class OrderController extends Controller
         return [
             'id'             => $order->id,
             'order_code'     => $order->order_code,
+            ...PartnerLabel::for($order->partner_id),
             'status'         => $order->status,
             'payment_status' => $order->payment_status,
             'order_status'   => $order->order_status,

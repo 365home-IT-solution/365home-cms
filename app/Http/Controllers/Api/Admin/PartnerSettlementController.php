@@ -23,7 +23,7 @@ class PartnerSettlementController extends Controller
 {
     private const EVIDENCE_RULES = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'];
 
-    public function __construct(private SettlementService $settlements, private OrderCommissionService $commission) {}
+    public function __construct(private SettlementService $settlements, private OrderCommissionService $commission, private \App\Services\CommissionRepriceService $reprice) {}
 
     // GET …/settlements?status=&per_page= — các kỳ đối soát, mới nhất trước. Đối tác không thấy bảng nháp.
     public function index(Request $request, Partner $partner): JsonResponse
@@ -63,7 +63,21 @@ class PartnerSettlementController extends Controller
             'period_end'     => ['required', 'date', 'after_or_equal:period_start'],
             // true (mặc định) = chỉ lấy đơn chốt TRONG kỳ; false = gom cả đơn của kỳ trước chưa đối soát (như lệnh tự động).
             'only_in_period' => ['nullable', 'boolean'],
+            // true = sinh bảng CẢ KỲ, gộp các bảng đã có nằm trong khoảng ngày (vd đã có 01/10–15/10, gửi 01/10–31/10); xem SettlementService::generateMerged().
+            // merge_sent = cho phép gộp cả bảng đã gửi đối tác (mặc định false).
+            'merge_existing' => ['nullable', 'boolean'],
+            'merge_sent'     => ['nullable', 'boolean'],
         ]);
+
+        if ($request->boolean('merge_existing')) {
+            return $this->guard(fn () => response()->json([
+                'message' => 'Đã sinh bảng đối soát cả kỳ (gộp bảng cũ).',
+                'data'    => $this->settlements->toArray(
+                    $this->settlements->generateMerged($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay(), $request->user(), $request->boolean('merge_sent')),
+                    withOrders: true,
+                ),
+            ], 201));
+        }
 
         $settlement = $this->settlements->generate(
             $partner,
@@ -76,6 +90,82 @@ class PartnerSettlementController extends Controller
         return $settlement
             ? response()->json(['message' => 'Đã sinh bảng đối soát.', 'data' => $this->settlements->toArray($settlement, withOrders: true)], 201)
             : response()->json(['message' => $this->settlements->whyNoSettlement($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay())], 422);
+    }
+
+    // POST …/settlements/commission-reprice/preview — Super Admin XEM TRƯỚC việc áp lại tỷ lệ hoa hồng cho đơn đã phát sinh (không ghi gì).
+    // body: period_start, period_end (YYYY-MM-DD), rate (0–100), include_sent?, with_orders? — xem App\Services\CommissionRepriceService.
+    public function repricePreview(Request $request, Partner $partner): JsonResponse
+    {
+        $this->authorizeReprice($request, $partner);
+        $data = $this->validateReprice($request);
+
+        $plan = $this->reprice->plan($partner, Carbon::parse($data['period_start']), Carbon::parse($data['period_end']), (float) $data['rate'], (bool) ($data['include_sent'] ?? false));
+
+        return response()->json(['data' => $this->repriceHeader($partner, $data) + $this->reprice->summary($plan, (bool) ($data['with_orders'] ?? false))]);
+    }
+
+    // POST …/settlements/commission-reprice — Super Admin ÁP DỤNG. Như preview, thêm: confirm (phải true), update_partner_rate? (mặc định true:
+    // đổi luôn tỷ lệ trong hồ sơ đối tác để đơn tạo sau cũng theo tỷ lệ mới).
+    public function reprice(Request $request, Partner $partner): JsonResponse
+    {
+        $this->authorizeReprice($request, $partner);
+        $data = $this->validateReprice($request, applying: true);
+
+        $result = $this->reprice->apply(
+            $partner,
+            Carbon::parse($data['period_start']),
+            Carbon::parse($data['period_end']),
+            (float) $data['rate'],
+            (bool) ($data['include_sent'] ?? false),
+            (bool) ($data['update_partner_rate'] ?? true),
+        );
+
+        return response()->json([
+            'message' => $result['orders'] > 0 ? "Đã áp lại hoa hồng {$data['rate']}% cho {$result['orders']} đơn." : 'Không có đơn nào cần sửa trong phạm vi đã chọn.',
+            'data'    => $this->repriceHeader($partner->fresh(), $data) + [
+                'orders_updated'    => $result['orders'],
+                'commission_before' => $result['commission_before'],
+                'commission_after'  => $result['commission_after'],
+                'difference'        => $result['commission_after'] - $result['commission_before'],
+                'settlements'       => $result['settlements'],
+            ],
+        ]);
+    }
+
+    private function authorizeReprice(Request $request, Partner $partner): void
+    {
+        $this->authorizeSuperAdmin($request, $partner);
+        abort_if($partner->isPlatformPartner(), 422, 'Đối tác nền tảng (365home tự bán) không có hoa hồng.');
+    }
+
+    /** @return array<string, mixed> */
+    private function validateReprice(Request $request, bool $applying = false): array
+    {
+        $data = $request->validate([
+            'period_start'        => ['required', 'date'],
+            'period_end'          => ['required', 'date', 'after_or_equal:period_start'],
+            'rate'                => ['required', 'numeric', 'min:0', 'max:100'],
+            'include_sent'        => ['nullable', 'boolean'],
+            'with_orders'         => ['nullable', 'boolean'],
+            'update_partner_rate' => ['nullable', 'boolean'],
+            'confirm'             => $applying ? ['required', 'accepted'] : ['nullable', 'boolean'],
+        ]);
+
+        abort_if(Carbon::parse($data['period_start'])->diffInDays(Carbon::parse($data['period_end'])) > 366, 422, 'Khoảng ngày tối đa 366 ngày.');
+
+        return $data;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function repriceHeader(Partner $partner, array $data): array
+    {
+        return [
+            'partner'      => ['id' => $partner->id, 'name' => $partner->name, 'commission_rate' => $partner->commission_rate],
+            'period_start' => Carbon::parse($data['period_start'])->toDateString(),
+            'period_end'   => Carbon::parse($data['period_end'])->toDateString(),
+            'rate'         => (float) $data['rate'],
+            'include_sent' => (bool) ($data['include_sent'] ?? false),
+        ];
     }
 
     // POST …/settlements/{id}/send — Super Admin gửi bảng nháp cho đối tác.

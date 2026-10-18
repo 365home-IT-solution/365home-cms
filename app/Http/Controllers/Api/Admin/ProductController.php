@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Api\Admin\Concerns\GeneratesUniqueSlug;
 use App\Http\Controllers\Controller;
+use App\Support\PartnerLabel;
 use App\Models\User;
 use App\Services\AdminNotificationService;
 use App\Services\BranchServiceSync;
@@ -1228,6 +1229,7 @@ class ProductController extends Controller
         return [
             'id'         => $product->id,
             'name'       => $product->name,
+            ...PartnerLabel::for($product->partner_id),
             'image_main' => $product->getFirstMediaUrl('Ảnh bìa') ?: null,
             'categories' => $product->categories->map(fn (Category $c) => [
                 'id'   => $c->id,

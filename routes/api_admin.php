@@ -162,6 +162,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::prefix('partners/{partner}/settlements')->name('partners.settlements.')->controller(\App\Http\Controllers\Api\Admin\PartnerSettlementController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('/', 'store')->name('store');
+        // Áp lại tỷ lệ hoa hồng cho đơn đã phát sinh (Super Admin): xem trước + áp dụng — xem CommissionRepriceService.
+        Route::post('commission-reprice/preview', 'repricePreview')->name('commission-reprice.preview');
+        Route::post('commission-reprice', 'reprice')->name('commission-reprice.apply');
         Route::get('held-orders', 'heldOrders')->name('held-orders');
         Route::post('held-orders/{orderCode}/resolve', 'resolveHeldOrder')->name('held-orders.resolve');
         Route::get('{settlement}', 'show')->whereNumber('settlement')->name('show');

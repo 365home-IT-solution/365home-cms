@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Models\RoomRating;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,7 +56,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
         }
 
-        $query = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media'])
+        $query = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name,partner_id', 'repliedBy:id,fullname', 'media'])
             ->orderByDesc('created_at');
 
         if ($request->filled('room_id')) {
@@ -119,7 +120,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
         }
 
-        $rating = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media'])->find($id);
+        $rating = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name,partner_id', 'repliedBy:id,fullname', 'media'])->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
@@ -154,7 +155,7 @@ class RatingController extends Controller
             'replied_at'  => now(),
         ]);
 
-        $rating->load(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media']);
+        $rating->load(['customer:id,fullname,phone', 'room:id,name,partner_id', 'repliedBy:id,fullname', 'media']);
 
         return response()->json(['data' => $this->toItem($rating)]);
     }
@@ -313,6 +314,7 @@ class RatingController extends Controller
     {
         return [
             'id'         => $r->id,
+            ...PartnerLabel::for($r->room?->partner_id),
             'star'       => $r->star,
             'comment'    => $r->comment,
             'images'     => $r->imagesPayload(),

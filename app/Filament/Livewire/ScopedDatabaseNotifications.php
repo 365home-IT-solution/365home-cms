@@ -26,6 +26,14 @@ class ScopedDatabaseNotifications extends DatabaseNotifications
         $query   = parent::getNotificationsQuery();
         $panelId = Filament::getCurrentPanel()?->getId();
 
+        // Super_admin đang chọn đối tác (nút "Chuyển đổi đối tác") chỉ thấy thông báo gắn với đối
+        // tác đó (viewData.partner_id, xem AdminNotificationService::notify()) — cùng quy tắc với
+        // GET /api/admin/notifications. Chưa chọn đối tác = thấy hết.
+        $partnerId = auth()->user()?->actingPartnerId();
+        if ($partnerId !== null) {
+            $query->where('data->viewData->partner_id', $partnerId);
+        }
+
         if ($panelId === 'minihouse-admin') {
             return $query->where('data->viewData->module', 'minihouse');
         }

@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
+use Modules\Product\App\Models\Product;
 
 /**
  * Điểm gửi thông báo admin DUY NHẤT cho mọi nguồn sự kiện (đơn hàng, chat, check-in/check-out...) —
@@ -49,6 +50,13 @@ class AdminNotificationService
             return;
         }
 
+        // Gắn đối tác sở hữu sự kiện vào payload để GET /api/admin/notifications lọc được theo
+        // X-Partner-Id (super_admin đang chọn đối tác). Không xác định được = thông báo cấp nền tảng.
+        $partnerId = $this->resolvePartnerId($data);
+        if ($partnerId !== null) {
+            $data['partner_id'] = $partnerId;
+        }
+
         $notification = Notification::make()
             ->title($title)
             ->body($body)
@@ -70,12 +78,43 @@ class AdminNotificationService
             Log::warning('AdminNotificationService: FCM push failed', ['error' => $e->getMessage()]);
         }
 
+        // Phòng socket 'admin:notifications' dùng chung mọi admin nên chỉ báo hiệu "có thông báo mới"
+        // kèm partner_id — KHÔNG gửi nội dung (title/body) để không lộ thông báo của đối tác này cho
+        // admin đối tác khác; client gọi lại REST API (đã lọc đúng phạm vi) để lấy nội dung.
         $this->realtime->broadcastNew([
-            'title' => $title,
-            'body'  => $body,
-            'icon'  => $icon,
-            'color' => $color,
+            'partner_id' => $partnerId,
+            'icon'       => $icon,
+            'color'      => $color,
         ]);
+    }
+
+    /**
+     * Đối tác sở hữu sự kiện: ưu tiên partner_id truyền sẵn trong payload, sau đó suy ra từ đơn
+     * (order_code) hoặc phòng (product_id). Không có gì để suy ra → null (thông báo cấp nền tảng).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function resolvePartnerId(array $data): ?string
+    {
+        if (! empty($data['partner_id'])) {
+            return (string) $data['partner_id'];
+        }
+
+        if (! empty($data['order_code'])) {
+            $partnerId = Order::withoutGlobalScopes()->where('order_code', $data['order_code'])->value('partner_id');
+            if ($partnerId) {
+                return (string) $partnerId;
+            }
+        }
+
+        if (! empty($data['product_id'])) {
+            $partnerId = Product::withoutGlobalScopes()->whereKey($data['product_id'])->value('partner_id');
+            if ($partnerId) {
+                return (string) $partnerId;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -125,7 +164,7 @@ class AdminNotificationService
         $superAdmins    = User::role($superAdminRole)->get();
 
         if ($categoryId === null) {
-            return $superAdmins->isNotEmpty() ? $superAdmins : User::all();
+            return $superAdmins;
         }
 
         // Tìm parent_id của category để khớp với cả branch-level permission
@@ -148,8 +187,8 @@ class AdminNotificationService
             ->where('partner_id', $partnerId)
             ->get();
 
-        $all = $superAdmins->merge($regionalUsers)->merge($unrestrictedPartnerUsers)->unique('id');
-
-        return $all->isNotEmpty() ? $all : User::all();
+        // Không có ai khớp thì chỉ còn super_admin — TUYỆT ĐỐI không rơi về User::all() vì sẽ gửi
+        // thông báo của đối tác này cho tài khoản của mọi đối tác khác.
+        return $superAdmins->merge($regionalUsers)->merge($unrestrictedPartnerUsers)->unique('id')->values();
     }
 }

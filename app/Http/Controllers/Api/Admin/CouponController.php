@@ -54,7 +54,7 @@ class CouponController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'categories:id,name,slug']);
+        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'categories:id,name,slug', 'partner:id,name']);
 
         if ($request->filled('search')) {
             $search = $request->string('search');
@@ -132,7 +132,11 @@ class CouponController extends Controller
             return response()->json(['message' => $roomError], 422);
         }
 
-        $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? null) : $user->partner_id;
+        // Super_admin: partner_id trong body > đối tác đang chọn (X-Partner-Id) > null (mã dùng chung
+        // toàn hệ thống). Tài khoản khác luôn là đối tác của mình, bỏ qua partner_id gửi lên.
+        $partnerId = $user->isSuperAdmin()
+            ? ($data['partner_id'] ?? $user->actingPartnerId())
+            : $user->partner_id;
         $funding = Coupon::resolveFunding($user->isSuperAdmin(), $partnerId, $data['funded_by'] ?? null, $data['partner_share_pct'] ?? null);
 
         $coupon = DB::transaction(function () use ($data, $partnerId, $user, $funding) {
@@ -188,6 +192,10 @@ class CouponController extends Controller
 
         if (! $coupon) {
             return response()->json(['message' => 'Không tìm thấy mã khuyến mãi.'], 404);
+        }
+
+        if ($sharedError = $this->guardSharedCoupon($user, $coupon)) {
+            return $sharedError;
         }
 
         $data = $request->validate($this->rules(isUpdate: true, id: $id));
@@ -268,6 +276,10 @@ class CouponController extends Controller
 
         if (! $coupon) {
             return response()->json(['message' => 'Không tìm thấy mã khuyến mãi.'], 404);
+        }
+
+        if ($sharedError = $this->guardSharedCoupon($request->user(), $coupon)) {
+            return $sharedError;
         }
 
         if ($coupon->membershipTiers()->exists()) {
@@ -402,7 +414,12 @@ class CouponController extends Controller
         $query = Coupon::query();
 
         if (! $user->seesAllPartners()) {
-            $query->where('partner_id', $user->partner_id);
+            // Mã của đối tác mình + mã DÙNG CHUNG toàn hệ thống (partner_id null, không phải mã cá nhân
+            // của 1 khách) — mã dùng chung chỉ xem được, sửa/xoá bị chặn (guardSharedCoupon()).
+            $partnerId = $user->partner_id;
+            $query->where(fn (Builder $q) => $q
+                ->when($partnerId, fn (Builder $q2) => $q2->where('partner_id', $partnerId))
+                ->orWhere(fn (Builder $q2) => $q2->whereNull('partner_id')->whereNull('customer_id')));
 
             $allowedCategoryIds = $user->allowedCategoryIds();
             if (! empty($allowedCategoryIds)) {
@@ -420,6 +437,16 @@ class CouponController extends Controller
         }
 
         return $query;
+    }
+
+    // Mã dùng chung toàn hệ thống (partner_id null) chỉ super_admin được sửa/xoá.
+    private function guardSharedCoupon(User $user, Coupon $coupon): ?JsonResponse
+    {
+        if ($coupon->partner_id === null && ! $user->isSuperAdmin()) {
+            return response()->json(['message' => 'Mã khuyến mãi dùng chung của hệ thống — chỉ Super Admin được sửa/xoá.'], 403);
+        }
+
+        return null;
     }
 
     // Slug chi nhánh GỐC (parent_id=null) → id, cùng quy tắc CustomerController::resolveRootCategoryIdsFromSlugs().
@@ -442,6 +469,9 @@ class CouponController extends Controller
     {
         return [
             'id'              => $coupon->id,
+            // partner_id null = mã dùng chung toàn hệ thống.
+            'partner_id'      => $coupon->partner_id,
+            'partner_name'    => $coupon->partner?->name,
             'code'            => $coupon->code,
             'name'            => $coupon->name,
             'type'            => $coupon->type,
@@ -481,7 +511,6 @@ class CouponController extends Controller
         return array_merge($this->toListItem($coupon), [
             'description'        => $coupon->description,
             'max_discount'       => $coupon->max_discount,
-            'partner_id'         => $coupon->partner_id,
             'template_coupon_id' => $coupon->template_coupon_id,
             'room_time_slots'    => $coupon->relationLoaded('roomTimeSlots')
                 ? $coupon->roomTimeSlots->map(fn ($s) => ['id' => $s->id, 'label' => $s->timeSlot?->label])->values()

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -67,6 +68,8 @@ class WarehouseStockOutController extends Controller
         }
 
         $stockOuts = $query->orderByDesc('issued_at')->paginate($request->integer('per_page', 20));
+
+        PartnerLabel::annotate($stockOuts->getCollection());
 
         $stockOuts->getCollection()->transform(function (WarehouseStockOut $stockOut) {
             $stockOut->setAttribute('reasons_summary', $stockOut->reasonsSummary());

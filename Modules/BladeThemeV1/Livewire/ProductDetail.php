@@ -2315,7 +2315,8 @@ public function confirmBooking()
     public function calculateSlotPrice($slot, $dateString, $slotStartTime = null)
     {
         $originalPrice = (float) ($slot instanceof \Modules\Product\App\Models\RoomTimeSlot
-            ? ($slot->priceOn(Carbon::createFromFormat('d-m-Y', $dateString)) ?? $slot->price)
+            // ProductDetail nhận $dateString dạng Y-m-d (view truyền ->format('Y-m-d')), khác Book (d-m-Y)
+            ? ($slot->priceOn(Carbon::createFromFormat('Y-m-d', $dateString)) ?? $slot->price)
             : $slot->price);
         $priceAfterIncrease = $originalPrice;
         $finalPrice = $originalPrice;

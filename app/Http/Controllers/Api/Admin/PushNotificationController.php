@@ -7,15 +7,22 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\NotificationFcm;
+use App\Models\User;
 use App\Services\NotificationFcmService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
 /**
  * Gửi push notification thủ công cho khách hàng (bảng notification_fcm/notification_fcm_recipients)
  * — API tương đương form "Push Notification" ở Filament (App\Filament\Resources\NotificationFcmResource),
  * dùng cho admin app riêng (Bearer token) thay vì CMS.
+ *
+ * Phạm vi theo đối tác: super_admin (chưa chọn đối tác) gửi được cho khách TOÀN hệ thống và thấy mọi
+ * thông báo; super_admin đã chọn đối tác (header X-Partner-Id) và tài khoản đối tác/nhân viên chỉ gửi
+ * được tới KHÁCH CỦA ĐỐI TÁC ĐÓ (khách có chi nhánh thuộc đối tác — cùng quy ước CustomerController) và
+ * chỉ thấy/sửa/gửi lại thông báo do đối tác đó tạo (notification_fcm.partner_id).
  *
  * Gửi ngay nếu không có scheduled_at hoặc scheduled_at đã ở quá khứ/hiện tại; nếu scheduled_at ở
  * tương lai thì chỉ lưu record kèm recipient_ids, App\Console\Commands\SendScheduledNotificationsCommand
@@ -35,8 +42,7 @@ class PushNotificationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $notifications = NotificationFcm::query()
-            ->whereNotNull('created_by')
+        $notifications = $this->scopedNotifications($request->user())
             ->when($request->filled('search'), fn ($q) => $q->where('title', 'like', '%'.$request->input('search').'%'))
             ->when($request->filled('sent_for'), fn ($q) => $q->where('sent_for', $request->input('sent_for')))
             ->when($request->input('status') === 'pending', fn ($q) => $q->whereNotNull('scheduled_at')->whereNull('sent_at'))
@@ -51,9 +57,9 @@ class PushNotificationController extends Controller
     /**
      * GET /api/admin/push-notification/{id}
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
-        $notification = $this->findAdminNotification($id);
+        $notification = $this->findAdminNotification($request->user(), $id);
 
         if (! $notification) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -70,13 +76,18 @@ class PushNotificationController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $user = $request->user();
         $data = $request->validate($this->rules());
 
-        $customerIds = $this->resolveCustomerIds($data['sent_for'], $data['customer_ids'] ?? null);
+        $customerIds = $this->resolveCustomerIds($user, $data['sent_for'], $data['customer_ids'] ?? null);
+        if ($customerIds === null) {
+            return $this->outOfScopeResponse();
+        }
         $scheduledAt = isset($data['scheduled_at']) ? Carbon::parse($data['scheduled_at']) : null;
         $isScheduled = $scheduledAt !== null && $scheduledAt->isFuture();
 
         $notification = NotificationFcm::create([
+            'partner_id'    => $this->ownerPartnerId($user),
             'title'         => $data['title'],
             'body'          => $data['body'],
             'url'           => $data['url'] ?? null,
@@ -99,7 +110,8 @@ class PushNotificationController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        $notification = $this->findAdminNotification($id);
+        $user         = $request->user();
+        $notification = $this->findAdminNotification($user, $id);
 
         if (! $notification) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -113,7 +125,10 @@ class PushNotificationController extends Controller
 
         $data = $request->validate($this->rules());
 
-        $customerIds = $this->resolveCustomerIds($data['sent_for'], $data['customer_ids'] ?? null);
+        $customerIds = $this->resolveCustomerIds($user, $data['sent_for'], $data['customer_ids'] ?? null);
+        if ($customerIds === null) {
+            return $this->outOfScopeResponse();
+        }
         $scheduledAt = isset($data['scheduled_at']) ? Carbon::parse($data['scheduled_at']) : null;
         $isScheduled = $scheduledAt !== null && $scheduledAt->isFuture();
 
@@ -139,7 +154,8 @@ class PushNotificationController extends Controller
      */
     public function resend(Request $request, string $id): JsonResponse
     {
-        $source = $this->findAdminNotification($id);
+        $user   = $request->user();
+        $source = $this->findAdminNotification($user, $id);
 
         if (! $source) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -171,13 +187,17 @@ class PushNotificationController extends Controller
             $customerIdsInput = null;
         }
 
-        $customerIds = $this->resolveCustomerIds($sentFor, $customerIdsInput);
+        $customerIds = $this->resolveCustomerIds($user, $sentFor, $customerIdsInput);
+        if ($customerIds === null) {
+            return $this->outOfScopeResponse();
+        }
         $scheduledAt = array_key_exists('scheduled_at', $data) && $data['scheduled_at'] !== null
             ? Carbon::parse($data['scheduled_at'])
             : null;
         $isScheduled = $scheduledAt !== null && $scheduledAt->isFuture();
 
         $notification = NotificationFcm::create([
+            'partner_id'    => $this->ownerPartnerId($user),
             'title'         => $data['title'] ?? $source->title,
             'body'          => $data['body'] ?? $source->body,
             'url'           => array_key_exists('url', $data) ? $data['url'] : $source->url,
@@ -194,12 +214,53 @@ class PushNotificationController extends Controller
     }
 
     /**
-     * Chỉ tìm thông báo admin tự tạo (created_by khác null) — thông báo hệ thống tự động gửi
-     * (booking, checkin_reminder...) không thuộc phạm vi quản lý của API này.
+     * Chỉ thấy thông báo admin tự tạo (created_by khác null) — thông báo hệ thống tự động gửi
+     * (booking, checkin_reminder...) không thuộc phạm vi quản lý của API này. super_admin chưa chọn
+     * đối tác thấy hết; còn lại chỉ thấy thông báo của đối tác mình (tài khoản không thuộc đối tác
+     * nào thì không thấy gì).
      */
-    private function findAdminNotification(string $id): ?NotificationFcm
+    private function scopedNotifications(User $user): Builder
     {
-        return NotificationFcm::whereNotNull('created_by')->find($id);
+        $query = NotificationFcm::query()->with('partner:id,name')->whereNotNull('created_by');
+
+        if ($user->seesAllPartners()) {
+            return $query;
+        }
+
+        return empty($user->partner_id)
+            ? $query->whereRaw('1 = 0')
+            : $query->where('partner_id', $user->partner_id);
+    }
+
+    private function findAdminNotification(User $user, string $id): ?NotificationFcm
+    {
+        return $this->scopedNotifications($user)->find($id);
+    }
+
+    /**
+     * Khách user được phép gửi push tới: super_admin chưa chọn đối tác = mọi khách; còn lại = khách
+     * có chi nhánh thuộc đối tác (rootProductCategoryIds(), đã tính theo đối tác đang chọn/được gán).
+     */
+    private function scopedCustomers(User $user): Builder
+    {
+        $query = Customer::query();
+
+        if ($user->seesAllPartners()) {
+            return $query;
+        }
+
+        return $query->whereHas('categories', fn (Builder $q) => $q->whereIn('categories.id', $user->rootProductCategoryIds() ?: [-1]));
+    }
+
+    // Đối tác sở hữu thông báo mới: đối tác của tài khoản; super_admin chưa chọn đối tác = null (cấp nền tảng).
+    private function ownerPartnerId(User $user): ?string
+    {
+        return $user->seesAllPartners() ? null : $user->partner_id;
+    }
+
+    private function outOfScopeResponse(): JsonResponse
+    {
+        return response()->json(['message' => 'Có khách hàng không thuộc đối tác của bạn — chỉ được gửi thông báo tới khách của đối tác mình.'], 422);
     }
 
     private function rules(): array
@@ -218,14 +279,24 @@ class PushNotificationController extends Controller
         ];
     }
 
-    private function resolveCustomerIds(string $sentFor, ?array $customerIds): array
+    /**
+     * @return array<int, string>|null  null = có customer_ids nằm ngoài phạm vi đối tác của người gọi.
+     */
+    private function resolveCustomerIds(User $user, string $sentFor, ?array $customerIds): ?array
     {
-        return $sentFor === 'all'
-            ? Customer::whereNotNull('token_device')
+        $scoped = $this->scopedCustomers($user);
+
+        if ($sentFor === 'all') {
+            return $scoped->whereNotNull('token_device')
                 ->where('status', Customer::STATUS_ACTIVE)
                 ->pluck('id')
-                ->toArray()
-            : ($customerIds ?? []);
+                ->toArray();
+        }
+
+        $customerIds = array_values(array_unique($customerIds ?? []));
+        $allowed     = $scoped->whereIn('id', $customerIds)->pluck('id')->toArray();
+
+        return count($allowed) === count($customerIds) ? $customerIds : null;
     }
 
     /**
@@ -266,6 +337,8 @@ class PushNotificationController extends Controller
             'body'          => $n->body,
             'url'           => $n->url,
             'sent_for'      => $n->sent_for,
+            'partner_id'    => $n->partner_id,
+            'partner_name'  => $n->partner?->name,
             'is_scheduled'  => $n->isPending(),
             'scheduled_at'  => optional($n->scheduled_at)->toIso8601String(),
             'sent_at'       => optional($n->sent_at)->toIso8601String(),

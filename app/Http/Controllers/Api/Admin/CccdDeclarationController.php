@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Support\PartnerLabel;
 use App\Models\CccdDeclaration;
 use App\Models\User;
 use App\Services\CccdDeclarationExcelExporter;
@@ -242,6 +243,7 @@ class CccdDeclarationController extends Controller
         return [
             'id'                   => $d->id,
             'order_code'           => $d->order?->order_code,
+            ...PartnerLabel::for($d->partner_id),
             'guest_index'          => $d->guest_index,
             'guest_label'          => $d->guest_index >= 2 ? "Khách {$d->guest_index}" : 'Khách chính',
             'full_name'            => $d->full_name,
