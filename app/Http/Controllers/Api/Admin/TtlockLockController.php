@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +50,7 @@ class TtlockLockController extends Controller
 
             foreach ($ttlock->getLockList() as $lock) {
                 $locks[] = [
+                    ...PartnerLabel::for($account->partner_id),
                     'lock_id'          => $lock['lockId'] ?? null,
                     'category_id'      => $categoryId,
                     'name'             => $lock['lockAlias'] ?? $lock['lockName'] ?? null,

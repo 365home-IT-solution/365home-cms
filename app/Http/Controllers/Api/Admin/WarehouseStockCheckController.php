@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -53,6 +54,8 @@ class WarehouseStockCheckController extends Controller
         }
 
         $stockChecks = $query->orderByDesc('checked_at')->paginate($request->integer('per_page', 20));
+
+        PartnerLabel::annotate($stockChecks->getCollection());
 
         return response()->json($stockChecks);
     }

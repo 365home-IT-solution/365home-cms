@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Carbon\Carbon;
@@ -316,6 +317,7 @@ class ManualLockPasswordController extends Controller
     {
         return [
             'id'            => $r->id,
+            ...PartnerLabel::for($r->category?->partner_id),
             'name'          => $r->name,
             'gate_password' => $r->gate_password,
             'room_password' => $r->room_password,

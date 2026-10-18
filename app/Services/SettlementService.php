@@ -156,6 +156,81 @@ class SettlementService
     }
 
     /**
+     * Các bảng đối soát của đối tác nằm TRỌN trong khoảng [$start, $end] (vd bảng 01/10–15/10 nằm trong tháng 01/10–31/10) — ứng viên để gộp.
+     *
+     * @return \Illuminate\Support\Collection<int, Settlement>
+     */
+    public function settlementsWithin(Partner $partner, Carbon $start, Carbon $end)
+    {
+        return Settlement::query()->where('partner_id', $partner->id)
+            ->whereDate('period_start', '>=', $start->toDateString())->whereDate('period_end', '<=', $end->toDateString())
+            ->orderBy('period_start')->get();
+    }
+
+    /**
+     * Sinh bảng cho CẢ KỲ [$start, $end] kể cả khi trong khoảng đó đã có bảng nhỏ hơn (vd đã có 01/10–15/10, cuối tháng muốn đối soát 01/10–31/10):
+     * gỡ các đơn khỏi bảng cũ, xoá bảng cũ rồi sinh 1 bảng NHÁP mới gom toàn bộ đơn chốt trong cả kỳ. Làm trong 1 giao dịch — không sinh được
+     * bảng mới thì bảng cũ giữ nguyên.
+     *
+     * Không bao giờ gộp: bảng đã chốt (đã nộp / trừ ký quỹ / 365home đã chi), đã xuất hoá đơn GTGT, hoặc có khiếu nại (kể cả đã xử lý).
+     * Bảng đã GỬI/đang khiếu nại chỉ gộp khi $allowSent = true — đối tác được báo bảng cũ đã bị thay và QR PayOS cũ không còn dùng.
+     * Đơn của bảng cũ chốt NGOÀI khoảng ngày (bảng từng gom đơn kỳ trước) trở lại chưa đối soát, vào kỳ sau như thường lệ.
+     *
+     * @throws \DomainException khi có bảng không được phép gộp, hoặc không có đơn nào để sinh bảng mới
+     */
+    public function generateMerged(Partner $partner, Carbon $start, Carbon $end, ?User $by = null, bool $allowSent = false): Settlement
+    {
+        $old = $this->settlementsWithin($partner, $start, $end);
+
+        foreach ($old as $s) {
+            $label = "{$s->code} (" . (Settlement::STATUSES[$s->status] ?? $s->status) . ')';
+
+            if ($s->isFinal()) {
+                throw new \DomainException("Bảng {$label} đã chốt — không gộp được. Chọn khoảng ngày không chứa bảng này.");
+            }
+            if (filled($s->invoice_no)) {
+                throw new \DomainException("Bảng {$label} đã xuất hoá đơn GTGT ({$s->invoice_no}) — không gộp được.");
+            }
+            if ($s->disputes()->exists()) {
+                throw new \DomainException("Bảng {$label} có khiếu nại — không gộp được; xử lý xong khiếu nại và dùng bảng hiện có.");
+            }
+            if ($s->status !== Settlement::STATUS_DRAFT && ! $allowSent) {
+                throw new \DomainException("Bảng {$label} đã gửi đối tác — bật \"gộp cả bảng đã gửi\" nếu muốn thay bằng bảng cả kỳ.");
+            }
+        }
+
+        $replaced = [];
+
+        $new = DB::transaction(function () use ($partner, $start, $end, $by, $old, &$replaced) {
+            foreach ($old as $s) {
+                Order::withoutGlobalScopes()->where('settlement_id', $s->id)->update(['settlement_id' => null]);
+                $replaced[] = ['code' => $s->code, 'was_sent' => $s->status !== Settlement::STATUS_DRAFT];
+                $s->delete();
+            }
+
+            $created = $this->generate($partner, $start, $end, $by, true);
+
+            if (! $created) {
+                // Giao dịch sẽ rollback — bảng cũ còn nguyên.
+                throw new \DomainException($this->whyNoSettlement($partner, $start, $end));
+            }
+
+            return $created;
+        });
+
+        $sentCodes = collect($replaced)->where('was_sent', true)->pluck('code');
+        if ($sentCodes->isNotEmpty()) {
+            $this->notifier->send($partner, 'settlement_replaced', 'Bảng đối soát đã được thay thế',
+                'Bảng ' . $sentCodes->implode(', ') . " đã được thay bằng bảng cả kỳ {$new->code} (" . $start->format('d/m/Y') . ' – ' . $end->format('d/m/Y')
+                . '). Vui lòng dùng bảng mới; QR nộp cũ (nếu có) không còn hiệu lực.', ['settlement_code' => $new->code]);
+        }
+
+        \Illuminate\Support\Facades\Log::info('Sinh bảng đối soát cả kỳ (gộp bảng cũ)', ['partner' => $partner->id, 'new' => $new->code, 'replaced' => array_column($replaced, 'code'), 'by' => $by?->id]);
+
+        return $new;
+    }
+
+    /**
      * Đơn đã chốt hoa hồng, chưa vào kỳ nào, không bị giữ khoản bù, chốt trước hết ngày $end.
      * $from = null (mặc định, lệnh tự động): KHÔNG có cận dưới — đơn của kỳ trước chốt trễ/chưa kịp vào bảng được chuyển sang kỳ này để không bị sót.
      * $from != null (sinh thủ công chọn "chỉ lấy đơn trong kỳ"): chỉ lấy đơn chốt từ đầu ngày $from; đơn trước đó giữ nguyên chưa đối soát.

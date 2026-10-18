@@ -24,6 +24,7 @@ class NotificationFcm extends Model
         'sent_at',
         'recipient_ids',
         'created_by',
+        'partner_id',
         'sent_count',
         'fail_count',
     ];
@@ -45,6 +46,11 @@ class NotificationFcm extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function partner(): BelongsTo
+    {
+        return $this->belongsTo(Partner::class);
     }
 
     public function recipients(): HasMany

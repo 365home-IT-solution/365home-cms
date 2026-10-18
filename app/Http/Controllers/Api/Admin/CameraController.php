@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Api\Concerns\HandlesCameraSource;
 use App\Http\Controllers\Controller;
+use App\Support\PartnerLabel;
 use App\Models\Camera;
 use App\Models\Partner;
 use App\Models\User;
@@ -392,6 +393,7 @@ class CameraController extends Controller
         return [
             'id' => $camera->id,
             'name' => $camera->name,
+            ...PartnerLabel::for($camera->partner_id),
             'stream_key' => $camera->stream_key,
             'frigate_camera_name' => $camera->frigateCameraName(),
             'provider' => $camera->provider,

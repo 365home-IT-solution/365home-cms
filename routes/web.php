@@ -39,10 +39,18 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
             return response()->json(['count' => 0, 'latest_type' => null]);
         }
 
+        // Route này không đi qua ApplyActivePartner (chỉ gắn trong panel) nên tự áp đối tác super_admin
+        // đang chọn ở session — để số chưa đọc và âm báo chỉ tính thông báo của đối tác đó.
+        \App\Support\ActivePartner::apply($user, session(\App\Support\ActivePartner::SESSION_KEY));
+        $partnerId = $user->actingPartnerId();
+        $scoped    = fn () => $partnerId === null
+            ? $user->unreadNotifications()
+            : $user->unreadNotifications()->where('data->viewData->partner_id', $partnerId);
+
         $count = \Illuminate\Support\Facades\Cache::remember(
-            'admin_unread_notif_' . $user->id,
+            'admin_unread_notif_' . $user->id . '_' . ($partnerId ?? 'all'),
             2, // seconds
-            fn () => $user->unreadNotifications()->count()
+            fn () => $scoped()->count()
         );
 
         // 'type' của thông báo CHƯA ĐỌC mới nhất — vd 'booking_confirmation'|'payment'|
@@ -51,10 +59,10 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
         // AdminPanelProvider chọn ĐÚNG file âm thanh (tin nhắn khách phát âm thanh khác với đơn
         // hàng), không cần gọi thêm API nào khác.
         $latestType = \Illuminate\Support\Facades\Cache::remember(
-            'admin_unread_notif_type_' . $user->id,
+            'admin_unread_notif_type_' . $user->id . '_' . ($partnerId ?? 'all'),
             2,
-            function () use ($user) {
-                $latest = $user->unreadNotifications()->latest()->first();
+            function () use ($scoped) {
+                $latest = $scoped()->latest()->first();
 
                 return $latest?->data['viewData']['type'] ?? null;
             }

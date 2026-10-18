@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\User;
@@ -48,6 +49,7 @@ class ChatController extends Controller
 
         $items = collect($conversations->items())->map(fn ($conv) => [
             'id'                   => $conv->id,
+            ...PartnerLabel::for($conv->partner_id),
             'status'               => $conv->status,
             'admin_unread'         => $conv->admin_unread,
             'last_message_preview' => $conv->last_message_preview,

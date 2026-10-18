@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\PartnerLabel;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
@@ -23,7 +24,7 @@ class CustomerController extends Controller
 {
     // KHÔNG gồm 'categories' — categories vẫn được dùng để LỌC (visibleCustomersQuery(),
     // ?branch_id=, sync() lúc tạo) nhưng chủ ý không trả về trong response (theo yêu cầu FE).
-    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name'];
+    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name', 'categories:id,partner_id'];
 
     // GET /api/admin/customers
     // Từ khi có categories (chi nhánh gốc tự động gán lúc tạo — xem store()): user thường CHỈ
@@ -331,7 +332,12 @@ class CustomerController extends Controller
 
     private function formatCustomer(Customer $customer): array
     {
-        $data = $customer->toArray();
+        // Khách không có cột partner_id — suy từ chi nhánh gốc (categories) được gán lúc tạo. Quan hệ
+        // categories chỉ để suy nhãn, không trả ra response (xem ghi chú LIST_RELATIONS).
+        $label = PartnerLabel::for($customer->loadMissing('categories:id,partner_id')->categories->pluck('partner_id')->filter()->first());
+        $customer->unsetRelation('categories');
+
+        $data = $customer->toArray() + $label;
 
         $data['cccd_front_url'] = $customer->cccd_front ? Storage::disk('public')->url($customer->cccd_front) : null;
         $data['cccd_back_url']  = $customer->cccd_back  ? Storage::disk('public')->url($customer->cccd_back)  : null;

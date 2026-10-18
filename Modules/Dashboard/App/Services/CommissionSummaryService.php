@@ -66,17 +66,20 @@ class CommissionSummaryService
 
     private static function computeRow(Partner $partner, int $month, int $year): array
     {
-        $revenue = (float) Order::where('partner_id', $partner->id)
+        $rate  = self::parseRate($partner->commission_rate);
+        $query = Order::where('partner_id', $partner->id)
             ->where('status', 'paid')
             ->whereMonth('created_at', $month)
-            ->whereYear('created_at', $year)
-            // 'amount' nay là tổng tiền THỰC THU cuối cùng (full_amount + phụ phí phát sinh nếu
-            // có) — 'full_amount' chỉ là tổng giá gốc CỐ ĐỊNH lúc đặt, không phản ánh phụ phí phát
-            // sinh sau này. Ưu tiên 'amount', chỉ fallback full_amount nếu amount rỗng (dữ liệu cũ).
-            ->sum(DB::raw('COALESCE(amount, full_amount)'));
+            ->whereYear('created_at', $year);
 
-        $rate       = self::parseRate($partner->commission_rate);
-        $commission = round($revenue * $rate / 100);
+        // 'amount' nay là tổng tiền THỰC THU cuối cùng (full_amount + phụ phí phát sinh nếu
+        // có) — 'full_amount' chỉ là tổng giá gốc CỐ ĐỊNH lúc đặt, không phản ánh phụ phí phát
+        // sinh sau này. Ưu tiên 'amount', chỉ fallback full_amount nếu amount rỗng (dữ liệu cũ).
+        $revenue = (float) (clone $query)->sum(DB::raw('COALESCE(amount, full_amount)'));
+
+        // Hoa hồng theo tỷ lệ CHỤP trên từng đơn (orders.commission_rate — đổi tỷ lệ ở hồ sơ đối tác chỉ ảnh hưởng đơn sau, hoặc đơn được
+        // "Áp lại hoa hồng"), đơn không có tỷ lệ chụp (đơn cũ/ngoài luồng đối soát) dùng tỷ lệ hiện tại của đối tác như trước.
+        $commission = round((float) (clone $query)->sum(DB::raw('COALESCE(amount, full_amount) * COALESCE(commission_rate, ' . $rate . ') / 100')));
 
         return [
             'partner_name' => $partner->name,
