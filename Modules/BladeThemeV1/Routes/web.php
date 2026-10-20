@@ -169,6 +169,8 @@ Route::get('/ticket-booking', [BladeThemeV1Controller::class, 'ticketBookingPage
 // trên đăng ký chúng về BladeThemeV1Controller@index/page_id=65,62). Cùng lý do/cùng cơ chế
 // override như route /hinh-thuc-thanh-toan ngay phía trên.
 Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
+// Thay CMS Page id 64 (chỉ có khối liên hệ, không có nội dung hướng dẫn) — cùng cơ chế override.
+Route::get('/huong-dan-tu-check-in', [BladeThemeV1Controller::class, 'selfCheckinGuidePage'])->name('self-checkin-guide.page');
 Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
 // Danh sách bài viết đổi từ /tin-tuc sang /bai-viet theo yêu cầu — menu item "Nổi bật" (title
 // sai, chưa đổi) đang trỏ đúng URL /bai-viet này về 1 CMS Page khác (page_id=3, xem

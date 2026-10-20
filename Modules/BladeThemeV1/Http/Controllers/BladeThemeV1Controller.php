@@ -504,10 +504,25 @@ class BladeThemeV1Controller extends Controller
 
     public function postsPage(Request $request)
     {
+        // ?danh-muc=<tên> (link danh mục ở trang chi tiết bài viết, tải lại cả trang) — mỗi danh mục
+        // có H1 + đoạn giới thiệu riêng (xem pages/posts.blade.php) thay vì cùng 1 khung gần như
+        // không có chữ: Semrush "low word count" ở /bai-viet?danh-muc=khách sạn|minihouse.
+        $category = trim((string) $request->query('danh-muc', ''));
+        // Chỉ viết hoa chữ đầu ("khách sạn" -> "Khách sạn"); tên thương hiệu giữ đúng cách viết.
+        $categoryLabel = match (true) {
+            $category === '' => null,
+            mb_strtolower($category) === 'minihouse' => 'MiniHouse',
+            default => mb_strtoupper(mb_substr($category, 0, 1)) . mb_substr($category, 1),
+        };
+
         $seoData = [
-            'seo_title' => 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
-            'seo_description' => 'Tin tức và bài viết mới nhất',
-            'seo_keywords' => 'tin tức, bài viết, 365 home',
+            'seo_title' => $categoryLabel
+                ? 'Bài viết về ' . $categoryLabel . ' - Kinh nghiệm & tin tức | 365 HOME'
+                : 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
+            'seo_description' => $categoryLabel
+                ? 'Tổng hợp bài viết, kinh nghiệm và tin tức về ' . $categoryLabel . ' từ 365 Home: mẹo chọn phòng, đặt phòng trực tuyến, tự check-in và các ưu đãi mới nhất.'
+                : 'Tin tức, kinh nghiệm du lịch và hướng dẫn đặt phòng homestay, khách sạn, MiniHouse từ 365 Home — cập nhật ưu đãi và mẹo lưu trú mới nhất.',
+            'seo_keywords' => 'tin tức, bài viết, 365 home' . ($categoryLabel ? ', ' . mb_strtolower($categoryLabel) : ''),
             'og_type' => 'website',
         ];
 
@@ -522,6 +537,8 @@ class BladeThemeV1Controller extends Controller
 
         return view('bladethemev1::pages.posts', [
             'seoData' => $seoData,
+            'category' => $category,
+            'categoryLabel' => $categoryLabel,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
@@ -614,7 +631,7 @@ class BladeThemeV1Controller extends Controller
     public function ticketBookingPage()
     {
         $seoData = [
-            'seo_title' => 'Ticket Booking - 365home',
+            'seo_title' => 'Tra cứu đơn đặt phòng, mã mở khoá tự check-in | 365 HOME',
             'seo_description' => 'Tra cứu nhanh thông tin đơn đặt phòng tại 365 Home bằng mã đặt phòng hoặc số điện thoại — kiểm tra trạng thái, giờ nhận và trả phòng chỉ trong vài giây.',
             'seo_keywords' => '',
             'og_type' => 'website',
@@ -643,6 +660,27 @@ class BladeThemeV1Controller extends Controller
         ];
 
         return view('bladethemev1::pages.huong-dan-su-dung', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    // /huong-dan-tu-check-in — trang tĩnh riêng, thay cho CMS Page id 64 (chỉ có đúng 1 khối "liên
+    // hệ", không có hướng dẫn nào — Semrush "low word count" ~150 từ, toàn chữ của header/footer).
+    // URL này được link từ trang tra cứu đơn + chi tiết đơn ("Xem hướng dẫn ngay") và footer.
+    public function selfCheckinGuidePage()
+    {
+        $seoData = [
+            'seo_title' => 'Hướng dẫn tự check-in bằng mã mở khoá | 365 HOME',
+            'seo_description' => 'Hướng dẫn từng bước tự check-in tại 365 Home mà không cần lễ tân: tra cứu mã mở khoá, mở cửa bằng khoá thông minh hoặc ứng dụng, giờ được vào phòng và cách xử lý khi gặp sự cố.',
+            'seo_keywords' => 'tự check-in, hướng dẫn check-in, mã mở khoá, khoá thông minh, homestay tự check-in, 365 home',
+            'og_type' => 'article',
+        ];
+
+        return view('bladethemev1::pages.huong-dan-tu-check-in', [
             'seoData' => $seoData,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,

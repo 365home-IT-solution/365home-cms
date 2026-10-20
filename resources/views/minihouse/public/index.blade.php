@@ -93,6 +93,44 @@
                 <div id="mh-map" style="width:100%; height:100%;"></div>
             </div>
         </div>
+
+        {{-- Nội dung tĩnh dưới danh sách — khi không còn phòng trống trang chỉ còn 1 dòng "Không tìm
+             thấy...", Semrush báo "low word count" (~170 từ). Dùng lại đúng 2 component SEO + cùng
+             dữ kiện với khối FAQ ở trang chi tiết phòng (show.blade.php), không hứa điều hệ thống
+             không làm (cọc/hợp đồng do nhân viên trao đổi cụ thể). --}}
+        @php
+            $mhListFaqs = [
+                ['q' => 'MiniHouse là gì?', 'a' => 'MiniHouse là dịch vụ cho thuê phòng theo tháng của 365 Home, phù hợp cho sinh viên, người đi làm và người cần chỗ ở dài hạn. Mỗi phòng có giá thuê theo tháng, diện tích và tiện nghi được ghi rõ trên trang.'],
+                ['q' => 'Làm sao để thuê phòng MiniHouse?', 'a' => 'Chọn phòng bạn quan tâm, điền thông tin ở form "Liên hệ tư vấn" trong trang chi tiết phòng. Nhân viên sẽ gọi lại xác nhận và hẹn lịch xem phòng trực tiếp.'],
+                ['q' => 'Giá thuê đã bao gồm điện nước chưa?', 'a' => 'Giá hiển thị là tiền thuê phòng theo tháng, chưa gồm điện nước và phí dịch vụ khác (nếu có). Nhân viên tư vấn sẽ thông báo cụ thể khi liên hệ.'],
+                ['q' => 'Có cần đặt cọc khi thuê phòng không?', 'a' => 'Điều kiện đặt cọc và hợp đồng thuê được nhân viên tư vấn trao đổi cụ thể khi liên hệ, tuỳ theo từng toà nhà.'],
+                ['q' => 'Hiện chưa có phòng trống phù hợp thì sao?', 'a' => 'Danh sách phòng trống được cập nhật liên tục. Bạn có thể gọi hotline 0939 174 365 để được báo khi có phòng phù hợp với nhu cầu và khu vực bạn muốn.'],
+            ];
+        @endphp
+        <div class="mt-12 space-y-10 max-w-5xl">
+            <section>
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Thuê phòng trọ theo tháng tại MiniHouse 365 Home</h2>
+                <p class="text-gray-700 leading-relaxed mb-3">
+                    MiniHouse giúp bạn tìm phòng trọ, phòng cho thuê dài hạn nhanh hơn: mọi phòng đang trống đều hiển thị
+                    giá thuê theo tháng, diện tích, hình ảnh và vị trí trên bản đồ, nên bạn có thể so sánh và chọn phòng
+                    phù hợp ngay trên website trước khi đi xem thực tế.
+                </p>
+                <p class="text-gray-700 leading-relaxed">
+                    Phòng được nhóm theo từng toà nhà, kèm địa chỉ cụ thể. Bấm vào một phòng để xem chi tiết tiện nghi,
+                    sau đó để lại số điện thoại — nhân viên 365 Home sẽ liên hệ tư vấn, hẹn lịch xem phòng và hỗ trợ bạn
+                    trong suốt quá trình thuê, từ ký hợp đồng đến thanh toán hàng tháng.
+                </p>
+            </section>
+
+            <x-bladethemev1::seo-content.feature-grid title="Vì sao thuê phòng qua 365 Home" :items="[
+                ['icon' => 'tag', 'title' => 'Giá rõ ràng theo tháng', 'text' => 'Giá hiển thị là giá thuê trọn tháng của từng phòng, dễ so sánh giữa các toà nhà.'],
+                ['icon' => 'shield', 'title' => 'Thông tin xác thực', 'text' => 'Phòng và toà nhà được quản lý, tình trạng trống hoặc đã thuê được cập nhật liên tục.'],
+                ['icon' => 'clock', 'title' => 'Tư vấn nhanh chóng', 'text' => 'Để lại thông tin, nhân viên liên hệ tư vấn và hẹn xem phòng trong thời gian sớm nhất.'],
+                ['icon' => 'card', 'title' => 'Hỗ trợ suốt quá trình thuê', 'text' => 'Đồng hành từ lúc xem phòng, ký hợp đồng đến thanh toán tiền thuê hàng tháng.'],
+            ]" />
+
+            <x-bladethemev1::seo-content.faq-accordion :items="$mhListFaqs" />
+        </div>
     </div>
 
     @livewire('bladethemev1::footer')
