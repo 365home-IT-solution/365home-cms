@@ -32,6 +32,11 @@ class HeroSection extends Component
     // #header-search-slot (chỉ 1 pill duy nhất, thuộc về instance header thật) và KHÔNG đồng bộ
     // tab/trạng thái ghim với header (2 khung tìm kiếm độc lập, không chia sẻ state).
     public bool   $skipHeaderPill  = false;
+    // Trang chủ desktop: bản đè banner là bản DUY NHẤT (header không in instance riêng nữa, xem
+    // header-main.blade.php — bớt ~50KB HTML trùng lặp). Bản này vẫn teleport pill gọn vào
+    // #header-search-slot; bấm pill thì cuộn lên banner rồi mở đúng ô (window.__heroOverlayOpen,
+    // public/js/alpine-blocks.js) thay vì giãn form ngay trong header như các trang khác.
+    public bool   $homeOverlay     = false;
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';

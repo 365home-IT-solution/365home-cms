@@ -394,8 +394,11 @@
                     {{-- Thanh tìm kiếm giờ nằm thẳng trong hàng 2 header này ở MỌI trang, kể cả
                          trang chủ (không còn teleport đè lên banner nữa) — gộp thành 1 khối liền
                          mạch với header thay vì 1 thẻ nổi tách biệt trên banner. --}}
-                    {{-- Chỉ in khi request cần bản desktop (xem App\Support\ViewportMode). --}}
-                    @if (\App\Support\ViewportMode::rendersDesktop())
+                    {{-- Chỉ in khi request cần bản desktop (xem App\Support\ViewportMode). Trang chủ:
+                         KHÔNG in — khung đè banner (flash-sale.blade.php, homeOverlay) là bản duy nhất,
+                         pill gọn của nó teleport vào #header-search-slot khi cuộn, bấm thì cuộn lên
+                         banner. Hai bản giống hệt nhau trước đây chiếm ~50KB HTML (tỉ lệ text/HTML). --}}
+                    @if (\App\Support\ViewportMode::rendersDesktop() && ! request()->is('/'))
                     @livewire('bladethemev1::hero-section', [
                         'headerRow' => true,
                     ], key('hero-section-header-row'))

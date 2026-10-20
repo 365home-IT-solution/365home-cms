@@ -10,6 +10,40 @@
 // file này phải là script thường (không module, không 'use strict') và chỉ được minify khoảng trắng.
 //
 // KHÔNG gõ dấu ngoặc kép trong code các khối đang là x-data cũ nếu sau này cần đưa ngược về Blade.
+// <template> lớn lặp lại y hệt bị MinifyHtml bỏ nội dung ở các lần sau (data-tpl-ref, xem
+// MinifyHtml::dedupeTemplates()) — chép lại nội dung từ bản gốc (data-tpl-src) ngay khi file này chạy:
+// defer => DOM đã parse xong, và luôn chạy TRƯỚC livewire.js (Alpine) vì đứng trước trong <head>.
+(function () {
+    document.querySelectorAll('template[data-tpl-ref]').forEach(function (ref) {
+        if (ref.content.childNodes.length) return;
+        var src = document.querySelector('template[data-tpl-src="' + ref.getAttribute('data-tpl-ref') + '"]');
+        if (src) ref.content.appendChild(src.content.cloneNode(true));
+    });
+})();
+
+// Trang chủ desktop: pill gọn trên header thuộc khung tìm kiếm đè banner (homeOverlay, xem
+// HeroSection::$homeOverlay) — bấm thì cuộn mượt lên khung đó (chừa chỗ header dính phía trên) rồi
+// mở đúng ô (loc/date/guests) qua 'hero-open-field' mà khung đó đang nghe. Đợi cuộn xong mới mở để
+// popup lịch (openDateDropdown) đo vị trí đúng chỗ.
+window.__heroOverlayOpen = function (field) {
+    var overlay = document.getElementById('hero-banner-search-overlay');
+    if (!overlay) return;
+    var header = document.getElementById('main-header-bar');
+    var offset = (header ? header.offsetHeight : 80) + 24;
+    var top = Math.max(0, overlay.getBoundingClientRect().top + window.scrollY - offset);
+    var done = false;
+    var open = function () {
+        if (done) return;
+        done = true;
+        window.removeEventListener('scrollend', open);
+        if (field) window.dispatchEvent(new CustomEvent('hero-open-field', { detail: field }));
+    };
+    if (Math.abs(window.scrollY - top) < 2) { open(); return; }
+    window.addEventListener('scrollend', open);
+    setTimeout(open, 900);
+    window.scrollTo({ top: top, behavior: 'smooth' });
+};
+
 (function () {
     var MAGICS = ['$el', '$refs', '$watch', '$nextTick', '$dispatch', '$wire', '$root', '$store', '$id', '$data'];
     var magicsFor = function (el) {

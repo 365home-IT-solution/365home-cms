@@ -624,6 +624,7 @@
                         @livewire('bladethemev1::hero-section', [
                             'headerRow' => true,
                             'skipHeaderPill' => true,
+                            'homeOverlay' => true,
                         ], key('hero-section-banner-overlay'))
                         @endif
                     </div>
@@ -1067,6 +1068,11 @@
                 ]" />
             </div>
         </section>
+
+        {{-- Cẩm nang lưu trú — khối chữ dài (tỉ lệ text/HTML), tách ra component riêng vì file này
+             không được thêm khối PHP nhiều dòng (xem ghi chú ngay bên dưới). --}}
+        <x-bladethemev1::home.guide />
+        <x-bladethemev1::home.travel-guide />
 
         {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
              file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối

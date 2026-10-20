@@ -18,6 +18,9 @@
                     x-on:header-form-pin.window="pinnedToHeader = $event.detail.pinned"
                     x-on:hero-set-tab.window="activeTab = $event.detail.tab; dayMode = ($event.detail.tab === 'day'); if ($event.detail.tab !== 'day' && checkIn) { checkOut = checkIn }"
                     @endunless
+                    @if($homeOverlay ?? false)
+                    x-on:hero-open-field.window="handleHeroOpenField($event.detail)"
+                    @endif
                     @click.outside="open = false; locOpen = false; guestsOpen = false">
 
                 {{-- Desktop: khung thẻ có hàng tab (Theo giờ / Qua đêm / Theo ngày) phía trên + hàng

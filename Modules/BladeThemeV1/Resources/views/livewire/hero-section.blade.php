@@ -89,11 +89,11 @@
 
     @include('bladethemev1::livewire.hero-section._banner-form')
 
-    @unless($skipHeaderPill)
+    @if(! $skipHeaderPill || $homeOverlay)
         <template x-teleport="#header-search-slot">
             @include('bladethemev1::livewire.hero-section._header-compact-pill')
         </template>
-    @endunless
+    @endif
 </div>
 @else
 {{-- Xem giải thích ở nhánh @elseif($headerRow) phía trên: bắt buộc phải có comment/dòng trống
