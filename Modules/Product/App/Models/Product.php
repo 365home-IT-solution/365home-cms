@@ -375,11 +375,14 @@ class Product extends Model implements HasMedia, Resourceable
     // đổi định dạng/nén lại bản gốc, không cắt thêm kích thước.
     public function registerMediaConversions(?Media $media = null): void
     {
+        // thumb/card (thẻ phòng nhỏ trên trang chủ/tìm kiếm) nén mạnh hơn: Lighthouse "Improve image
+        // delivery" chấm bản card 480px quality 72 (~30KB) dư ~15KB. wide/full (xem ảnh lớn ở trang
+        // chi tiết) giữ 72 để không thấy rõ vỡ nét.
         foreach (['thumb' => 240, 'card' => 480, 'wide' => 1080, 'full' => 1440] as $name => $size) {
             $this->addMediaConversion($name)
                 ->fit(Fit::Max, $size, $size)
                 ->format('avif')
-                ->quality(72)
+                ->quality($size <= 480 ? 60 : 72)
                 ->nonQueued();
         }
     }

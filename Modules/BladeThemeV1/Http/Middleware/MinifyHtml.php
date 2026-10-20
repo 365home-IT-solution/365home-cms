@@ -21,8 +21,11 @@ use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
  * vẫn còn ít nhất 1 ký tự trắng nên cây DOM (kể cả text node) giữ nguyên cấu trúc, morph chỉ chỉnh
  * nội dung của text node trắng.
  *
- * Không đụng vào <script>/<style>/<pre>/<textarea> và mọi comment HTML — Livewire dùng
- * <!--[if BLOCK]--> làm morph marker.
+ * Không đụng vào <script>/<pre>/<textarea> và mọi comment HTML — Livewire dùng
+ * <!--[if BLOCK]--> làm morph marker. Riêng NỘI DUNG <style> (không phải thuộc tính) được nén nhẹ
+ * (bỏ comment CSS + khoảng trắng thừa) — Lighthouse "Minify CSS" (khối style của flash-sale ~21KB
+ * nguồn, phần lớn là comment). Lần render lại qua Livewire morph chỉ thay text node của <style>
+ * bằng bản chưa nén cùng luật CSS => không mất state Alpine.
  */
 class MinifyHtml
 {
@@ -85,7 +88,9 @@ class MinifyHtml
             $out .= $segment;
 
             if (isset($blocks[$i + 1])) {
-                $out .= $blocks[$i + 1];
+                $out .= strncasecmp($blocks[$i + 1], '<style', 6) === 0
+                    ? $this->minifyStyleBlock($blocks[$i + 1])
+                    : $blocks[$i + 1];
             }
         }
 
@@ -117,6 +122,23 @@ class MinifyHtml
         }
 
         return implode('', $pieces);
+    }
+
+    /**
+     * Nén an toàn: chỉ bỏ comment và khoảng trắng quanh { } ; , — KHÔNG đụng dấu : (khoảng trắng
+     * trước :hover trong selector "a :hover" có nghĩa) hay + - (calc(100% - 2px) bắt buộc có cách).
+     */
+    private function minifyStyleBlock(string $block): string
+    {
+        if (! preg_match('~^(<style[^>]*>)(.*)(</style\s*>)$~is', $block, $m)) {
+            return $block;
+        }
+
+        $css = preg_replace('~/\*.*?\*/~s', '', $m[2]);
+        $css = $css === null ? null : preg_replace('~\s+~', ' ', $css);
+        $css = $css === null ? null : preg_replace('~\s*([{};,])\s*~', '$1', $css);
+
+        return $css === null ? $block : $m[1] . trim($css) . $m[3];
     }
 
     private function shrinkText(string $text): string
