@@ -719,7 +719,10 @@
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
             <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="explore-card">
-                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="Ưu đãi dành cho thành viên mới của 365 Home" class="explore-card-bg" width="1140" height="360"
+                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}"
+                         srcset="{{ asset('images/welcome-joyer-720.webp') }} 720w, {{ asset('images/welcome-joyer-1140.webp') }} 1140w"
+                         sizes="(min-width: 1280px) 608px, (min-width: 1024px) calc(50vw - 32px), calc(100vw - 32px)"
+                         alt="Ưu đãi dành cho thành viên mới của 365 Home" class="explore-card-bg" width="1140" height="360"
                          loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>

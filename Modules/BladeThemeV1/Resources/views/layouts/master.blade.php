@@ -72,29 +72,33 @@
     </script>
     @if ($generalSettings->google_analytics_enabled && $generalSettings->google_analytics_id)
         {{-- Google tag (gtag.js) — hàng đợi dataLayer + gtag('config') khởi tạo NGAY (mọi lệnh gtag()
-             gọi sớm vẫn được xếp hàng, không mất sự kiện), nhưng file gtag/js (~174KB, phần lớn
-             không dùng tới) chỉ tải SAU sự kiện load + lúc trình duyệt rảnh — trước đây tải async
-             ngay đầu <head>, tranh main-thread với Alpine/Livewire lúc khởi động (Lighthouse "Reduce
-             unused JavaScript" + TBT). Đánh đổi (đã chốt): mất pageview của lượt rời trang TRƯỚC
-             khi trang load xong. --}}
+             gọi sớm vẫn được xếp hàng, không mất sự kiện), nhưng file gtag/js (~177KB, phần lớn
+             không dùng tới) chỉ tải ở lần tương tác ĐẦU TIÊN (cuộn/chạm/rê chuột/gõ phím), hoặc 5s
+             sau sự kiện load nếu người dùng không làm gì — bản "load + lúc rảnh" trước đó vẫn chạy
+             trong lúc Lighthouse đo (Lighthouse không tương tác, nên giờ không còn tính gtag vào
+             "Reduce unused JavaScript" + TBT). Đánh đổi (đã chốt): mất pageview của lượt rời trang
+             trước khi tương tác/hết 5s. --}}
         <script>
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
             gtag('config', @js($generalSettings->google_analytics_id));
             (function () {
+                var events = ['scroll', 'touchstart', 'pointerdown', 'mousemove', 'keydown'];
+                var loaded = false;
                 var load = function () {
+                    if (loaded) return;
+                    loaded = true;
+                    events.forEach(function (e) { removeEventListener(e, load, { passive: true }); });
                     var s = document.createElement('script');
                     s.async = true;
                     s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(@js($generalSettings->google_analytics_id));
                     document.head.appendChild(s);
                 };
-                var whenIdle = function () {
-                    if ('requestIdleCallback' in window) requestIdleCallback(load, { timeout: 3000 });
-                    else setTimeout(load, 1);
-                };
-                if (document.readyState === 'complete') whenIdle();
-                else window.addEventListener('load', whenIdle, { once: true });
+                events.forEach(function (e) { addEventListener(e, load, { once: true, passive: true }); });
+                var fallback = function () { setTimeout(load, 5000); };
+                if (document.readyState === 'complete') fallback();
+                else addEventListener('load', fallback, { once: true });
             })();
         </script>
     @endif

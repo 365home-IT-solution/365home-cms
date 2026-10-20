@@ -919,15 +919,23 @@ return {
         // bộ x-init này (kể cả trong comment) — x-init nằm trong 1 thuộc tính HTML bọc bởi dấu
         // ngoặc kép, gặp phải ký tự đó sẽ cắt đứt thuộc tính ngay tại đó (lỗi Unexpected end of
         // input vừa gặp lại, y hệt lỗi đã ghi chú ở toggleSlot() trong book.blade.php trước đây).
+        // Đo qua IntersectionObserver thay vì đọc offsetHeight/getBoundingClientRect: callback nhận
+        // boundingClientRect đã tính sẵn ở bước layout của frame, không ép reflow đồng bộ. Cách cũ
+        // (rAF + setTimeout 0 sau 250ms) vẫn rơi đúng lúc Livewire/Alpine còn đang sửa DOM —
+        // Lighthouse đo được ~87ms forced reflow tại đây. Khung bị ẩn (mobile: hidden lg:block)
+        // thì rect cao 0 => giữ ngưỡng mặc định như trước.
         const recomputeStickyThreshold = () => {
             const overlay = document.getElementById('hero-banner-search-overlay');
-            if (!overlay || overlay.offsetHeight === 0) return;
-            const rect = overlay.getBoundingClientRect();
-            stickyOnThreshold = Math.round(rect.bottom + window.scrollY);
+            if (!overlay) return;
+            const io = new IntersectionObserver((entries) => {
+                io.disconnect();
+                const rect = entries[0].boundingClientRect;
+                if (rect.height === 0) return;
+                stickyOnThreshold = Math.round(rect.bottom + window.scrollY);
+            });
+            io.observe(overlay);
         };
-        // Đo sau khi frame đã vẽ xong (rAF + setTimeout 0), không đo thẳng trong setTimeout: mốc
-        // 250ms dễ rơi đúng lúc Livewire/Alpine còn đang sửa DOM => ép reflow đồng bộ.
-        setTimeout(() => requestAnimationFrame(() => setTimeout(recomputeStickyThreshold, 0)), 250);
+        setTimeout(recomputeStickyThreshold, 250);
         let __hstResizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(__hstResizeTimer);
