@@ -219,14 +219,14 @@
                                 @click="window.dispatchEvent(new CustomEvent('hero-set-tab', { detail: { tab: 'hour' } }))"
                                 class="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
                                 :class="activeTabMirror === 'hour' ? 'bg-white shadow-md text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-700'">
-                                <img src="{{ asset('images/hourglass-40.webp') }}" alt="" class="w-4 h-4 object-contain" width="16" height="16">
+                                <img src="{{ asset('images/hourglass-40.webp') }}" alt="" loading="lazy" class="w-4 h-4 object-contain" width="16" height="16">
                                 Theo giờ
                             </button>
                             <button type="button"
                                 @click="window.dispatchEvent(new CustomEvent('hero-set-tab', { detail: { tab: 'overnight' } }))"
                                 class="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
                                 :class="activeTabMirror === 'overnight' ? 'bg-white shadow-md text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-700'">
-                                <img src="{{ asset('images/night-time-40.webp') }}" alt="" class="w-4 h-4 object-contain" width="16" height="16">
+                                <img src="{{ asset('images/night-time-40.webp') }}" alt="" loading="lazy" class="w-4 h-4 object-contain" width="16" height="16">
                                 Qua đêm
                             </button>
                             <button type="button"
