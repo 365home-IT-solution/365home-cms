@@ -2160,7 +2160,10 @@ public function confirmBooking()
         $tags = DB::table('products')
             ->select(
                 DB::raw('JSON_UNQUOTE(JSON_EXTRACT(cms_tags.name, "$.vi")) as tag_name'),
-                DB::raw('JSON_UNQUOTE(JSON_EXTRACT(cms_tags.image, "$.vi")) as tag_image'),
+                // JSON null -> JSON_UNQUOTE trả về CHUỖI 'null' (không phải SQL NULL) => view in ra
+                // /storage/null (Semrush: ảnh nội bộ 404 trên trang phòng). Quy về NULL/'' để rơi vào
+                // nhánh icon mặc định.
+                DB::raw('NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cms_tags.image, "$.vi")), "null"), "") as tag_image'),
                 DB::raw('cms_tags.type as tag_type')
             )
             ->where('products.id', $productId)
