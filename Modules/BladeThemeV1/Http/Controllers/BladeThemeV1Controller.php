@@ -517,7 +517,7 @@ class BladeThemeV1Controller extends Controller
 
         $seoData = [
             'seo_title' => $categoryLabel
-                ? 'Bài viết về ' . $categoryLabel . ' - Kinh nghiệm & tin tức | 365 HOME'
+                ? $this->postCategoryTitle($categoryLabel)
                 : 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
             'seo_description' => $categoryLabel
                 ? 'Tổng hợp bài viết, kinh nghiệm và tin tức về ' . $categoryLabel . ' từ 365 Home: mẹo chọn phòng, đặt phòng trực tuyến, tự check-in và các ưu đãi mới nhất.'
@@ -544,6 +544,27 @@ class BladeThemeV1Controller extends Controller
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
             'lightPrimaryColor' => $this->lightPrimaryColor,
         ]);
+    }
+
+    // Title trang lọc danh mục bài viết, giữ ≤ 65 ký tự (Semrush "too much text within the title
+    // tags" >70): danh mục mang tên địa chỉ chi nhánh ("252 Xuân Thủy, phường An Bình, Cần Thơ") quá
+    // dài để kèm đuôi " - Kinh nghiệm & tin tức" — bỏ đuôi đó, vẫn quá dài thì cắt bớt tên danh mục.
+    private function postCategoryTitle(string $label): string
+    {
+        $max = 65;
+        $full = 'Bài viết về ' . $label . ' - Kinh nghiệm & tin tức | 365 HOME';
+        if (mb_strlen($full) <= $max) {
+            return $full;
+        }
+
+        $short = 'Bài viết về ' . $label . ' | 365 HOME';
+        if (mb_strlen($short) <= $max) {
+            return $short;
+        }
+
+        $room = $max - mb_strlen('Bài viết về … | 365 HOME');
+
+        return 'Bài viết về ' . rtrim(mb_substr($label, 0, $room), " ,") . '… | 365 HOME';
     }
 
     // textOnPrimary: màu chữ tương phản đặt lên nền $primaryColor (nút CTA trong form đăng
