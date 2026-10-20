@@ -37,7 +37,7 @@
                     // Post::registerMediaConversions() tồn tại sẽ chưa có — cần chạy lại
                     // `php artisan media-library:regenerate` để backfill, xem ghi chú ở Post.php).
                     // Không có conversion nào thì bỏ hẳn srcset, dùng $featuredImage gốc như cũ.
-                    $featuredImageSrcset = collect(['card' => 480, 'wide' => 1080, 'full' => 1440])
+                    $featuredImageSrcset = collect(['card' => 480, 'medium' => 768, 'wide' => 1080, 'full' => 1440])
                         ->filter(fn ($width, $conversion) => $featuredMedia?->hasGeneratedConversion($conversion))
                         ->map(fn ($width, $conversion) => $featuredMedia->getUrl($conversion) . ' ' . $width . 'w')
                         ->implode(', ');
@@ -257,4 +257,4 @@
     </div>
 @endif
 
-<script src="{{ asset('js/post-detail.min.js') }}?v={{ filemtime(public_path('js/post-detail.min.js')) }}"></script>
+<script src="{{ asset('js/post-detail.min.js') }}?v={{ filemtime(public_path('js/post-detail.min.js')) }}" defer></script>

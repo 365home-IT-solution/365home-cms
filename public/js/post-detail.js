@@ -22,23 +22,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const tocSticky = document.getElementById('toc-sticky');
     const stickyHeader = document.querySelector('.header-hero-sticky');
 
-    if (tocSticky && stickyHeader) {
-        const syncTocTop = () => {
-            tocSticky.style.top = (stickyHeader.offsetHeight + 16) + 'px';
-        };
-
-        syncTocTop();
-        window.addEventListener('resize', syncTocTop);
-
-        let tocTopTicking = false;
-        window.addEventListener('scroll', () => {
-            if (tocTopTicking) return;
-            tocTopTicking = true;
-            requestAnimationFrame(() => {
-                syncTocTop();
-                tocTopTicking = false;
-            });
-        });
+    // ResizeObserver thay cho đọc offsetHeight lúc tải + mỗi frame cuộn: callback chạy SAU bước
+    // layout, nhận sẵn kích thước nên không ép reflow (PageSpeed: forced reflow 44ms tại đây, ngay
+    // sau khi classList.add('text-primary') phía trên làm style bẩn). Header co giãn khi cuộn hay
+    // resize cửa sổ đều làm đổi kích thước => observer tự gọi lại, không cần nghe scroll/resize.
+    if (tocSticky && stickyHeader && 'ResizeObserver' in window) {
+        new ResizeObserver((entries) => {
+            const box = entries[0].borderBoxSize && entries[0].borderBoxSize[0];
+            const height = box ? box.blockSize : entries[0].contentRect.height;
+            tocSticky.style.top = (Math.round(height) + 16) + 'px';
+        }).observe(stickyHeader);
     }
 
     // Nội dung giờ có 2 bản trong DOM (cột sticky lg+ và modal mobile, xem trên) — cùng

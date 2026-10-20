@@ -497,3 +497,11 @@ html {
 // unmerged CSS file per SEO/perf audit).
 @import "site-extracted";
 @import "daily-cards";
+
+// Trước đây import trong Resources/assets/js/app.js (file CSS riêng nạp SAU app.css) — giờ file đó nạp
+// không chặn hiển thị nên CSS cần cho lần vẽ đầu chuyển về đây, đặt CUỐI file để giữ đúng thứ tự
+// cascade cũ (sau mọi rule của app.scss). Không có đuôi .css => Sass chèn thẳng nội dung vào đây.
+@import "swiper/css/bundle";
+@import "owl.carousel/dist/assets/owl.carousel.min";
+@import "owl.carousel/dist/assets/owl.theme.default.min";
+@import "aos/dist/aos";

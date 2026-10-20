@@ -3,4 +3,6 @@
 @if (config('services.map.pmtiles_url'))
     <script src="{{ asset('js/protomaps-leaflet.js') }}"></script>
 @endif
-<script src="{{ asset('js/map-base.js') }}?v={{ filemtime(public_path('js/map-base.js')) }}"></script>
+{{-- Bản .min (Semrush "unminified JavaScript"). Sửa js/map-base.js xong phải build lại:
+     node_modules/.bin/esbuild --minify public/js/map-base.js --outfile=public/js/map-base.min.js --}}
+<script src="{{ asset('js/map-base.min.js') }}?v={{ filemtime(public_path('js/map-base.min.js')) }}"></script>

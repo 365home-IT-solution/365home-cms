@@ -186,7 +186,11 @@ class AppServiceProvider extends ServiceProvider
             // ngay: nạp non-blocking thì trang chi tiết phòng vẽ HTML trần (body còn margin 8px mặc
             // định) rồi restyle → Lighthouse mobile CLS 1.0 (đo 2026-10-16). Chỉ còn các chunk CSS do
             // JS import ($src null: owl.carousel/fancybox/aos) là nạp non-blocking.
-            if (str_contains($url, 'build-bladethemev1') && $src === null) {
+            // Thực tế Vite có ghi CSS do JS import vào manifest với key "Resources/assets/js/app.css"
+            // (không phải null) nên điều kiện cũ ($src === null) không bao giờ khớp — file đó vẫn chặn
+            // hiển thị (PageSpeed trang bài viết: 13KB, 770ms). Coi mọi CSS không phải entry .scss là
+            // CSS do JS import. Các CSS cần cho lần vẽ đầu (swiper/owl/aos) đã chuyển vào app.scss.
+            if (str_contains($url, 'build-bladethemev1') && ! str_ends_with((string) $src, '.scss')) {
                 return [
                     'media' => 'print',
                     'onload' => "this.media='all'",

@@ -26,6 +26,13 @@ class ContentMarkup
             if (!preg_match('/\sdecoding\s*=/i', $tag)) {
                 $extra .= ' decoding="async"';
             }
+            // Ảnh /storage/ đã có bản AVIF thu nhỏ (xem App\Support\PostContentImages) => srcset,
+            // khung nội dung rộng tối đa ~768px (cột bài viết), mobile gần hết bề ngang màn hình.
+            if (!preg_match('/\ssrcset\s*=/i', $tag)
+                && preg_match('/\ssrc\s*=\s*["\']([^"\']+)["\']/i', $tag, $src)
+                && ($srcset = \App\Support\PostContentImages::srcsetFor($src[1]))) {
+                $extra .= ' srcset="' . e($srcset) . '" sizes="(max-width: 1023px) calc(100vw - 32px), 768px"';
+            }
 
             return $extra === '' ? $tag : substr($tag, 0, 4) . $extra . substr($tag, 4);
         }, $html) ?? $html;

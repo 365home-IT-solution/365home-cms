@@ -62,6 +62,16 @@ class Post extends Model implements HasMedia
         // published có thay đổi, để giảm độ trễ phát hiện bài mới/cập nhật thay vì chờ
         // crawler tự quay lại sitemap.xml. afterCommit() để chỉ bắn sau khi transaction
         // (nếu có) đã lưu xong, tránh ping URL mà request có thể bị rollback.
+        // Ảnh chèn trong nội dung (TinyEditor upload thẳng /storage/...) => sinh bản AVIF thu nhỏ để
+        // trang bài viết có srcset (App\Support\PostContentImages). Chạy SAU khi trả response — mỗi
+        // ảnh encode 4 bản AVIF, mất vài giây; ảnh đã có preset thì GeneratesImagePresets chỉ ghi đè.
+        static::saved(function ($post) {
+            if ($post->wasRecentlyCreated || $post->wasChanged('content')) {
+                $content = (string) $post->content;
+                dispatch(fn () => \App\Support\PostContentImages::generate($content))->afterResponse();
+            }
+        });
+
         static::saved(function ($post) {
             if ($post->status !== 'published') {
                 return;
@@ -127,7 +137,9 @@ class Post extends Model implements HasMedia
     // php artisan media-library:regenerate --only="Modules\Post\Entities\Post"
     public function registerMediaConversions(?Media $media = null): void
     {
-        foreach (['thumb' => 240, 'card' => 480, 'wide' => 1080, 'full' => 1440] as $name => $size) {
+        // "medium" 768: ảnh đại diện trang bài viết trên mobile hiển thị ~386px × DPR 1.75 ≈ 680px —
+        // thiếu bậc này trình duyệt phải tải bản wide 1080 (PageSpeed: 71KB, dư ~43KB).
+        foreach (['thumb' => 240, 'card' => 480, 'medium' => 768, 'wide' => 1080, 'full' => 1440] as $name => $size) {
             $this->addMediaConversion($name)
                 ->fit(Fit::Max, $size, $size)
                 ->format('avif')
