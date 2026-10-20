@@ -164,6 +164,62 @@
                 </p>
             </article>
 
+            <article>
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Đặt phòng dịp lễ, Tết và cuối tuần</h2>
+                <p class="mb-2">
+                    Những dịp nghỉ lễ dài, Tết Nguyên đán và các tối thứ Sáu, thứ Bảy là lúc nhu cầu phòng tại Cần Thơ
+                    tăng cao nhất. Phòng có thiết kế đẹp và khung qua đêm thường được đặt hết từ nhiều ngày trước, giá
+                    một số khung giờ cũng có thể khác ngày thường tuỳ cấu hình của từng chi nhánh.
+                </p>
+                <p>
+                    Nếu đã có kế hoạch, hãy đặt sớm và thanh toán ngay để giữ phòng. Trước khi xác nhận, kiểm tra lại
+                    ngày, giờ nhận phòng và tổng tiền trên màn hình thanh toán. Trong những ngày cao điểm, đến đúng khung
+                    giờ đã đặt và lưu sẵn mã mở khoá giúp bạn nhận phòng nhanh mà không phải chờ.
+                </p>
+            </article>
+
+            <article>
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Chọn chi nhánh bằng bản đồ</h2>
+                <p class="mb-2">
+                    Trang tìm kiếm phòng có bản đồ hiển thị vị trí các chi nhánh cùng mức giá, nên bạn có thể chọn nơi ở
+                    gần điểm cần đến nhất: gần chỗ làm việc, bệnh viện, trường học hay khu vui chơi. Rê chuột hoặc chạm
+                    vào từng điểm trên bản đồ để xem nhanh các phòng của chi nhánh đó.
+                </p>
+                <p>
+                    Mỗi chi nhánh có trang riêng với địa chỉ cụ thể, danh sách phòng và lịch trống theo từng ngày. Sau
+                    khi đặt, liên kết bản đồ chỉ đường cũng có sẵn trong đơn đặt phòng để bạn mở ngay trên điện thoại khi
+                    di chuyển.
+                </p>
+            </article>
+
+            <article>
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Liên hệ hỗ trợ khi cần</h2>
+                <p class="mb-2">
+                    Dù quy trình đặt và nhận phòng đều tự động, bạn vẫn luôn có người hỗ trợ. Các kênh liên hệ của 365
+                    Home gồm hotline <a href="tel:0939174365" class="text-primary hover:underline">0939 174 365</a>, chat
+                    Zalo, chat Messenger và email 365home.cantho@gmail.com, hiển thị ở góc màn hình trên mọi trang.
+                </p>
+                <p>
+                    Khi liên hệ, hãy cung cấp số điện thoại đã dùng để đặt phòng để nhân viên tra cứu đơn nhanh hơn. Với
+                    các vấn đề gấp trong lúc nhận phòng như không mở được cửa, gọi hotline là cách nhanh nhất để được hỗ
+                    trợ.
+                </p>
+            </article>
+
+            <article>
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Khi kế hoạch thay đổi</h2>
+                <p class="mb-2">
+                    Lịch trình đôi khi thay đổi vào phút chót. Chính sách huỷ và đổi lịch có thể khác nhau theo từng loại
+                    phòng và thời điểm đặt, được hiển thị trong bước đặt phòng trước khi thanh toán, vì vậy hãy đọc kỹ
+                    phần này trước khi xác nhận đơn.
+                </p>
+                <p>
+                    Nếu cần huỷ hoặc dời giờ, hãy liên hệ hotline càng sớm càng tốt. Báo sớm giúp chi nhánh sắp xếp lại
+                    phòng và tăng khả năng bạn được đổi sang khung giờ khác phù hợp, thay vì để đơn hết hạn mà không sử
+                    dụng.
+                </p>
+            </article>
+
             <article class="lg:col-span-2">
                 <h2 class="text-xl font-bold text-gray-900 mb-2">Homestay tự check-in khác gì nhà nghỉ truyền thống?</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-10">
