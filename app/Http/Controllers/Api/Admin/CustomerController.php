@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\CccdIntakeService;
+use App\Services\CustomerBranchBlockService;
 use App\Services\MembershipService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,7 +25,7 @@ class CustomerController extends Controller
 {
     // KHÔNG gồm 'categories' — categories vẫn được dùng để LỌC (visibleCustomersQuery(),
     // ?branch_id=, sync() lúc tạo) nhưng chủ ý không trả về trong response (theo yêu cầu FE).
-    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name', 'categories:id,partner_id'];
+    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name', 'categories:id,partner_id', 'blockedBranches:id,name,slug'];
 
     // GET /api/admin/customers
     // Từ khi có categories (chi nhánh gốc tự động gán lúc tạo — xem store()): user thường CHỈ
@@ -62,6 +63,14 @@ class CustomerController extends Controller
             )
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('membership_tier_id'), fn ($q) => $q->where('membership_tier_id', $request->integer('membership_tier_id')))
+            // ?blocked_branch_id= — khách đang bị khoá đặt phòng ở chi nhánh này; ?blocked=1 — bị khoá ở chi nhánh bất kỳ
+            // trong phạm vi quyền của user.
+            ->when($request->filled('blocked_branch_id'), fn ($q) => $q->whereHas(
+                'blockedBranches', fn ($q2) => $q2->where('categories.id', $request->integer('blocked_branch_id'))
+            ))
+            ->when($request->boolean('blocked'), fn ($q) => $q->whereHas(
+                'blockedBranches', fn ($q2) => $q2->whereIn('categories.id', $request->user()->rootProductCategoryIds() ?: [-1])
+            ))
             ->orderByDesc('created_at')
             ->paginate($request->integer('per_page', 20))
             ->through(fn (Customer $customer) => $this->formatCustomer($customer));
@@ -172,6 +181,50 @@ class CustomerController extends Controller
 
         return response()->json([
             'message'  => 'Đã gán hạng thành viên cho khách hàng.',
+            'customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS)),
+        ]);
+    }
+
+    // POST /api/admin/customers/{id}/branch-blocks
+    // Body: branch_ids[] (id chi nhánh gốc — mảng rỗng = mở khoá tất cả) HOẶC categories (slug chi nhánh gốc, cách
+    // nhau dấu phẩy — cùng field 'categories' của POST /api/admin/login; 'categories' thắng nếu gửi cả 2), reason
+    // (tuỳ chọn). Đặt lại danh sách chi nhánh khoá = danh sách gửi lên, CHỈ trong phạm vi quyền của user (chi nhánh
+    // của đối tác khác giữ nguyên) — xem CustomerBranchBlockService::sync(). Khách bị khoá đặt phòng ở chi nhánh nào
+    // thì mọi luồng tạo đơn ở chi nhánh đó trả 403 code CUSTOMER_BRANCH_BLOCKED.
+    public function branchBlocks(Request $request, string $id): JsonResponse
+    {
+        /** @var User $user */
+        $user     = $request->user();
+        $customer = $this->visibleCustomersQuery($user)->find($id);
+
+        if (! $customer) {
+            return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
+        }
+
+        $data = $request->validate([
+            'branch_ids'   => 'sometimes|array',
+            'branch_ids.*' => 'integer',
+            'categories'   => 'sometimes|nullable|string',
+            'reason'       => 'sometimes|nullable|string|max:500',
+        ]);
+
+        if (! $request->has('branch_ids') && ! $request->has('categories')) {
+            return response()->json(['message' => 'Cần gửi branch_ids[] hoặc categories.', 'errors' => ['branch_ids' => ['Cần gửi branch_ids[] hoặc categories.']]], 422);
+        }
+
+        $branchIds = $request->has('categories')
+            ? $this->resolveRootCategoryIdsFromSlugs((string) ($data['categories'] ?? ''))
+            : ($data['branch_ids'] ?? []);
+
+        $outOfScope = array_diff(array_map('intval', $branchIds), array_map('intval', $user->rootProductCategoryIds()));
+        if ($outOfScope) {
+            return response()->json(['message' => 'Có chi nhánh không thuộc quyền quản lý của bạn.', 'errors' => ['branch_ids' => ['Chi nhánh không hợp lệ: ' . implode(', ', $outOfScope)]]], 422);
+        }
+
+        app(CustomerBranchBlockService::class)->sync($customer, $branchIds, $data['reason'] ?? null, $user);
+
+        return response()->json([
+            'message'  => $branchIds ? 'Đã cập nhật chi nhánh khoá đặt phòng.' : 'Đã mở khoá đặt phòng ở tất cả chi nhánh.',
             'customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS)),
         ]);
     }
@@ -342,6 +395,9 @@ class CustomerController extends Controller
         $data['cccd_front_url'] = $customer->cccd_front ? Storage::disk('public')->url($customer->cccd_front) : null;
         $data['cccd_back_url']  = $customer->cccd_back  ? Storage::disk('public')->url($customer->cccd_back)  : null;
         $data['cccd_qr_image_url'] = $customer->cccd_qr_image ? Storage::disk('public')->url($customer->cccd_qr_image) : null;
+
+        // Chi nhánh khách đang bị khoá đặt phòng (chỉ chi nhánh trong phạm vi quyền của user gọi API).
+        $data['blocked_branches'] = app(CustomerBranchBlockService::class)->listFor($customer, request()->user(), true);
 
         return $data;
     }

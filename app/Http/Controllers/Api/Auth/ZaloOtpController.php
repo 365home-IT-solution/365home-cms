@@ -625,6 +625,12 @@ class ZaloOtpController extends Controller
                 'cccd_qr_image' => $c->cccd_qr_image ? Storage::disk('public')->url($c->cccd_qr_image) : null,
                 'cccd_data'   => $c->cccd_data,
             ]),
+            // Chi nhánh khách đang bị khoá đặt phòng — app ẩn/vô hiệu nút đặt ở các chi nhánh này (đặt vẫn bị chặn ở
+            // server: 403 CUSTOMER_BRANCH_BLOCKED). Không trả lý do (ghi chú nội bộ của nhân viên).
+            'blocked_branches'  => array_map(
+                fn (array $b) => ['id' => $b['id'], 'name' => $b['name'], 'slug' => $b['slug']],
+                app(\App\Services\CustomerBranchBlockService::class)->listFor($customer, null, true)
+            ),
             'membership'        => [
                 'tier'           => $tier ? [
                     'id'                  => $tier->id,

@@ -156,6 +156,11 @@ class GuestBookingController extends Controller
             return $blocked;
         }
 
+        // SĐT trùng hồ sơ khách đang bị khoá ở chi nhánh này → không lách được bằng cách đặt không đăng nhập.
+        if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse(null, (string) $request->input('buyer_phone'), (string) $room->id)) {
+            return $blocked;
+        }
+
         // ── 3. Xây dựng items ─────────────────────────────────────────────────
         $rtsCollection = collect();
         $slotSummary   = [];

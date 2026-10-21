@@ -119,6 +119,11 @@ class BookingController extends Controller
             return $blocked;
         }
 
+        // Khách bị khoá đặt phòng ở chi nhánh của phòng này (403 CUSTOMER_BRANCH_BLOCKED).
+        if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse($customer, $buyerPhone, (string) $room->id)) {
+            return $blocked;
+        }
+
         // ── 4. Xây dựng items đặt phòng ──────────────────────────────────────
         $rtsCollection = collect();
         $slotSummary   = [];

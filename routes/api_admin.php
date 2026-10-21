@@ -743,6 +743,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/employees')->nam
 | POST   /api/admin/customers/{id}/assign-tier   → Gán hạng thành viên thủ công (body:
 |                                     membership_tier_id) — tái dùng MembershipService::assignManually(),
 |                                     ghi log đổi hạng + tự phát coupon mẫu của hạng
+| POST   /api/admin/customers/{id}/branch-blocks → Khoá đặt phòng theo chi nhánh (body: branch_ids[]
+|                                     HOẶC categories=slug1,slug2; mảng rỗng = mở khoá; reason tuỳ
+|                                     chọn) — đặt lại danh sách trong phạm vi quyền của user. Mọi
+|                                     response khách hàng có field blocked_branches[{id,name,slug,
+|                                     reason,blocked_at}]; lọc danh sách ?blocked=1 / ?blocked_branch_id=
+|                                     Khách bị khoá đặt phòng ở chi nhánh → tạo đơn trả 403
+|                                     code CUSTOMER_BRANCH_BLOCKED (app, khách vãng lai, đặt hộ)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->name('api.admin.customers.')->group(function () {
@@ -753,6 +760,27 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
     Route::delete('/{id}', [AdminCustomerController::class, 'destroy'])->name('destroy');
     Route::post('/{id}/assign-coupon', [AdminCustomerController::class, 'assignCoupon'])->name('assign-coupon');
     Route::post('/{id}/assign-tier',   [AdminCustomerController::class, 'assignTier'])->name('assign-tier');
+    Route::post('/{id}/branch-blocks', [AdminCustomerController::class, 'branchBlocks'])->name('branch-blocks');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Phone blocks — Chặn SĐT đặt phòng theo chi nhánh (SĐT không cần có tài khoản khách). Cùng nghiệp vụ Filament
+| "Chặn SĐT đặt phòng"; chỉ thao tác trên chi nhánh thuộc quyền user. SĐT nhận 0…/+84…/84…, lưu dạng 0xxxxxxxxx.
+| Khách đặt phòng bằng SĐT bị chặn (hoặc tài khoản có SĐT đó) ở chi nhánh bị chặn → 403 CUSTOMER_BRANCH_BLOCKED.
+| GET    /api/admin/phone-blocks              → Danh sách (?search=SĐT&branch_id=&categories=slug1,slug2&per_page=)
+| POST   /api/admin/phone-blocks              → Thêm nhiều item (JSON): items[]{phones[], branch_ids[] | categories, reason?}
+| POST   /api/admin/phone-blocks/delete-batch → Bỏ chặn: ids[] HOẶC phones[] (kèm branch_ids[] để giới hạn chi nhánh)
+| POST   /api/admin/phone-blocks/{id}         → Sửa 1 dòng (category_id?, reason?)
+| DELETE /api/admin/phone-blocks/{id}         → Bỏ chặn 1 dòng
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/phone-blocks')->name('api.admin.phone-blocks.')->group(function () {
+    Route::get('/',              [\App\Http\Controllers\Api\Admin\PhoneBranchBlockController::class, 'index'])->name('index');
+    Route::post('/',             [\App\Http\Controllers\Api\Admin\PhoneBranchBlockController::class, 'store'])->name('store');
+    Route::post('/delete-batch', [\App\Http\Controllers\Api\Admin\PhoneBranchBlockController::class, 'destroyBatch'])->name('delete-batch');
+    Route::post('/{id}',         [\App\Http\Controllers\Api\Admin\PhoneBranchBlockController::class, 'update'])->whereNumber('id')->name('update');
+    Route::delete('/{id}',       [\App\Http\Controllers\Api\Admin\PhoneBranchBlockController::class, 'destroy'])->whereNumber('id')->name('destroy');
 });
 
 /*

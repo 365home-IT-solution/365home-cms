@@ -159,6 +159,11 @@ class BookingController extends Controller
             return $blocked;
         }
 
+        // Khách (thành viên hoặc SĐT trùng hồ sơ) bị khoá đặt phòng ở chi nhánh này → nhân viên cũng không đặt hộ được.
+        if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse($customer, $buyerPhone, (string) $room->id)) {
+            return $blocked;
+        }
+
         // Nhân viên đối tác nền tảng (vd 365home) được đặt hộ cho MỌI đối tác — xem
         // User::belongsToPlatformPartner(). Nhân viên đối tác thường chỉ được đặt phòng
         // thuộc chính đối tác mình.

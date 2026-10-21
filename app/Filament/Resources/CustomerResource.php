@@ -13,6 +13,7 @@ use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRela
 use App\Models\Customer;
 use App\Models\MembershipTier;
 use App\Services\CccdIntakeService;
+use App\Services\CustomerBranchBlockService;
 use App\Support\CccdIdentity;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
@@ -413,6 +414,7 @@ class CustomerResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('blockedBranches:id,name'))
             ->columns([
                 TextColumn::make('fullname')
                     ->label('Họ và tên')
@@ -455,6 +457,14 @@ class CustomerResource extends Resource
                         }
                     }),
 
+                TextColumn::make('blocked_branches_display')
+                    ->label('Khoá đặt phòng')
+                    ->badge()
+                    ->color('danger')
+                    ->getStateUsing(fn (Customer $record) => $record->blockedBranches->whereIn('id', self::blockableBranchIds())->pluck('name')->all())
+                    ->placeholder('—')
+                    ->toggleable(),
+
                 TextColumn::make('membershipTier.name')
                     ->label('Hạng thành viên')
                     ->badge()
@@ -486,6 +496,12 @@ class CustomerResource extends Resource
             ->defaultSort('created_at', 'desc')
             ->filters([
                 TrashedFilter::make(),
+                \Filament\Tables\Filters\SelectFilter::make('blocked_branch')
+                    ->label('Bị khoá đặt phòng tại')
+                    ->options(fn () => self::blockableBranchOptions())
+                    ->query(fn (Builder $query, array $data): Builder => blank($data['value'] ?? null)
+                        ? $query
+                        : $query->whereHas('blockedBranches', fn (Builder $q) => $q->where('categories.id', (int) $data['value']))),
                 Filter::make('used_voucher')
                     ->label('Đã sử dụng voucher')
                     ->visible(fn () => auth()->user()?->can('view_customer_voucher_usage') ?? false)
@@ -560,6 +576,34 @@ class CustomerResource extends Resource
                     })
                     ->modalHeading('Gán hạng thành viên')
                     ->modalSubmitActionLabel('Lưu'),
+                Action::make('branch_blocks')
+                    ->label('Khoá đặt phòng')
+                    ->icon('heroicon-o-no-symbol')
+                    ->color('danger')
+                    ->visible(fn () => auth()->user()?->can('update_customer') ?? false)
+                    ->form([
+                        Select::make('branch_ids')
+                            ->label('Chi nhánh không cho khách đặt phòng')
+                            ->options(fn () => self::blockableBranchOptions())
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->helperText('Bỏ chọn hết để mở khoá. Áp dụng cho app, web, khách vãng lai trùng SĐT và nhân viên đặt hộ.'),
+                        \Filament\Forms\Components\Textarea::make('reason')
+                            ->label('Lý do (tuỳ chọn)')
+                            ->rows(2)
+                            ->maxLength(500),
+                    ])
+                    ->fillForm(fn (Customer $record) => [
+                        'branch_ids' => array_column(app(CustomerBranchBlockService::class)->listFor($record, auth()->user()), 'id'),
+                    ])
+                    ->action(function (Customer $record, array $data): void {
+                        app(CustomerBranchBlockService::class)->sync($record, $data['branch_ids'] ?? [], $data['reason'] ?? null, auth()->user());
+
+                        Notification::make()->title('Đã cập nhật khoá đặt phòng')->success()->send();
+                    })
+                    ->modalHeading(fn (Customer $record) => 'Khoá đặt phòng theo chi nhánh — ' . ($record->fullname ?: $record->phone))
+                    ->modalSubmitActionLabel('Lưu'),
                 EditAction::make()->label('Sửa'),
                 DeleteAction::make()->label('Xoá'),
                 RestoreAction::make()->label('Khôi phục'),
@@ -601,6 +645,19 @@ class CustomerResource extends Resource
                     ->successNotificationTitle('Đã gán mã giảm giá thành công')
                     ->deselectRecordsAfterCompletion(),
             ]);
+    }
+
+    // Chi nhánh gốc trong phạm vi quyền của người đang thao tác — chỉ những chi nhánh này mới khoá/mở khoá được.
+    private static function blockableBranchOptions(): array
+    {
+        return \Modules\Category\Entities\Category::whereIn('id', self::blockableBranchIds() ?: [-1])->orderBy('name')->pluck('name', 'id')->all();
+    }
+
+    private static ?array $blockableBranchIds = null;
+
+    private static function blockableBranchIds(): array
+    {
+        return self::$blockableBranchIds ??= array_map('intval', auth()->user()?->rootProductCategoryIds() ?? []);
     }
 
     public static function getEloquentQuery(): Builder

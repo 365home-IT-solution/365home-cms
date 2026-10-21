@@ -172,6 +172,22 @@ class CreateOrder extends CreateRecord
             throw new \Filament\Support\Exceptions\Halt();
         }
 
+        // Khách (thành viên hoặc SĐT trùng hồ sơ) bị khoá đặt phòng ở chi nhánh này → không cho đặt hộ.
+        $blockService  = app(\App\Services\CustomerBranchBlockService::class);
+        $blockCustomer = ! empty($data['customer_id']) ? \App\Models\Customer::find($data['customer_id']) : null;
+        $blockCategory = array_filter([$data['category_id'] ?? null]);
+        $blockedBranch = $blockService->blockedBranchForCategories($blockCustomer, $data['buyer_phone'] ?? null, $blockCategory);
+        foreach (array_unique(array_filter(array_column($expandedItems, 'product_id'))) as $roomId) {
+            $blockedBranch ??= $blockService->blockedBranchForRoom($blockCustomer, $data['buyer_phone'] ?? null, (string) $roomId);
+        }
+        if ($blockedBranch) {
+            Notification::make()->title('Khách đang bị khoá đặt phòng')
+                ->body("Khách hàng này đang bị khoá đặt phòng tại chi nhánh {$blockedBranch->name}. Mở khoá ở Khách hàng → \"Khoá đặt phòng\" nếu muốn đặt.")
+                ->danger()->send();
+
+            throw new \Filament\Support\Exceptions\Halt();
+        }
+
         // Ghi nhận người tạo — dùng để nhân viên đối tác nền tảng xem lại đúng đơn CHÍNH HỌ đã
         // đặt hộ cho đối tác khác (xem OrderResource::getEloquentQuery()).
         $data['created_by'] = auth()->id();

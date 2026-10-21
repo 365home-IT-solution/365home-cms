@@ -1242,8 +1242,25 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        // Báo sớm (trước khi mở modal xác nhận) nếu khách bị khoá đặt phòng ở chi nhánh này — confirmBooking() chặn lại lần nữa.
+        if ($message = $this->customerBranchBlockMessage()) {
+            $this->dispatch('notify', ['message' => $message, 'type' => 'error']);
+            return;
+        }
+
         $this->bookingConfirmError = '';
         $this->dispatch('open-booking-modal');
+    }
+
+    // Khách (đang đăng nhập, hoặc SĐT người đặt trùng hồ sơ) bị khoá đặt phòng ở chi nhánh của phòng này — xem
+    // App\Services\CustomerBranchBlockService.
+    private function customerBranchBlockMessage(): ?string
+    {
+        $service  = app(\App\Services\CustomerBranchBlockService::class);
+        $customer = $this->isAuthUser && $this->authUserId ? \App\Models\Customer::find($this->authUserId) : null;
+        $branch   = $service->blockedBranchForRoom($customer, $this->buyerPhone, $this->product?->id ? (string) $this->product->id : null);
+
+        return $branch ? $service->message($branch) : null;
     }
 
     /**
@@ -1314,6 +1331,11 @@ public function confirmBooking()
     // Đối tác bị tạm ngưng bán do ký quỹ → khách có sẵn link phòng vẫn không đặt được (cùng quy tắc API: 423).
     if (\App\Services\EscrowService::isSalesSuspended($this->product->partner_id ?? null)) {
         $this->bookingConfirmError = 'Cơ sở này đang tạm ngưng nhận đặt phòng online. Vui lòng chọn phòng khác.';
+        return;
+    }
+
+    if ($message = $this->customerBranchBlockMessage()) {
+        $this->bookingConfirmError = $message;
         return;
     }
 

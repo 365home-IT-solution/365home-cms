@@ -119,6 +119,14 @@ class Customer extends Authenticatable
             ->withTimestamps();
     }
 
+    // Chi nhánh GỐC khách bị khoá đặt phòng — xem App\Services\CustomerBranchBlockService.
+    public function blockedBranches(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class, 'customer_branch_blocks', 'customer_id', 'category_id')
+            ->withPivot(['reason', 'blocked_by'])
+            ->withTimestamps();
+    }
+
     public function membershipLogs(): HasMany
     {
         return $this->hasMany(CustomerMembershipLog::class, 'customer_id');
