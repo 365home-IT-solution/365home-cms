@@ -557,7 +557,9 @@ if (typeof window.homeBookingBoard === 'undefined') {
                         // activeProvinceId (khách lần đầu) — nếu đã gọi loadBranches() ở nhánh
                         // "đã biết tỉnh" trong init() thì bỏ qua, tránh gọi trùng.
                         if (!this.activeProvinceId && this.provinces.length) {
-                            this.activeProvinceId = String(this.provinces[0].id);
+                            // default_province_id: tỉnh có chi nhánh đặt theo khung giờ (server chọn,
+                            // xem App\Support\HomeDefaultBranch) — không có thì về tỉnh đầu như cũ.
+                            this.activeProvinceId = String(data.default_province_id || this.provinces[0].id);
                             if (data.default_branches) {
                                 // Server đã gộp sẵn chi nhánh của tỉnh mặc định vào response này —
                                 // dùng thẳng, không cần gọi thêm /api/v1/search/branches nữa.

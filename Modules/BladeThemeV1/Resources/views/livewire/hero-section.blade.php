@@ -124,13 +124,27 @@
                  mỗi lần đọc ép trình duyệt tính layout đồng bộ (Lighthouse "Forced reflow") — nhân 3
                  vì trang chủ có 3 instance hero-section. Các số đo này chỉ dùng khi đã cuộn trang
                  (pill thu gọn), nên trễ 1 frame không ảnh hưởng gì. --}}
+            {{-- ResizeObserver thay cho __afterPaint + offsetHeight: rAF+setTimeout vẫn rơi đúng lúc
+                 Livewire/Alpine đang sửa DOM => trình duyệt phải tính lại layout cả trang tại chỗ
+                 (đo bằng Long Animation Frames: ~66ms, PageSpeed báo [unattributed] vì Alpine chạy qua
+                 new Function). Callback của observer nhận kích thước SAU bước layout, và tự cập nhật
+                 khi xoay máy / header đổi chiều cao. --}}
             let _heroH = 0;
-            window.__afterPaint(() => {
-                const hdr = document.getElementById('main-header-bar');
-                if (hdr) compactTop = hdr.offsetHeight + 'px';
-                const s = $el.querySelector('section');
-                if (s) _heroH = s.offsetHeight;
-            });
+            const _hdr = document.getElementById('main-header-bar');
+            const _sec = $el.querySelector('section');
+            if (_hdr && 'ResizeObserver' in window) {
+                new ResizeObserver((entries) => {
+                    const e = entries[0];
+                    const h = Math.round((e.borderBoxSize && e.borderBoxSize[0]) ? e.borderBoxSize[0].blockSize : e.contentRect.height);
+                    if (h > 0) compactTop = h + 'px';
+                }).observe(_hdr);
+            }
+            if (_sec && 'ResizeObserver' in window) {
+                new ResizeObserver((entries) => {
+                    const e = entries[0];
+                    _heroH = Math.round((e.borderBoxSize && e.borderBoxSize[0]) ? e.borderBoxSize[0].blockSize : e.contentRect.height);
+                }).observe(_sec);
+            }
             const _onScroll = () => {
                 if (!$el.isConnected) {
                     window.removeEventListener('scroll', _onScroll);
@@ -167,15 +181,18 @@
         });
         {{-- Đo chiều cao pill thu gọn để chèn khoảng đệm tương ứng (mobile), tránh nội dung
              bên dưới bị pill (position:fixed) đè lên. --}}
-        const _measurePill = () => {
-            const pill = $refs.compactPillEl;
-            if (pill && pill.offsetHeight > 0) pillHeight = pill.offsetHeight;
-        };
-        window.__afterPaint(_measurePill);
-        window.addEventListener('resize', _measurePill, { passive: true });
+        {{-- ResizeObserver (không ép reflow, tự chạy lại khi pill đổi kích thước/hiện ra) thay cho
+             __afterPaint + offsetHeight + nghe resize. --}}
+        const _pill = $refs.compactPillEl;
+        if (_pill && 'ResizeObserver' in window) {
+            new ResizeObserver((entries) => {
+                const e = entries[0];
+                const h = Math.round((e.borderBoxSize && e.borderBoxSize[0]) ? e.borderBoxSize[0].blockSize : e.contentRect.height);
+                if (h > 0) pillHeight = h;
+            }).observe(_pill);
+        }
         document.addEventListener('livewire:navigated', () => {
             heroShrunk = window.__heroAlwaysCompact || false;
-            $nextTick(_measurePill);
         });
     ">
     @include('bladethemev1::livewire.hero-section._script')

@@ -392,9 +392,17 @@ class Book extends Component
 
     // Điện thoại -> 'mobile', còn lại (máy tính, tablet) -> 'desktop' — cùng nguồn với các khối
     // khác (App\Support\ViewportMode). Tablet đang ở chiều dọc sẽ lệch — trình duyệt tự sửa qua setLayout().
+    // Chế độ 'both' (tablet, cửa sổ máy tính hay đổi cỡ): dùng cookie vp_now — bề rộng thật lúc tải
+    // trang trước (script đầu <head> ở layouts/master.blade.php) — để không phải gọi thêm setLayout()
+    // + render lại lần nữa ngay sau khi tải (PageSpeed: ~57ms reflow + 1 request /livewire/update).
     private function detectLayout(): string
     {
-        return \App\Support\ViewportMode::current() === \App\Support\ViewportMode::MOBILE ? 'mobile' : 'desktop';
+        $mode = \App\Support\ViewportMode::current();
+        if ($mode === \App\Support\ViewportMode::BOTH) {
+            return ($_COOKIE['vp_now'] ?? null) === 'mobile' ? 'mobile' : 'desktop';
+        }
+
+        return $mode === \App\Support\ViewportMode::MOBILE ? 'mobile' : 'desktop';
     }
 
     public function canLoadMoreDates(): bool

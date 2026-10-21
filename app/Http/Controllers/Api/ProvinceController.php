@@ -48,10 +48,13 @@ class ProvinceController extends Controller
         // ~400-1000ms trong "network dependency tree" của PageSpeed). Khách ĐÃ biết tỉnh (có
         // localStorage) không cần cờ này — JS đã tự gọi thẳng branches song song từ trước, xem
         // homeBookingBoard.init() trong home-sections.js.
+        // Tỉnh mặc định = tỉnh đầu tiên có chi nhánh đặt theo khung giờ (App\Support\HomeDefaultBranch),
+        // trả kèm default_province_id để JS chọn đúng tỉnh đó thay vì provinces[0].
         if ($request->boolean('with_default_branches') && ! empty($provinceData)) {
-            $defaultProvince = Province::find($provinceData[0]['id']);
-            if ($defaultProvince) {
-                $response['default_branches'] = SearchController::branchesDataForProvince($defaultProvince);
+            $default = \App\Support\HomeDefaultBranch::resolve($provinceData);
+            if ($default['province']) {
+                $response['default_province_id'] = $default['province']->id;
+                $response['default_branches'] = $default['branches'];
             }
         }
 

@@ -62,6 +62,15 @@
                 } catch (e) { return; }
                 location.reload();
             };
+            // vp_now: bề rộng HIỆN TẠI (mobile/desktop) — chỉ đọc khi vp_mode là 'both' (tablet, cửa
+            // sổ máy tính hay đổi cỡ): server không biết nên in layout nào cho lịch đặt phòng
+            // (Livewire\Book::detectLayout), trước đây luôn in desktop rồi trình duyệt hẹp phải gọi
+            // thêm setLayout('mobile') + render lại. Không bao giờ tải lại trang vì cookie này.
+            var now = function () {
+                document.cookie = 'vp_now=' + (mq.matches ? 'desktop' : 'mobile') + '; path=/; max-age=' + (60 * 60 * 24 * 180) + '; SameSite=Lax';
+            };
+            now();
+            mq.addEventListener('change', now);
             if (served !== 'both') {
                 var want = wanted();
                 if (want !== served) apply(want);

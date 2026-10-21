@@ -237,12 +237,11 @@ class BladeThemeV1Controller extends Controller
     {
         $resolve = function (): array {
             $provinces = app(AvailableProvinceService::class)->get();
-            $defaultProvince = ! empty($provinces)
-                ? Province::find($provinces[0]['id'])
-                : null;
-            $defaultBranches = $defaultProvince
-                ? SearchController::branchesDataForProvince($defaultProvince)['data']
-                : [];
+            // Ưu tiên tỉnh/chi nhánh có phòng đặt theo khung giờ (không mặc định vào villa chỉ cho
+            // thuê theo ngày) — xem App\Support\HomeDefaultBranch.
+            $default = \App\Support\HomeDefaultBranch::resolve($provinces);
+            $defaultProvince = $default['province'];
+            $defaultBranches = $default['branches']['data'] ?? [];
             $defaultBranchSlug = data_get($defaultBranches, '0.slug');
 
             return [
