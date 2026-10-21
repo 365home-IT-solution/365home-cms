@@ -1314,6 +1314,20 @@ html {
         vertical-align: middle;
         margin-left: 6px;
         margin-top: -3px;
+        /* Ảnh tĩnh (images/flash-sale-static.webp, 1.3KB) + chuyển động bằng CSS thay cho ảnh động
+           WebP 35 khung (17KB — Lighthouse "Improve image delivery" luôn chấm ảnh động là dư). Chỉ
+           animate transform: chạy trên compositor, không ép layout/paint lại cả lịch đặt phòng. */
+        animation: book-flash-zap 1.5s ease-in-out infinite;
+        transform-origin: 60% 70%;
+    }
+    @keyframes book-flash-zap {
+        0%, 55%, 100% { transform: scale(1) rotate(0); }
+        65% { transform: scale(1.15) rotate(-8deg); }
+        75% { transform: scale(1.05) rotate(6deg); }
+        85% { transform: scale(1.12) rotate(-4deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .book-room-flash-icon { animation: none; }
     }
 
     /* ── Grid header — nằm NGOÀI khung cuộn (không còn position:sticky vì không cần thiết

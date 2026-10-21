@@ -98,7 +98,7 @@
                                     {{ $room->name }}
                                 @endif
                                 @if($roomHasDiscount)
-                                    <img src="{{ asset('images/flash-sale-48.webp') }}" alt="" class="book-room-flash-icon" width="28" height="28">
+                                    <img src="{{ asset('images/flash-sale-static.webp') }}" alt="" class="book-room-flash-icon" width="28" height="28">
                                 @endif
                             </h3>
 
