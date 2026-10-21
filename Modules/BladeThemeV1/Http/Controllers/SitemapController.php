@@ -45,6 +45,14 @@ class SitemapController extends Controller
             return true;
         })->values();
 
+        // Trang tĩnh + trang đích SEO (LandingPages) không nằm trong menu nhưng cần được index.
+        foreach (array_merge(['huong-dan-tu-check-in'], \Modules\BladeThemeV1\Support\LandingPages::slugs()) as $slug) {
+            $url = url('/' . $slug);
+            if (! $pageUrls->contains('url', $url)) {
+                $pageUrls->push(['url' => $url, 'lastmod' => now()->startOfDay()->toAtomString()]);
+            }
+        }
+
         // 2. Bài viết đã xuất bản
         $posts = Post::where('status', 'published')
             ->select(['slug', 'updated_at', 'published_at'])

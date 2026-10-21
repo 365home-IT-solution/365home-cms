@@ -16,16 +16,21 @@
 
 @if($videoResolved)
 @php
-    $videoSchemaJson = json_encode([
+    // Nội dung soạn thảo lưu dạng HTML entity (&ndash;, &ocirc;...) — giải mã (2 lần, phòng trường hợp
+    // bị mã hoá kép) để JSON-LD chứa chữ thật. contentUrl chỉ dành cho FILE video trực tiếp (.mp4...);
+    // video YouTube/TikTok chỉ cần embedUrl, ghi link trang xem (youtu.be/...) vào contentUrl là sai.
+    $videoDecode = fn ($t) => trim(html_entity_decode(html_entity_decode(strip_tags((string) $t), ENT_QUOTES | ENT_HTML5), ENT_QUOTES | ENT_HTML5));
+    $videoIsFile = (bool) preg_match('/\.(mp4|webm|mov|m4v)(\?|#|$)/i', (string) ($videoResolved['url'] ?? ''));
+    $videoSchemaJson = json_encode(array_filter([
         '@context'     => 'https://schema.org',
         '@type'        => 'VideoObject',
-        'name'         => $videoSeoTitle,
-        'description'  => mb_substr(strip_tags($product->short_description ?? $product->description ?? $product->name ?? ''), 0, 200),
-        'contentUrl'   => $videoResolved['url'],
+        'name'         => $videoDecode($videoSeoTitle),
+        'description'  => mb_substr($videoDecode($product->short_description ?: ($product->description ?: $product->name)), 0, 200),
+        'contentUrl'   => $videoIsFile ? $videoResolved['url'] : null,
         'embedUrl'     => $videoResolved['embedUrl'],
         'thumbnailUrl' => $product->getFirstMediaUrl('Ảnh bìa'),
         'uploadDate'   => optional($product->created_at)->toIso8601String(),
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 @endphp
 
 <script type="application/ld+json">{!! $videoSchemaJson !!}</script>

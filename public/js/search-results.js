@@ -25,7 +25,10 @@
     // mang location trên path theo cùng vị trí segment thứ 2.
     function parseLocationFromPath() {
         var m = window.location.pathname.match(new RegExp('^\\/(?:s|' + typeUrlSlugPattern() + ')\\/([^\\/?#]+)'));
-        return m ? decodeURIComponent(m[1]) : '';
+        if (m) return decodeURIComponent(m[1]);
+        // Trang đích SEO (/homestay-ninh-kieu...) không mang bộ lọc trên URL — server đặt sẵn
+        // window.__searchPreset (xem pages/product/search.blade.php, LandingPages.php).
+        return (window.__searchPreset && window.__searchPreset.location) || '';
     }
 
     // /{type}(/{location}?) là URL rút gọn của /s?type={db_slug} — không có query string ?type=
@@ -34,7 +37,9 @@
     function getTypeParam(params) {
         if (params.get('type')) return params.get('type');
         var m = window.location.pathname.match(new RegExp('^\\/(' + typeUrlSlugPattern() + ')(\\/|$)'));
-        return m ? (window.__typeDbSlugMap[m[1]] || '') : '';
+        if (m) return window.__typeDbSlugMap[m[1]] || '';
+        var preset = window.__searchPreset && window.__searchPreset.type;
+        return preset ? (window.__typeDbSlugMap[preset] || '') : '';
     }
 
     // /{type}/{location} ngầm định luôn là danh sách chi nhánh (tương đương /s/{location}?view=

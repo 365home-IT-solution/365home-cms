@@ -171,6 +171,11 @@ Route::get('/ticket-booking', [BladeThemeV1Controller::class, 'ticketBookingPage
 Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
 // Thay CMS Page id 64 (chỉ có khối liên hệ, không có nội dung hướng dẫn) — cùng cơ chế override.
 Route::get('/huong-dan-tu-check-in', [BladeThemeV1Controller::class, 'selfCheckinGuidePage'])->name('self-checkin-guide.page');
+// Trang đích SEO theo nhu cầu tìm kiếm (homestay Cần Thơ theo giờ / tự check-in / Ninh Kiều) — xem
+// Modules\BladeThemeV1\Support\LandingPages. Slug liệt kê cứng nên không nuốt URL nào khác.
+Route::get('/{landing}', [BladeThemeV1Controller::class, 'landingPage'])
+    ->where('landing', implode('|', \Modules\BladeThemeV1\Support\LandingPages::slugs()))
+    ->name('landing.page');
 Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
 // Danh sách bài viết đổi từ /tin-tuc sang /bai-viet theo yêu cầu — menu item "Nổi bật" (title
 // sai, chưa đổi) đang trỏ đúng URL /bai-viet này về 1 CMS Page khác (page_id=3, xem

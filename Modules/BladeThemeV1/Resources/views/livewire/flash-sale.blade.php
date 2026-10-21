@@ -975,19 +975,11 @@
         <section class="py-6 sm:py-8 bg-white">
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-3">Homestay tự check-in tại Cần Thơ là gì?</h2>
-                <p class="text-gray-600 leading-relaxed mb-3">
-                    Homestay tự check-in là mô hình lưu trú không có quầy lễ tân: bạn chọn phòng, chọn giờ và
-                    thanh toán ngay trên website hoặc ứng dụng 365 Home, sau đó nhận mã mở cửa và tự vào phòng
-                    bằng khoá thông minh. Không phải chờ làm thủ tục, không phải hẹn giờ với chủ nhà, đến lúc
-                    nào trong khung giờ đã đặt cũng vào được. Cách làm này đặc biệt hợp với khách đi công tác
-                    ghé Cần Thơ vài tiếng, cặp đôi cần không gian riêng tư, nhóm bạn đi chơi cuối tuần hay
-                    người cần một chỗ nghỉ trưa yên tĩnh gần trung tâm quận Ninh Kiều.
-                </p>
                 <p class="text-gray-600 leading-relaxed">
-                    Mỗi phòng tại 365 Home có phong cách trang trí riêng, có hình ảnh, tiện nghi và đánh giá của
-                    khách đã ở để bạn xem trước khi quyết định. Lịch đặt phòng trực tuyến cho thấy khung giờ nào
-                    còn trống theo từng ngày, giá của từng khung giờ được hiển thị trước khi thanh toán nên bạn
-                    luôn biết chính xác số tiền phải trả.
+                    Là mô hình lưu trú không có quầy lễ tân: bạn chọn phòng, chọn giờ và thanh toán ngay trên website
+                    hoặc ứng dụng 365 Home, sau đó nhận mã mở cửa và tự vào phòng bằng khoá thông minh trong khung giờ
+                    đã đặt.
+                    <a href="{{ url('/homestay-tu-check-in-can-tho') }}" class="font-medium text-primary hover:underline">Xem chi tiết về homestay tự check-in</a>
                 </p>
             </div>
         </section>
@@ -996,15 +988,10 @@
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-3">Cách đặt phòng theo giờ, qua đêm và theo ngày</h2>
                 <p class="text-gray-600 leading-relaxed mb-4">
-                    Toàn bộ việc đặt phòng làm trực tuyến trong vài phút, không cần gọi điện giữ chỗ:
+                    Chọn chi nhánh, chọn khung giờ còn trống trên lịch, đăng nhập bằng số điện thoại rồi thanh toán
+                    trực tuyến để nhận mã mở cửa — không cần gọi điện giữ chỗ.
+                    <a href="{{ url('/homestay-can-tho-theo-gio') }}" class="font-medium text-primary hover:underline">Xem cách đặt homestay theo giờ</a>
                 </p>
-                <ol class="list-decimal pl-5 space-y-2 text-gray-600 leading-relaxed mb-4">
-                    <li><strong class="text-gray-900">Chọn khu vực và chi nhánh</strong> gần nơi bạn muốn ở, rồi mở lịch đặt phòng của chi nhánh đó.</li>
-                    <li><strong class="text-gray-900">Chọn phòng và khung giờ còn trống</strong> trên lịch. Bạn có thể chọn nhiều khung giờ liền nhau trong cùng một phòng để ở lâu hơn.</li>
-                    <li><strong class="text-gray-900">Đăng nhập bằng số điện thoại</strong>, mã xác thực được gửi qua Zalo.</li>
-                    <li><strong class="text-gray-900">Kiểm tra tổng tiền và thanh toán trực tuyến</strong> để xác nhận đơn.</li>
-                    <li><strong class="text-gray-900">Nhận mã mở cửa</strong> và tự check-in bằng khoá thông minh khi đến giờ.</li>
-                </ol>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="rounded-2xl bg-white border border-gray-100 p-5">
                         <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo giờ</h3>
@@ -1022,7 +1009,9 @@
             </div>
         </section>
 
-        @if (count($homeBranchAreas = \App\Support\BranchLodgingSchema::forHomepage()) > 0)
+        {{-- Chỉ chi nhánh Cần Thơ (tiêu đề khối là "tại Cần Thơ") — chi nhánh tỉnh khác (villa Lâm Đồng)
+             nằm ở nhóm riêng của khối "Khám phá chi nhánh" (components/home/internal-links). --}}
+        @if (count($homeBranchAreas = array_values(array_filter(\App\Support\BranchLodgingSchema::forHomepage(), fn ($b) => str_contains((string) data_get($b, 'address.addressRegion'), 'Cần Thơ')))) > 0)
         <section class="py-6 sm:py-8 bg-white">
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-3">Khu vực có phòng 365 Home tại Cần Thơ</h2>
@@ -1069,10 +1058,9 @@
             </div>
         </section>
 
-        {{-- Cẩm nang lưu trú — khối chữ dài (tỉ lệ text/HTML), tách ra component riêng vì file này
-             không được thêm khối PHP nhiều dòng (xem ghi chú ngay bên dưới). --}}
-        <x-bladethemev1::home.guide />
-        <x-bladethemev1::home.travel-guide />
+        {{-- Tóm tắt theo nhu cầu + link sang trang đích (nội dung dài đã chuyển sang các trang đó, xem
+             components/home/explore.blade.php). --}}
+        <x-bladethemev1::home.explore />
 
         {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
              file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối

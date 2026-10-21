@@ -115,14 +115,55 @@
 
     @elseif($ogType === 'product')
         @php
+            // Trang phòng (room_schema, BladeThemeV1Controller::renderProductDetail): ["HotelRoom", "Product"]
+            // — HotelRoom để Google hiểu đây là phòng lưu trú thuộc 1 cơ sở (containedInPlace), Product để
+            // giữ được offers/aggregateRating (HotelRoom là Place, tự nó không mang offers). Trang dịch vụ
+            // (mẫu giao diện) không có room_schema => Product thường như cũ.
+            $room = $seoData['room_schema'] ?? null;
+            $canonicalSelf = $seoData['canonical_url'] ?? url()->current();
             $schema = [
                 '@context'    => 'https://schema.org',
-                '@type'       => 'Product',
-                'name'        => $seoData['seo_title']       ?? '',
-                'description' => $seoData['seo_description'] ?? '',
-                'url'         => url()->current(),
+                '@type'       => $room ? ['HotelRoom', 'Product'] : 'Product',
+                'name'        => $room['name'] ?? ($seoData['seo_title'] ?? ''),
+                'description' => $room['description'] ?? ($seoData['seo_description'] ?? ''),
+                'url'         => $canonicalSelf,
             ];
-            if ($ogImage) $schema['image'] = [$ogImage];
+            if ($room) {
+                $schema = ['@context' => 'https://schema.org', '@type' => $schema['@type'], '@id' => $canonicalSelf . '#room'] + $schema;
+                if (!empty($room['images'])) {
+                    $schema['image'] = $room['images'];
+                } elseif ($ogImage) {
+                    $schema['image'] = [$ogImage];
+                }
+                if (!empty($room['occupancy'])) {
+                    // room_config.max_free_guests: số khách tiêu chuẩn (thêm khách có phụ phí).
+                    $schema['occupancy'] = ['@type' => 'QuantitativeValue', 'value' => (int) $room['occupancy'], 'unitText' => 'khách'];
+                }
+                if (!empty($room['amenities'])) {
+                    $schema['amenityFeature'] = array_map(fn ($a) => ['@type' => 'LocationFeatureSpecification', 'name' => $a, 'value' => true], $room['amenities']);
+                }
+                if (!empty($room['contained_in'])) {
+                    $schema['containedInPlace'] = $room['contained_in'];
+                }
+                // Địa chỉ/toạ độ của CHÍNH phòng (không lấy của chi nhánh) — phường/tỉnh theo chi nhánh.
+                $branchAddress = $room['contained_in']['address'] ?? [];
+                if (!empty($room['address']) || !empty($branchAddress)) {
+                    $schema['address'] = array_filter([
+                        '@type'           => 'PostalAddress',
+                        'streetAddress'   => $room['address'] ?? ($branchAddress['streetAddress'] ?? null),
+                        'addressLocality' => $branchAddress['addressLocality'] ?? null,
+                        'addressRegion'   => $branchAddress['addressRegion'] ?? null,
+                        'addressCountry'  => 'VN',
+                    ]);
+                }
+                if (!empty($room['latitude']) && !empty($room['longitude'])) {
+                    $schema['geo'] = ['@type' => 'GeoCoordinates', 'latitude' => $room['latitude'], 'longitude' => $room['longitude']];
+                } elseif (!empty($room['contained_in']['geo'])) {
+                    $schema['geo'] = $room['contained_in']['geo'];
+                }
+            } elseif ($ogImage) {
+                $schema['image'] = [$ogImage];
+            }
 
             // Brand — dùng seoData trước, fallback về GeneralSettings
             $brandName = $seoData['brand_name'] ?? $gs->brand_name ?? '';
@@ -144,16 +185,31 @@
                 'availability'  => 'https://schema.org/' . ($seoData['offer_availability'] ?? 'InStock'),
                 'url'           => $seoData['offer_url']        ?? url()->current(),
             ];
+            // Đơn vị giá: phòng theo giờ tính theo KHUNG GIỜ (mỗi khung 1 giá), phòng theo ngày (villa,
+            // products.styles = 2) tính theo ĐÊM — ghi rõ để giá không bị hiểu là giá trọn gói.
+            $priceUnit = $room['price_unit'] ?? null;
             if (!empty($seoData['offer_low_price'])) {
                 $schema['offers'] = ['@type' => 'AggregateOffer'] + $offerBase + [
                     'lowPrice'   => (string) $seoData['offer_low_price'],
                     'highPrice'  => (string) $seoData['offer_high_price'],
                     'offerCount' => (int) $seoData['offer_count'],
                 ];
+                if ($priceUnit) {
+                    $schema['offers']['description'] = 'Giá mỗi ' . $priceUnit;
+                }
             } elseif (!empty($seoData['offer_price']) && (float) $seoData['offer_price'] > 0) {
                 $schema['offers'] = ['@type' => 'Offer'] + $offerBase + [
                     'price' => (string) $seoData['offer_price'],
                 ];
+                if ($priceUnit) {
+                    $schema['offers']['priceSpecification'] = array_filter([
+                        '@type'         => 'UnitPriceSpecification',
+                        'price'         => (string) $seoData['offer_price'],
+                        'priceCurrency' => $seoData['offer_currency'] ?? 'VND',
+                        'unitCode'      => !empty($room['is_daily']) ? 'DAY' : null,
+                        'unitText'      => $priceUnit,
+                    ]);
+                }
             }
 
             // Chỉ gắn khi có đánh giá thật (RoomRating) — Product là loại được Google chính thức hỗ
@@ -208,9 +264,45 @@
          App\Support\BranchLodgingSchema. --}}
     @if(request()->is('/'))
         @php
+            // Thực thể gốc: Organization "365 Home" + WebSite, có @id cố định để các node khác (thực thể
+            // chính "365 Home Cần Thơ", từng chi nhánh — App\Support\BranchLodgingSchema) nối vào qua
+            // parentOrganization/publisher thay vì đứng rời rạc.
+            $orgId = \App\Support\BranchLodgingSchema::ORGANIZATION_ID;
+            $sameAs = [
+                'https://www.facebook.com/365home.254xuanthuy.cantho',
+                'https://www.tiktok.com/@365.home',
+            ];
+            $organizationSchema = array_filter([
+                '@context' => 'https://schema.org',
+                '@type'    => 'Organization',
+                '@id'      => $orgId,
+                'name'     => '365 Home',
+                'url'      => url('/'),
+                'logo'     => !empty($gs->brand_logo) ? ['@type' => 'ImageObject', 'url' => url('/storage/' . $gs->brand_logo)] : null,
+                'email'    => '365home.cantho@gmail.com',
+                'sameAs'   => $sameAs,
+                'contactPoint' => [
+                    '@type'             => 'ContactPoint',
+                    'telephone'         => '+84939174365',
+                    'contactType'       => 'customer service',
+                    'areaServed'        => 'VN',
+                    'availableLanguage' => 'Vietnamese',
+                ],
+            ]);
+            $websiteSchema = [
+                '@context'   => 'https://schema.org',
+                '@type'      => 'WebSite',
+                '@id'        => 'https://365home.vn/#website',
+                'name'       => '365 Home',
+                'url'        => url('/'),
+                'inLanguage' => 'vi-VN',
+                'publisher'  => ['@id' => $orgId],
+            ];
             $businessSchema = [
                 '@context'   => 'https://schema.org',
                 '@type'      => 'LodgingBusiness',
+                '@id'        => \App\Support\BranchLodgingSchema::CAN_THO_ENTITY_ID,
+                'parentOrganization' => ['@id' => $orgId],
                 'name'       => '365 Home Cần Thơ',
                 'image'      => $ogImage ?: null,
                 'url'        => url('/'),
@@ -235,13 +327,12 @@
                     'latitude'  => 10.0217964,
                     'longitude' => 105.7445886,
                 ],
-                'sameAs' => [
-                    'https://www.facebook.com/365home.254xuanthuy.cantho',
-                    'https://www.tiktok.com/@365.home',
-                ],
+                'sameAs' => $sameAs,
             ];
             $businessSchema = array_filter($businessSchema, fn ($v) => $v !== null);
         @endphp
+        <script type="application/ld+json">{!! json_encode($organizationSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+        <script type="application/ld+json">{!! json_encode($websiteSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
         <script type="application/ld+json">{!! json_encode($businessSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
         @foreach(\App\Support\BranchLodgingSchema::forHomepage() as $branchSchema)
             <script type="application/ld+json">{!! json_encode($branchSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
@@ -260,14 +351,17 @@
                 $videoSchema = [
                     '@context'      => 'https://schema.org',
                     '@type'         => 'VideoObject',
-                    'name'          => ($seoData['video_name'] ?? '') . ' - Video',
-                    'description'   => $seoData['video_description'] ?? $seoData['seo_description'] ?? '',
+                    // Giải mã HTML entity (mô tả lấy từ nội dung soạn thảo có &ndash;, &ocirc;...) — JSON-LD
+                    // cần chữ thật, không phải mã HTML.
+                    'name'          => html_entity_decode(($seoData['video_name'] ?? '') . ' - Video', ENT_QUOTES | ENT_HTML5),
+                    'description'   => html_entity_decode(html_entity_decode($seoData['video_description'] ?? $seoData['seo_description'] ?? '', ENT_QUOTES | ENT_HTML5), ENT_QUOTES | ENT_HTML5),
                     'thumbnailUrl'  => [
                         'https://img.youtube.com/vi/' . $videoId . '/maxresdefault.jpg',
                         'https://img.youtube.com/vi/' . $videoId . '/hqdefault.jpg',
                     ],
                     'uploadDate'    => $seoData['video_upload_date'] ?? now()->toIso8601String(),
-                    'contentUrl'    => 'https://www.youtube.com/watch?v=' . $videoId,
+                    // Không ghi contentUrl: trường này phải là file video trực tiếp (.mp4), video YouTube
+                    // chỉ cần embedUrl.
                     'embedUrl'      => 'https://www.youtube.com/embed/' . $videoId,
                     'url'           => url()->current(),
                 ];

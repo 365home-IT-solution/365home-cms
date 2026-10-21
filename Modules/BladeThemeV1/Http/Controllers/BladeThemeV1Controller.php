@@ -758,7 +758,7 @@ class BladeThemeV1Controller extends Controller
                 $query->where('status', 1);
             })
             ->with(['tags:id,name', 'categories:id,slug,parent_id', 'roomType:id,slug,name'])
-            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at', 'room_type_id', 'rating_score'])
+            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at', 'room_type_id', 'rating_score', 'styles', 'room_config', 'address', 'latitude', 'longitude'])
             ->first();
 
         if (!$product) {
@@ -823,6 +823,9 @@ class BladeThemeV1Controller extends Controller
             $seoDescription = rtrim($seoDescription, " .") . '. ' . $loc['type_name'] . ' 365Home tại '
                 . trim((string) preg_replace('/\s+/u', ' ', $loc['branch_name'])) . ' – đặt phòng theo giờ, theo ngày.';
         }
+        // Bản đầy đủ (không cắt 160) cho schema HotelRoom — description trong JSON-LD không bị giới
+        // hạn như meta description, cắt giữa câu ("... theo…") làm mô tả phòng sai/khó hiểu.
+        $schemaDescription = $this->truncateAtWord($seoDescription, 500);
         // 160 ký tự, cắt theo từ — Google cắt snippet quanh mốc này, 300 ký tự cũ luôn bị cắt cụt.
         $seoDescription = $this->truncateAtWord($seoDescription, 160);
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
@@ -856,6 +859,39 @@ class BladeThemeV1Controller extends Controller
         // bịa số. review lấy tối đa 10 đánh giá mới nhất, kể cả không có bình luận (reviewBody để
         // trống hợp lệ theo schema.org) vì đây là dữ liệu thật do khách để lại, không cần lọc thêm.
         $ratingCount = $product->ratings()->count();
+
+        // Dữ liệu cho schema ["HotelRoom", "Product"] (components/seo.blade.php): phòng lưu trú thuộc
+        // 1 cơ sở (containedInPlace = node LodgingBusiness của chi nhánh, cùng @id với trang chi nhánh),
+        // tên phòng thật (không phải title SEO), nhiều ảnh, tiện nghi (tag), số khách tiêu chuẩn
+        // (room_config.max_free_guests). Chỉ đưa trường có dữ liệu thật — bed_type/room_area_sqm
+        // đang trống thì bỏ qua.
+        $branchCategory = $loc ? Category::where('slug', $loc['branch_slug'])->where('category_type', 'product')->first() : null;
+        $branchNode = $branchCategory ? \App\Support\BranchLodgingSchema::forBranch($branchCategory) : null;
+        if ($branchNode) {
+            // Đánh giá của cả chi nhánh không thuộc về phòng này — không lồng vào node của phòng.
+            unset($branchNode['@context'], $branchNode['aggregateRating']);
+        }
+        $roomImages = collect(['Ảnh bìa', 'Ảnh chính', 'Thư viện'])
+            ->flatMap(fn ($c) => $product->getMedia($c))
+            ->map(fn ($m) => $m->hasGeneratedConversion('wide') ? $m->getUrl('wide') : $m->getUrl())
+            ->unique()->take(5)->values()->all();
+        $isDailyRoom = (int) $product->styles === 2;
+        $roomSchema = [
+            'name'         => html_entity_decode($roomDisplayName, ENT_QUOTES | ENT_HTML5),
+            'description'  => html_entity_decode($schemaDescription, ENT_QUOTES | ENT_HTML5),
+            'images'       => $roomImages,
+            'occupancy'    => data_get($product->room_config, 'max_free_guests'),
+            'amenities'    => $product->tags->pluck('name')->filter()->unique()->values()->all(),
+            'price_unit'   => $isDailyRoom ? 'đêm' : 'khung giờ',
+            'is_daily'     => $isDailyRoom,
+            'contained_in' => $branchNode,
+            // Địa chỉ + toạ độ RIÊNG của phòng (ô "Địa chỉ"/vĩ độ/kinh độ ở form phòng) — phòng nhập
+            // địa chỉ khác các phòng còn lại của chi nhánh vẫn hiện đúng địa chỉ của chính nó.
+            'address'      => trim((string) preg_replace('/\s+/u', ' ', (string) $product->address)) ?: null,
+            'latitude'     => $product->latitude && (float) $product->latitude != 0.0 ? (float) $product->latitude : null,
+            'longitude'    => $product->longitude && (float) $product->longitude != 0.0 ? (float) $product->longitude : null,
+        ];
+
         $reviews = $ratingCount > 0
             ? $product->ratings()->with('customer:id,fullname')->latest()->limit(10)->get()
             : collect();
@@ -879,6 +915,7 @@ class BladeThemeV1Controller extends Controller
             'offer_availability' => $product->is_in_stock ? 'InStock' : 'OutOfStock',
             'offer_url'          => $canonicalUrl,
             'offer_sku'          => $product->slug,
+            'room_schema'        => $roomSchema,
             'video_ids'          => $videoIds,
             'video_name'         => $product->name,
             'video_description'  => $seoDescription,
@@ -1128,6 +1165,26 @@ class BladeThemeV1Controller extends Controller
             'typeNameDisplay'    => $typeName,
             'locationName'       => $locName,
             'roomCount'          => $noscriptRooms->total(),
+        ]);
+    }
+
+    // Trang đích SEO (Modules\BladeThemeV1\Support\LandingPages): dùng nguyên dữ liệu trang tìm kiếm
+    // /{type}/{location} (danh sách phòng, bản đồ, noscript links) rồi thay SEO + thêm H1/nội dung riêng.
+    public function landingPage(Request $request, string $landing)
+    {
+        $page = \Modules\BladeThemeV1\Support\LandingPages::get($landing);
+        abort_unless($page, 404);
+
+        $view = $this->searchProduct($request, $page['type'], $page['location']);
+
+        return $view->with([
+            'landing'     => $page + ['slug' => $landing],
+            'seoData'     => [
+                'seo_title'       => $page['title'],
+                'seo_description' => $page['description'],
+                'seo_keywords'    => $page['keywords'],
+                'og_type'         => 'website',
+            ],
         ]);
     }
 

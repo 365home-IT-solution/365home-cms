@@ -14,15 +14,53 @@ use Modules\Product\App\Models\Product;
  */
 class HomeInternalLinks
 {
-    private const CACHE_KEY = 'home-internal-links:v1';
+    private const CACHE_KEY = 'home-internal-links:v2';
+
+    // Bài viết về địa phương KHÁC Cần Thơ (trang chủ nhắm Cần Thơ) — nhận theo từ khoá trong tiêu đề,
+    // gom vào nhóm khu vực tương ứng thay vì nằm lẫn trong "Cẩm nang & tin tức".
+    private const POST_REGION_KEYWORDS = [
+        'Lâm Đồng' => '/đà lạt|lâm đồng|da lat|dalat/iu',
+    ];
     private const CACHE_TTL_MINUTES = 30;
 
     public static function get(): array
     {
-        return Cache::remember(self::CACHE_KEY, now()->addMinutes(self::CACHE_TTL_MINUTES), fn () => [
-            'posts' => self::posts(),
-            ...self::branchesAndAreas(),
-        ]);
+        return Cache::remember(self::CACHE_KEY, now()->addMinutes(self::CACHE_TTL_MINUTES), function () {
+            $posts = self::posts();
+            $regional = [];
+            $general = [];
+            foreach ($posts as $post) {
+                $region = collect(self::POST_REGION_KEYWORDS)->search(fn ($re) => preg_match($re, $post['title']) === 1);
+                if ($region !== false) {
+                    $regional[$region][] = $post;
+                } else {
+                    $general[] = $post;
+                }
+            }
+
+            $data = self::branchesAndAreas();
+            // Nhóm theo tỉnh, tỉnh nhiều phòng nhất đứng đầu (Cần Thơ) — trang chủ nhắm Cần Thơ, các
+            // tỉnh khác hiện thành khối riêng có tiêu đề rõ ràng thay vì lẫn trong cùng 1 danh sách.
+            $regions = [];
+            foreach ($data['branches'] as $b) {
+                $regions[$b['province']]['branches'][] = $b;
+                $regions[$b['province']]['rooms'] = ($regions[$b['province']]['rooms'] ?? 0) + $b['rooms'];
+            }
+            foreach ($data['areas'] as $a) {
+                $regions[$a['province']]['areas'][] = $a;
+            }
+            foreach ($regional as $province => $list) {
+                $key = collect(array_keys($regions))->first(fn ($k) => str_contains($k, $province)) ?? $province;
+                $regions[$key]['posts'] = array_slice($list, 0, 4);
+            }
+            uasort($regions, fn ($x, $y) => ($y['rooms'] ?? 0) <=> ($x['rooms'] ?? 0));
+
+            return [
+                'posts'    => array_slice($general, 0, 6),
+                'regions'  => $regions,
+                ...$data,
+            ];
+        });
     }
 
     private static function posts(): array
@@ -31,7 +69,7 @@ class HomeInternalLinks
             ->with('media')
             ->latest('published_at')
             ->latest('id')
-            ->limit(6)
+            ->limit(12)
             ->get(['id', 'title', 'slug', 'summary', 'published_at', 'created_at'])
             ->map(function (Post $post) {
                 $media = $post->getFirstMedia('Ảnh chính');
@@ -66,8 +104,9 @@ class HomeInternalLinks
 
                 $areaPath = '/' . $loc['type_url_slug'] . '/' . $loc['province_slug'];
                 $areas[$areaPath] ??= [
-                    'name' => $loc['type_name'] . ' ' . $loc['province_name'],
-                    'url'  => url($areaPath),
+                    'name'     => $loc['type_name'] . ' ' . $loc['province_name'],
+                    'url'      => url($areaPath),
+                    'province' => $loc['province_name'],
                 ];
 
                 $branchPath = $areaPath . '/' . $loc['branch_slug'];
@@ -75,6 +114,7 @@ class HomeInternalLinks
                     'name'     => trim((string) preg_replace('/\s+/u', ' ', $loc['branch_name'])),
                     'url'      => url($branchPath),
                     'area'     => $loc['type_name'] . ' · ' . $loc['province_name'],
+                    'province' => $loc['province_name'],
                     'rooms'    => 0,
                 ];
                 $branches[$branchPath]['rooms']++;

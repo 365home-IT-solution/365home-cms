@@ -29,7 +29,12 @@
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
 
-    <h1 class="sr-only">Tìm kiếm phòng</h1>
+    @if (!empty($landing))
+        {{-- Trang đích SEO (LandingPages): bộ lọc không nằm trên URL — search-results.js đọc từ đây. --}}
+        <script>window.__searchPreset = @json(['type' => $landing['type'], 'location' => $landing['location']]);</script>
+    @else
+        <h1 class="sr-only">Tìm kiếm phòng</h1>
+    @endif
 
     <link rel="stylesheet" href="{{ asset('css/search-page.min.css') }}?v={{ filemtime(public_path('css/search-page.min.css')) }}">
 
@@ -64,6 +69,12 @@
         <div id="rooms-left-panel" class="{{ $isBranchesView ? 'branches-peek' : '' }}">
             <div id="sheet-handle" class="md:hidden"></div>
             <div id="sheet-scroll">
+                @if (!empty($landing))
+                    <div class="px-4 md:px-0 pt-4 md:pt-[30px]">
+                        <h1 class="text-2xl font-bold text-gray-900">{{ $landing['h1'] }}</h1>
+                        <p class="mt-1 text-sm text-gray-600 leading-relaxed">{{ $landing['intro'] }}</p>
+                    </div>
+                @endif
                 <div id="search-results-mount">
                     <div class="mt-0 md:mt-[30px] search-count-header">
                         <p class="search-count-title" style="font-weight:500;color:#6b7280;">Đang tải kết quả...</p>
@@ -127,6 +138,9 @@
          từ khoá đóng dạng khối riêng) — xem chú thích tương tự trong flash-sale.blade.php, lý do
          là bộ nén Blade ghép nhầm directive mở với từ khoá đóng ĐẦU TIÊN tìm thấy trong TOÀN BỘ
          file (kể cả trong comment), có thể nuốt nhầm khối @php ở đầu file này (dòng 6). --}}
+    @if (!empty($landing))
+        <x-dynamic-component :component="'bladethemev1::landing.' . $landing['slug']" :room-count="$roomCount" />
+    @else
     @php($typeLabel = $typeNameDisplay ?: 'Phòng')
     @php($typeLower = $typeNameDisplay ? mb_strtolower($typeNameDisplay) : 'phòng')
     @php($locationLabel = $locationName ?: 'Cần Thơ')
@@ -171,6 +185,7 @@
             <x-bladethemev1::seo-content.faq-accordion :items="$searchFaqs" />
         </div>
     </section>
+    @endif
 
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
