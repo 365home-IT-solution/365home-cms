@@ -15,6 +15,10 @@ use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
 use App\Http\Controllers\Api\Admin\CccdDeclarationController as AdminCccdDeclarationController;
 use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
+use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
+use App\Http\Controllers\Api\Admin\CollectionAdminController;
+use App\Http\Controllers\Api\Admin\ReferralAdminController;
+use App\Http\Controllers\Api\Admin\GameTesterController;
 use App\Http\Controllers\Api\Admin\CustomerCompanionController as AdminCustomerCompanionController;
 use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
@@ -682,6 +686,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('
     // /preview đứng TRƯỚC /{order_code} — route param sẽ nuốt luôn chuỗi 'preview' làm order_code
     // nếu định nghĩa sau, do Laravel khớp theo thứ tự khai báo (xem docblock preview() ở BookingController).
     Route::post('/preview',               [AdminBookingController::class, 'preview'])->name('preview');
+    // Ẩn/hiện đơn ở trang khách /ticket-booking (không xoá đơn) — đứng TRƯỚC /{order_code} vì lý do như /preview.
+    Route::post('/lookup-visibility',     [OrderController::class, 'lookupVisibility'])->name('lookup-visibility');
     Route::get('/{order_code}',            [OrderController::class, 'show'])->name('show');
     Route::get('/{order_code}/cccds',      [OrderController::class, 'cccds'])->name('cccds');
     Route::post('/{order_code}/preview',   [OrderController::class, 'preview'])->name('order-preview');
@@ -1050,6 +1056,71 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/events')->name('
 |                                   sao cá nhân được cấp ra
 |--------------------------------------------------------------------------
 */
+/*
+|--------------------------------------------------------------------------
+| Mini game thẻ cào — cấu hình & thống kê (Super Admin), xem ScratchCardAdminController
+| GET|PUT /api/admin/games/scratch-card/settings · GET|POST|PUT|DELETE .../prizes · GET .../stats · GET .../winners (+ /export .xlsx)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/scratch-card')->name('api.admin.games.scratch-card.')->group(function () {
+    Route::get('settings', [ScratchCardAdminController::class, 'showSettings'])->name('settings.show');
+    Route::match(['put', 'patch'], 'settings', [ScratchCardAdminController::class, 'updateSettings'])->name('settings.update');
+    Route::get('prizes', [ScratchCardAdminController::class, 'prizes'])->name('prizes.index');
+    Route::post('prizes', [ScratchCardAdminController::class, 'storePrize'])->name('prizes.store');
+    Route::put('prizes/{id}', [ScratchCardAdminController::class, 'updatePrize'])->whereNumber('id')->name('prizes.update');
+    Route::delete('prizes/{id}', [ScratchCardAdminController::class, 'destroyPrize'])->whereNumber('id')->name('prizes.destroy');
+    Route::get('stats', [ScratchCardAdminController::class, 'stats'])->name('stats');
+    Route::get('winners', [ScratchCardAdminController::class, 'winners'])->name('winners');
+    Route::get('winners/export', [ScratchCardAdminController::class, 'exportWinners'])->name('winners.export');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Mini game sưu tầm mảnh ghép — chiến dịch (Super Admin), xem CollectionAdminController
+| GET|POST /api/admin/games/collections · GET|PUT|POST|DELETE .../{id} · PUT|POST .../{id}/pieces · GET .../{id}/stats
+| (POST ở {id} và {id}/pieces là bản multipart để gửi file ảnh — PHP không đọc được multipart của PUT)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/collections')->name('api.admin.games.collections.')->group(function () {
+    Route::get('/', [CollectionAdminController::class, 'index'])->name('index');
+    Route::post('/', [CollectionAdminController::class, 'store'])->name('store');
+    Route::get('{id}', [CollectionAdminController::class, 'show'])->whereNumber('id')->name('show');
+    Route::match(['put', 'post'], '{id}', [CollectionAdminController::class, 'update'])->whereNumber('id')->name('update');
+    Route::delete('{id}', [CollectionAdminController::class, 'destroy'])->whereNumber('id')->name('destroy');
+    Route::match(['put', 'post'], '{id}/pieces', [CollectionAdminController::class, 'syncPieces'])->whereNumber('id')->name('pieces');
+    Route::get('{id}/stats', [CollectionAdminController::class, 'stats'])->whereNumber('id')->name('stats');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Mini game giới thiệu bạn bè — cấu hình & soát gian lận (Super Admin), xem ReferralAdminController
+| GET|PUT /api/admin/games/referral/settings · GET .../referrals?status=&search= · POST .../referrals/{id}/invalidate
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/referral')->name('api.admin.games.referral.')->group(function () {
+    Route::get('settings', [ReferralAdminController::class, 'showSettings'])->name('settings.show');
+    Route::match(['put', 'patch'], 'settings', [ReferralAdminController::class, 'updateSettings'])->name('settings.update');
+    Route::get('referrals', [ReferralAdminController::class, 'index'])->name('referrals.index');
+    Route::post('referrals/{id}/invalidate', [ReferralAdminController::class, 'invalidate'])->whereNumber('id')->name('referrals.invalidate');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Công cụ thử mini game (trang /game-tester) — 404 nếu GAME_TESTER_ENABLED=false, chỉ Super Admin. Xem GameTesterController.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/dev')->name('api.admin.games.dev.')->group(function () {
+    Route::get('context', [GameTesterController::class, 'context'])->name('context');
+    Route::post('seed', [GameTesterController::class, 'seed'])->name('seed');
+    Route::post('reset', [GameTesterController::class, 'reset'])->name('reset');
+    Route::post('customers', [GameTesterController::class, 'createCustomer'])->name('customers.store');
+    Route::post('customers/{id}/token', [GameTesterController::class, 'customerToken'])->name('customers.token');
+    Route::get('customers/{id}/orders', [GameTesterController::class, 'customerOrders'])->name('customers.orders');
+    Route::post('orders', [GameTesterController::class, 'createOrder'])->name('orders.store');
+    Route::post('orders/{id}/complete', [GameTesterController::class, 'completeOrder'])->whereNumber('id')->name('orders.complete');
+    Route::post('orders/{id}/refund', [GameTesterController::class, 'refundOrder'])->whereNumber('id')->name('orders.refund');
+});
+
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name('api.admin.coupons.')->group(function () {
     Route::get('/', [AdminCouponController::class, 'index'])->name('index');
     Route::get('/{id}', [AdminCouponController::class, 'show'])->name('show');

@@ -1,6 +1,16 @@
-<div x-data="{ searched: false }">
+<div
+    x-data
+    x-init="
+        $nextTick(() => $wire.loadMyOrders(localStorage.getItem('auth_token') || ''));
+        window.addEventListener('auth-state-changed', () => $wire.loadMyOrders(localStorage.getItem('auth_token') || ''));
+        window.addEventListener('auth-force-logout', () => {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_user');
+            window.dispatchEvent(new CustomEvent('auth-state-changed'));
+        });
+    ">
     <div class="w-full max-w-11xl mx-auto px-4 sm:px-6">
-    <!-- Search Section -->
+    <!-- Tiêu đề -->
     <div class="w-full text-center space-y-8 fade-in-up" style="animation-delay: 0.1s;">
         <div class="space-y-3">
             <div
@@ -12,57 +22,30 @@
                 Tra cứu đơn đặt phòng
             </h1>
             <p class="text-lg text-gray-500 font-normal max-w-xl mx-auto leading-relaxed">
-                Nhập số điện thoại bạn đã sử dụng khi đặt phòng để xem chi tiết booking, mã check-in và trạng thái
-                thanh toán.
+                Đăng nhập để xem chi tiết booking, mã check-in và trạng thái thanh toán của các đơn bạn đã đặt.
             </p>
         </div>
 
-        <!-- Search Form -->
-        <div class="max-w-md mx-auto mt-5 relative group">
-            <div
-                class="absolute -inset-0.5 bg-gradient-to-r from-gray-200 to-gray-300 rounded-2xl blur opacity-30 group-hover:opacity-60 transition duration-500">
-            </div>
-            {{-- flex-col trên mobile (input và nút xếp dọc, nút rộng hết cỡ — tránh bị tràn/cắt chữ
-                 như thiết kế cũ), quay lại 1 hàng ngang từ sm trở lên. box-shadow inset tạo cảm
-                 giác ô nhập liệu hơi lõm vào, tách biệt rõ với nút bấm nổi lên phía trên nó. --}}
-            <form wire:submit.prevent="getBooking" @submit="searched = true"
-                class="relative bg-white rounded-2xl border border-gray-200 p-2 flex flex-col sm:flex-row gap-2 transition-shadow focus-within:ring-1 focus-within:ring-gray-200"
-                style="box-shadow: inset 0 2px 5px rgba(0,0,0,.05), inset 0 0 0 1px rgba(0,0,0,.02);">
-                <div class="flex items-center flex-1 min-w-0 rounded-xl">
-                    <div class="pl-3 text-gray-400 flex items-center justify-center shrink-0">
-                        <iconify-icon icon="lucide:smartphone" width="20" stroke-width="1.5"></iconify-icon>
-                    </div>
-                    <input
-                        id="phone_number"
-                        wire:model.live="sdt"
-                        @input="searched = $event.target.value.trim() !== '' ? searched : false"
-                        type="text"
-                        placeholder="Nhập số điện thoại"
-                        class="w-full min-w-0 bg-transparent border-none focus:ring-0 text-gray-900 placeholder-gray-400 text-base py-2.5 px-3 outline-none"
-                        required>
-                </div>
-                <button
-                    type="submit"
-                    wire:loading.attr="disabled"
-                    class="w-full sm:w-auto shrink-0 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                        <i wire:loading.remove class="fa fa-search"></i>
-                        <span>Tra cứu</span>
-                    </span>
-
-                    <span wire:loading wire:target="getBooking" class="flex items-center gap-2">
-                        <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                        </svg>
-                    </span>
-                </button>
-            </form>
+        {{-- Chưa đăng nhập: bắt buộc đăng nhập mới xem được đơn --}}
+        @if($isLoading)
+        <div class="flex items-center justify-center gap-3 py-6 text-gray-500">
+            <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span>Đang tải...</span>
         </div>
-        @error('sdt')
-        <span class="text-red-600 text-sm mb-5">{{ $message }}</span>
-        @enderror
-
+        @elseif(! $isLoggedIn)
+        <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-6 text-center space-y-4 shadow-sm">
+            <p class="text-gray-700 font-medium">Bạn cần đăng nhập để tra cứu đơn đặt phòng.</p>
+            <button type="button"
+                @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))"
+                class="inline-flex items-center justify-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm hover:shadow">
+                <i class="fa fa-sign-in"></i>
+                <span>Đăng nhập</span>
+            </button>
+        </div>
+        @else
         <div class="flex items-center mt-3 justify-center gap-6 text-xs text-gray-400">
             <span class="flex items-center gap-1">
                 <i class="fa fa-check-circle"></i>
@@ -73,9 +56,11 @@
                 Kết quả tức thì
             </span>
         </div>
+        @endif
     </div>
 
 
+    @if($isLoggedIn)
     <div class="w-full min-h-[500px] pt-8">
 
             {{-- FORM SEARCH --}}
@@ -83,7 +68,7 @@
             {{-- RESULT --}}
             <div id="result" class="pt-12 pb-5 relative">
                 {{-- Loading overlay shown while searching --}}
-                <div wire:loading wire:target="getBooking"
+                <div wire:loading wire:target="loadMyOrders"
                     class="absolute inset-0 bg-white/70 flex items-center justify-center rounded-xl z-10">
                     <div class="flex items-center justify-center gap-3">
                         <svg class="animate-spin h-6 w-6 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -440,17 +425,18 @@
                 @endforeach
                 </div>
                 </div>
-                @elseif($sdt)
-                <div x-show="searched" x-cloak class="mt-6 text-gray-500 text-center flex flex-col items-center">
+                @else
+                <div class="mt-6 text-gray-500 text-center flex flex-col items-center">
                     <svg class="w-12 h-12 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
                         </path>
                     </svg>
-                    <p>Không tìm thấy đơn đặt phòng nào đã thanh toán với số điện thoại này.</p>
+                    <p>Bạn chưa có đơn đặt phòng nào đã thanh toán hoặc đã cọc.</p>
                 </div>
                 @endif
             </div>
         </div>
     </div>
+    @endif
 </div>

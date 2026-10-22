@@ -42,6 +42,7 @@ class Coupon extends Model
         'customer_id',
         'validity_days',
         'template_coupon_id',
+        'source',
         'auto_issue_tier_id',
         'funded_by',
         'partner_share_pct',

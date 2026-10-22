@@ -298,6 +298,11 @@ class OrderTable
             ->filters(
                 [
                     ...OrderFilter::filter(),
+                    \Filament\Tables\Filters\TernaryFilter::make('hidden_from_lookup')
+                        ->label('Trang tra cứu đơn (khách)')
+                        ->placeholder('Tất cả')
+                        ->trueLabel('Đã ẩn khỏi tra cứu')
+                        ->falseLabel('Đang hiện ở tra cứu'),
                     PartnerTableHelpers::filter(),
                 ],
                 layout: FiltersLayout::AboveContent

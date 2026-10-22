@@ -31,6 +31,12 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Thẻ cào: quét bù thẻ cho đơn đã trả phòng + đánh dấu thẻ quá hạn cào.
+        $schedule->command('scratch-cards:sync')
+            ->hourly()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
         // Hợp đồng mẫu Điều 7: tự động gia hạn hợp đồng đến hạn (không bên nào thông báo chấm dứt) và nhắc trước 7 ngày.
         $schedule->command('partners:renew-contracts')
             ->dailyAt('00:30')

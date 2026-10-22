@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thử mini game 365home</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #1f2933; --muted: #6b7785; --line: #e1e5ea;
+  --accent: #0f766e; --accent-ink: #ffffff; --accent-soft: #d9f0ed; --warn: #b45309; --warn-soft: #fef3c7;
+  --bad: #b91c1c; --bad-soft: #fee2e2; --good: #15803d; --good-soft: #dcfce7; --code-bg: #f1f3f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181d; --panel: #1c2229; --ink: #e6e9ed; --muted: #97a2af; --line: #2c343d;
+    --accent: #2dd4bf; --accent-ink: #062b27; --accent-soft: #123d39; --warn: #fbbf24; --warn-soft: #3a2f10;
+    --bad: #f87171; --bad-soft: #3b1717; --good: #4ade80; --good-soft: #123320; --code-bg: #12161b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header.top { position: sticky; top: 0; z-index: 20; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+header.top h1 { font-size: 16px; margin: 0 8px 0 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--code-bg); font-size: 12px; color: var(--muted); }
+.chip b { color: var(--ink); font-weight: 600; }
+.chip.ok { background: var(--good-soft); color: var(--good); } .chip.ok b { color: var(--good); }
+.chip.off { background: var(--warn-soft); color: var(--warn); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+nav.tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+nav.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.card h2 { font-size: 14px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card h3 { font-size: 13px; margin: 14px 0 8px; color: var(--muted); font-weight: 600; }
+.note { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+label.f.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--ink); }
+input, select, textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+input[type="checkbox"] { width: auto; }
+input[type="file"] { padding: 4px; }
+button.b { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+button.b.ghost { background: transparent; color: var(--accent); }
+button.b.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+button.b.sm { padding: 3px 8px; font-size: 12px; }
+button.b:disabled { opacity: .5; cursor: not-allowed; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; background: var(--code-bg); color: var(--muted); }
+.badge.available, .badge.ready, .badge.rewarded { background: var(--good-soft); color: var(--good); }
+.badge.scratched, .badge.in_progress, .badge.joined, .badge.booked { background: var(--accent-soft); color: var(--accent); }
+.badge.expired, .badge.ended { background: var(--warn-soft); color: var(--warn); }
+.badge.voided, .badge.invalid { background: var(--bad-soft); color: var(--bad); }
+.badge.redeemed { background: var(--accent); color: var(--accent-ink); }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.hidden { display: none !important; }
+
+/* Thẻ cào */
+.scratch { position: relative; width: 280px; height: 150px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--code-bg); user-select: none; }
+.scratch .under { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; padding: 10px; }
+.scratch .under .lbl { font-weight: 700; font-size: 16px; }
+.scratch .under .tier { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.scratch .under.rare .tier { background: #dbeafe; color: #1d4ed8; }
+.scratch .under.jackpot { background: linear-gradient(135deg, #fde68a, #fbbf24); color: #422006; }
+.scratch .under.jackpot .tier { background: #422006; color: #fde68a; }
+.scratch canvas { position: absolute; inset: 0; cursor: crosshair; touch-action: none; transition: opacity .5s; }
+.scratch canvas.done { opacity: 0; pointer-events: none; }
+.cardwrap { display: flex; flex-direction: column; gap: 6px; }
+.confetti { position: fixed; top: -10px; width: 8px; height: 14px; z-index: 50; pointer-events: none; animation: fall 1.8s ease-in forwards; }
+@keyframes fall { to { transform: translateY(105vh) rotate(720deg); opacity: .8; } }
+
+/* Mảnh ghép */
+.camp { overflow: hidden; padding: 0; }
+.camp .cover { width: 100%; height: 150px; object-fit: cover; display: block; background: var(--code-bg); }
+.camp .body { padding: 14px 16px; }
+.bar { height: 8px; border-radius: 999px; background: var(--code-bg); overflow: hidden; margin: 6px 0 12px; }
+.bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.pieces { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.piece { border: 1px solid var(--line); border-radius: 10px; padding: 6px; text-align: center; font-size: 12px; }
+.piece img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; background: var(--code-bg); }
+.piece.locked img { filter: grayscale(1) brightness(.85); opacity: .55; }
+.piece .nm { margin: 5px 0 2px; font-weight: 600; }
+
+/* Giới thiệu */
+.refcode { font: 700 30px/1 ui-monospace, Consolas, monospace; letter-spacing: .12em; color: var(--accent); background: var(--accent-soft); padding: 12px 18px; border-radius: 10px; display: inline-block; }
+.steps { margin: 0; padding-left: 18px; }
+.steps li { margin: 2px 0; }
+.steps li.ok { color: var(--good); } .steps li.err { color: var(--bad); }
+
+/* Nhật ký */
+aside.log { position: sticky; top: 62px; align-self: start; max-height: calc(100vh - 80px); overflow: auto; }
+aside.log .entry { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: var(--panel); }
+aside.log summary { cursor: pointer; padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+aside.log summary .st { margin-left: auto; font-weight: 600; }
+aside.log .st.ok { color: var(--good); } aside.log .st.bad { color: var(--bad); }
+aside.log pre { margin: 0; padding: 8px 10px; background: var(--code-bg); font-size: 11.5px; overflow: auto; max-height: 260px; border-top: 1px solid var(--line); }
+#toast { position: fixed; left: 16px; bottom: 16px; z-index: 60; display: flex; flex-direction: column; gap: 6px; }
+#toast div { background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; max-width: 420px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+#toast div.bad { background: var(--bad); color: #fff; }
+.empty { color: var(--muted); padding: 12px 0; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Thử mini game 365home</h1>
+  <span class="chip" id="chipAdmin">Admin: <b>chưa đăng nhập</b></span>
+  <span class="chip" id="chipCustomer">Khách: <b>chưa chọn</b></span>
+  <span class="chip">Domain: <b id="origin"></b></span>
+</header>
+
+<div class="layout">
+<main>
+  <nav class="tabs" id="tabs">
+    <button data-tab="setup" aria-selected="true">1. Thiết lập &amp; mô phỏng đơn</button>
+    <button data-tab="scratch">2. Thẻ cào</button>
+    <button data-tab="collection">3. Mảnh ghép</button>
+    <button data-tab="referral">4. Giới thiệu bạn bè</button>
+    <button data-tab="wallet">5. Ví voucher</button>
+  </nav>
+
+  <!-- ============ THIẾT LẬP ============ -->
+  <section data-pane="setup">
+    <div class="card">
+      <h2>Đăng nhập Super Admin</h2>
+      <p class="note">Công cụ này gọi đúng các API thật. Cần tài khoản Super Admin; token chỉ lưu trong trình duyệt này.</p>
+      <div class="row">
+        <label class="f">Email<input id="admEmail" type="email" style="width:240px" value="support@goldenbeeltd.vn"></label>
+        <label class="f">Mật khẩu<input id="admPass" type="password" style="width:200px"></label>
+        <button class="b" id="btnAdminLogin">Đăng nhập</button>
+        <button class="b ghost" id="btnAdminLogout">Thoát</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Dữ liệu mẫu</h2>
+      <p class="note">“Nạp dữ liệu mẫu” tạo bộ giải thẻ cào (có giải dự phòng), bật cả 3 trò và tạo 1 chiến dịch mảnh ghép kèm ảnh. “Dọn demo” xoá khách [DEMO] cùng thẻ, mảnh, giới thiệu, voucher và đơn của họ.</p>
+      <div class="row">
+        <button class="b" id="btnSeed">Nạp dữ liệu mẫu</button>
+        <button class="b danger" id="btnReset">Dọn dữ liệu demo</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Khách demo</h2>
+      <div class="row">
+        <label class="f">Tên khách mới<input id="newCustName" placeholder="vd. An" style="width:180px"></label>
+        <button class="b" id="btnNewCustomer">Tạo khách demo</button>
+      </div>
+      <div id="customerList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Mô phỏng đơn đặt phòng cho khách đang chọn</h2>
+      <p class="note">Đơn đi qua đúng hook thật khi trả phòng: sinh thẻ cào, nhận mảnh ghép, thưởng giới thiệu. “Đã đặt cọc” là đơn chưa trả đủ nên chưa được thưởng. Mỗi lần cập nhật đơn có thể mất vài giây nếu máy chủ realtime không chạy.</p>
+      <div class="row">
+        <label class="f">Chi nhánh<select id="ordBranch" style="width:220px"></select></label>
+        <label class="f">Phòng (dùng để thử đánh giá ảnh)<select id="ordRoom" style="width:220px"></select></label>
+        <label class="f">Thanh toán<select id="ordStatus"><option value="paid">Đã trả đủ</option><option value="deposit">Đã đặt cọc</option></select></label>
+        <label class="f inline"><input type="checkbox" id="ordComplete" checked> Trả phòng ngay</label>
+        <button class="b" id="btnOrder">Tạo đơn</button>
+      </div>
+      <div id="orderList"></div>
+    </div>
+  </section>
+
+  <!-- ============ THẺ CÀO ============ -->
+  <section data-pane="scratch" class="hidden">
+    <div class="card">
+      <h2>Thẻ cào của khách <span><button class="b ghost sm" id="btnReloadCards">Tải lại</button></span></h2>
+      <p class="note">Dùng chuột (hoặc ngón tay) cào lớp bạc. Giải do máy chủ bốc ngay khi bạn bắt đầu cào; app chỉ chạy hiệu ứng. Nút “Cào lại” gọi lại API để kiểm tra kết quả giữ nguyên (<span class="mono">already_claimed</span>).</p>
+      <div class="row">
+        <label class="f">Lọc<select id="cardFilter"><option value="">Tất cả</option><option value="available">Chưa cào</option><option value="scratched">Đã cào</option><option value="expired">Hết hạn</option><option value="voided">Thu hồi</option></select></label>
+        <span class="chip">Chưa cào: <b id="cardAvail">0</b></span>
+      </div>
+      <div id="cardGrid" class="grid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Thưởng đánh giá kèm ảnh (+1 thẻ)</h2>
+      <p class="note">Đánh giá phòng của đơn đã có thẻ, kèm ít nhất 1 ảnh, sẽ được thêm 1 thẻ (mỗi đơn một lần). Chọn đúng phòng đã dùng khi tạo đơn.</p>
+      <div class="row">
+        <label class="f">Phòng<select id="rateRoom" style="width:220px"></select></label>
+        <label class="f">Sao<select id="rateStar"><option>5</option><option>4</option><option>3</option></select></label>
+        <label class="f">Ảnh (png/jpg/webp)<input type="file" id="rateImg" accept="image/*" multiple></label>
+        <button class="b" id="btnRate">Gửi đánh giá</button>
+      </div>
+      <div id="ratePreview" class="row"></div>
+    </div>
+
+    <details class="card" id="scratchAdmin">
+      <summary><b>Quản trị thẻ cào (Super Admin)</b></summary>
+      <h3>Cấu hình</h3>
+      <div class="row">
+        <label class="f inline"><input type="checkbox" id="scEnabled"> Bật thẻ cào</label>
+        <label class="f">Hạn cào (ngày)<input type="number" id="scExpire" min="1" style="width:90px"></label>
+        <label class="f">Ngày ở tối thiểu<input type="number" id="scMinStay" min="0" style="width:90px"></label>
+        <label class="f">Tiền đơn tối thiểu<input type="number" id="scMinAmount" min="0" style="width:120px"></label>
+        <label class="f inline"><input type="checkbox" id="scRating"> Thưởng đánh giá ảnh</label>
+        <button class="b" id="btnScSave">Lưu cấu hình</button>
+      </div>
+      <h3>Bộ giải</h3>
+      <div id="prizeTable"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="f">Tên giải<input id="pzLabel" style="width:190px"></label>
+        <label class="f">Loại<select id="pzType"><option value="coupon">Voucher</option><option value="none">Chúc may mắn</option></select></label>
+        <label class="f">Hạng<select id="pzTier"><option>normal</option><option>rare</option><option>jackpot</option></select></label>
+        <label class="f">Kiểu giảm<select id="pzCType"><option value="fixed">Số tiền</option><option value="percentage">Phần trăm</option></select></label>
+        <label class="f">Giá trị<input id="pzValue" type="number" style="width:100px"></label>
+        <label class="f">Giảm tối đa<input id="pzMax" type="number" style="width:100px"></label>
+        <label class="f">Trọng số<input id="pzWeight" type="number" value="10" style="width:80px"></label>
+        <label class="f">Giới hạn/ngày<input id="pzDaily" type="number" style="width:80px"></label>
+        <label class="f">Giới hạn tổng<input id="pzTotal" type="number" style="width:80px"></label>
+        <label class="f inline"><input type="checkbox" id="pzFallback"> Giải dự phòng</label>
+        <button class="b" id="btnPrizeAdd">Thêm giải</button>
+      </div>
+      <h3>Thống kê &amp; lịch sử trúng thưởng</h3>
+      <div class="row"><button class="b ghost" id="btnScStats">Xem thống kê 30 ngày</button><button class="b ghost" id="btnScWinners">Danh sách trúng thưởng</button><button class="b ghost" id="btnScExport">Tải .xlsx</button></div>
+      <div id="scStats"></div>
+    </details>
+  </section>
+
+  <!-- ============ MẢNH GHÉP ============ -->
+  <section data-pane="collection" class="hidden">
+    <div class="card">
+      <h2>Chiến dịch sưu tầm <span><button class="b ghost sm" id="btnReloadCamps">Tải lại</button></span></h2>
+      <p class="note">Mỗi đơn trả phòng ở một chi nhánh = 1 mảnh (không trùng chi nhánh). Bấm “Giả lập đơn ở đây” ở mảnh chưa có để thử ngay. Danh sách này xem được cả khi chưa đăng nhập.</p>
+      <div class="row"><label class="f inline"><input type="checkbox" id="campGuest"> Xem như khách chưa đăng nhập</label></div>
+      <div id="campList"></div>
+    </div>
+
+    <details class="card" id="campAdmin">
+      <summary><b>Quản trị chiến dịch &amp; ảnh mảnh (Super Admin)</b></summary>
+      <h3>Tạo chiến dịch mới</h3>
+      <div class="row">
+        <label class="f">Tên<input id="cmName" style="width:200px"></label>
+        <label class="f">Mô tả<input id="cmDesc" style="width:240px"></label>
+        <label class="f">Ảnh bìa<input type="file" id="cmCover" accept="image/*"></label>
+      </div>
+      <div class="row">
+        <label class="f">Bắt đầu<input type="datetime-local" id="cmStart"></label>
+        <label class="f">Kết thúc<input type="datetime-local" id="cmEnd"></label>
+        <label class="f">Hạn đổi thưởng<input type="datetime-local" id="cmRedeem"></label>
+        <label class="f">Số mảnh cần đủ<input type="number" id="cmReq" value="2" min="1" style="width:90px"></label>
+      </div>
+      <div class="row">
+        <label class="f">Tên phần thưởng<input id="cmReward" value="Voucher 200.000đ" style="width:200px"></label>
+        <label class="f">Kiểu giảm<select id="cmCType"><option value="fixed">Số tiền</option><option value="percentage">Phần trăm</option></select></label>
+        <label class="f">Giá trị<input type="number" id="cmValue" value="200000" style="width:110px"></label>
+        <button class="b" id="btnCampCreate">Tạo chiến dịch</button>
+      </div>
+      <h3>Chi nhánh tham gia &amp; ảnh mảnh</h3>
+      <div class="row">
+        <label class="f">Chiến dịch<select id="pcCamp" style="width:260px"></select></label>
+        <button class="b ghost" id="btnPcLoad">Nạp danh sách</button>
+      </div>
+      <div id="pcEditor"></div>
+      <h3>Thống kê</h3>
+      <div class="row"><button class="b ghost" id="btnCampStats">Xem thống kê chiến dịch đã chọn</button></div>
+      <div id="campStats"></div>
+    </details>
+  </section>
+
+  <!-- ============ GIỚI THIỆU ============ -->
+  <section data-pane="referral" class="hidden">
+    <div class="card">
+      <h2>Chạy thử cả luồng giới thiệu <span class="note" style="margin:0">khách đang chọn = người giới thiệu</span></h2>
+      <p class="note">Tự động: tạo bạn mới → bạn nhập mã của khách đang chọn → bạn đặt và trả phòng đơn đầu → người giới thiệu nhận thẻ cào. Chọn chi nhánh ở tab 1.</p>
+      <div class="row"><button class="b" id="btnRefFlow">Chạy luồng mẫu</button></div>
+      <ol class="steps" id="refSteps"></ol>
+    </div>
+
+    <div class="card">
+      <h2>Mã giới thiệu của tôi <span><button class="b ghost sm" id="btnReloadRef">Tải lại</button></span></h2>
+      <div id="refMe"></div>
+    </div>
+
+    <div class="card">
+      <h2>Nhập mã giới thiệu (khách đang chọn là bạn mới)</h2>
+      <div class="row">
+        <label class="f">Mã<input id="refCode" style="width:140px;text-transform:uppercase" maxlength="12"></label>
+        <label class="f">Mã thiết bị<input id="refDevice" style="width:180px"></label>
+        <button class="b" id="btnRefApply">Nhập mã</button>
+      </div>
+      <div id="refApplyResult"></div>
+    </div>
+
+    <details class="card" id="refAdmin">
+      <summary><b>Quản trị giới thiệu (Super Admin)</b></summary>
+      <h3>Cấu hình</h3>
+      <div class="row">
+        <label class="f inline"><input type="checkbox" id="rfEnabled"> Bật giới thiệu</label>
+        <label class="f">Kiểu giảm<select id="rfCType"><option value="fixed">Số tiền</option><option value="percentage">Phần trăm</option></select></label>
+        <label class="f">Giá trị voucher chào mừng<input type="number" id="rfValue" style="width:120px"></label>
+        <label class="f">Hạn voucher (ngày)<input type="number" id="rfValidity" style="width:90px"></label>
+        <label class="f">Tối đa/tháng<input type="number" id="rfMonthly" style="width:90px"></label>
+        <label class="f">Ngày được nhập mã<input type="number" id="rfApplyDays" style="width:90px"></label>
+        <button class="b" id="btnRfSave">Lưu cấu hình</button>
+      </div>
+      <h3>Danh sách cặp giới thiệu</h3>
+      <div class="row"><label class="f">Trạng thái<select id="rfStatus"><option value="">Tất cả</option><option>joined</option><option>rewarded</option><option>invalid</option></select></label><button class="b ghost" id="btnRfList">Tải danh sách</button></div>
+      <div id="rfTable"></div>
+    </details>
+  </section>
+
+  <!-- ============ VÍ VOUCHER ============ -->
+  <section data-pane="wallet" class="hidden">
+    <div class="card">
+      <h2>Ví voucher của khách đang chọn <span><button class="b ghost sm" id="btnReloadWallet">Tải lại</button></span></h2>
+      <p class="note">Từ <span class="mono">GET /api/coupons/mine</span>. Voucher từ game có nhãn nguồn để app dán nhãn “Từ thẻ cào”, “Quà giới thiệu”…</p>
+      <div id="walletList"></div>
+    </div>
+  </section>
+</main>
+
+<aside class="log">
+  <div class="card" style="margin-bottom:8px">
+    <h2>Nhật ký API <span><button class="b ghost sm" id="btnClearLog">Xoá</button></span></h2>
+    <p class="note" style="margin:0">Mỗi lời gọi API (yêu cầu + phản hồi) hiện ở đây — bấm vào để xem JSON.</p>
+  </div>
+  <div id="logList"></div>
+</aside>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ---------- tiện ích ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = v => v == null ? '' : new Intl.NumberFormat('vi-VN').format(Number(v)) + 'đ';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('gt:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('gt:' + k, JSON.stringify(v)); } catch {} },
+};
+// Ảnh upload nằm ở /storage/... — dù APP_URL khác domain đang mở trang, vẫn tải từ domain hiện tại
+const img = url => { if (!url) return ''; const i = url.indexOf('/storage/'); return i >= 0 ? location.origin + url.slice(i) : url; };
+const dt = local => local ? local.replace('T', ' ') + ':00' : '';
+const localNow = (addDays = 0) => { const d = new Date(Date.now() + addDays * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+function toast(msg, bad = false) {
+  const el = document.createElement('div'); el.textContent = msg; if (bad) el.className = 'bad';
+  $('#toast').appendChild(el); setTimeout(() => el.remove(), bad ? 6000 : 3000);
+}
+
+/* ---------- trạng thái ---------- */
+const S = {
+  adminToken: store.get('adminToken', ''),
+  tokens: store.get('tokens', {}),         // customerId -> token
+  customers: [], customer: store.get('customer', null),
+  branches: [], rooms: [], campaigns: [], pcCampaign: null,
+};
+
+/* ---------- gọi API + nhật ký ---------- */
+async function api(method, path, { json, form, as = 'customer' } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (as === 'admin' && S.adminToken) headers.Authorization = 'Bearer ' + S.adminToken;
+  if (as === 'customer' && S.customer && S.tokens[S.customer.id]) headers.Authorization = 'Bearer ' + S.tokens[S.customer.id];
+  let body;
+  if (form) body = form; else if (json !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
+  const t0 = performance.now();
+  let res, data, text;
+  try { res = await fetch(path, { method, headers, body }); text = await res.text(); } catch (e) { logEntry(method, path, 0, { error: String(e) }, json || form, 0); throw e; }
+  try { data = JSON.parse(text); } catch { data = text; }
+  logEntry(method, path, res.status, data, json || form, Math.round(performance.now() - t0));
+  return { ok: res.ok, status: res.status, data };
+}
+function logEntry(method, path, status, data, req, ms) {
+  const ok = status >= 200 && status < 300;
+  let reqTxt = '';
+  if (req instanceof FormData) reqTxt = [...req.entries()].map(([k, v]) => `${k}: ${v instanceof File ? '[file ' + v.name + ' ' + v.size + 'B]' : v}`).join('\n');
+  else if (req !== undefined) reqTxt = JSON.stringify(req, null, 2);
+  const d = document.createElement('details'); d.className = 'entry';
+  d.innerHTML = `<summary><b>${esc(method)}</b><span class="mono">${esc(path.replace(location.origin, ''))}</span><span class="st ${ok ? 'ok' : 'bad'}">${status} · ${ms}ms</span></summary>` +
+    `<pre>${reqTxt ? '→ ' + esc(reqTxt) + '\n\n' : ''}← ${esc(typeof data === 'string' ? data.slice(0, 1500) : JSON.stringify(data, null, 2))}</pre>`;
+  $('#logList').prepend(d);
+  while ($('#logList').children.length > 40) $('#logList').lastChild.remove();
+}
+function errMsg(r) {
+  const d = r.data;
+  if (d && typeof d === 'object') return d.errors ? Object.values(d.errors).flat().join(' ') : (d.message || 'Lỗi ' + r.status);
+  return 'Lỗi ' + r.status;
+}
+// Gọi + báo lỗi gọn; trả về r.data hoặc null
+async function call(method, path, opts, okMsg) {
+  const r = await api(method, path, opts).catch(() => null);
+  if (!r) { toast('Không kết nối được máy chủ', true); return null; }
+  if (!r.ok) { toast(errMsg(r), true); return null; }
+  if (okMsg) toast(okMsg);
+  return r.data;
+}
+const needCustomer = () => { if (!S.customer) { toast('Hãy chọn / tạo một khách demo ở tab 1', true); return false; } return true; };
+const needAdmin = () => { if (!S.adminToken) { toast('Hãy đăng nhập Super Admin ở tab 1', true); return false; } return true; };
+
+/* ---------- header + tabs ---------- */
+function renderChips() {
+  const a = $('#chipAdmin'); a.className = 'chip ' + (S.adminToken ? 'ok' : 'off'); a.innerHTML = 'Admin: <b>' + (S.adminToken ? 'đã đăng nhập' : 'chưa đăng nhập') + '</b>';
+  const c = $('#chipCustomer'); c.className = 'chip ' + (S.customer ? 'ok' : 'off'); c.innerHTML = 'Khách: <b>' + esc(S.customer ? S.customer.fullname : 'chưa chọn') + '</b>';
+}
+function showTab(name) {
+  $$('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === name));
+  $$('[data-pane]').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== name));
+  store.set('tab', name);
+  ({ scratch: loadCards, collection: loadCamps, referral: loadRef, wallet: loadWallet, setup: loadOrders })[name]?.();
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
+
+/* ============ 1. THIẾT LẬP ============ */
+$('#btnAdminLogin').onclick = async () => {
+  const d = await call('POST', '/api/admin/login', { json: { email: $('#admEmail').value, password: $('#admPass').value }, as: 'none' }, 'Đăng nhập thành công');
+  if (d?.token) { S.adminToken = d.token; store.set('adminToken', d.token); renderChips(); loadContext(); }
+};
+$('#btnAdminLogout').onclick = () => { S.adminToken = ''; store.set('adminToken', ''); renderChips(); };
+
+async function loadContext() {
+  if (!S.adminToken) return;
+  const r = await api('GET', '/api/admin/games/dev/context', { as: 'admin' });
+  if (r.status === 404) { toast('Công cụ thử đang tắt (GAME_TESTER_ENABLED=false)', true); return; }
+  if (!r.ok) { toast(errMsg(r), true); if (r.status === 401) { S.adminToken = ''; store.set('adminToken', ''); renderChips(); } return; }
+  S.branches = r.data.branches; S.rooms = r.data.rooms; S.customers = r.data.customers;
+  const bOpts = S.branches.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  const rOpts = S.rooms.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+  $('#ordBranch').innerHTML = bOpts; $('#ordRoom').innerHTML = rOpts; $('#rateRoom').innerHTML = rOpts;
+  if (S.customer && !S.customers.some(c => c.id === S.customer.id)) { S.customer = null; store.set('customer', null); }
+  renderChips(); renderCustomers();
+}
+function renderCustomers() {
+  $('#customerList').innerHTML = S.customers.length ? `<table><tr><th>Tên</th><th>SĐT</th><th></th></tr>${S.customers.map(c =>
+    `<tr><td>${esc(c.fullname)}${S.customer?.id === c.id ? ' <span class="badge ready">đang chọn</span>' : ''}</td><td class="mono">${esc(c.phone)}</td>` +
+    `<td><button class="b sm" data-pick="${c.id}">Chọn</button></td></tr>`).join('')}</table>` : '<div class="empty">Chưa có khách demo — tạo ở trên.</div>';
+}
+async function pickCustomer(id) {
+  const c = S.customers.find(x => x.id === id); if (!c) return;
+  if (!S.tokens[id]) {
+    const d = await call('POST', `/api/admin/games/dev/customers/${id}/token`, { as: 'admin' }); if (!d) return;
+    S.tokens[id] = d.token; store.set('tokens', S.tokens);
+  }
+  S.customer = c; store.set('customer', c); renderChips(); renderCustomers(); loadOrders();
+  const tab = store.get('tab', 'setup'); if (tab !== 'setup') showTab(tab);
+}
+$('#customerList').addEventListener('click', e => { const b = e.target.closest('[data-pick]'); if (b) pickCustomer(b.dataset.pick); });
+$('#btnNewCustomer').onclick = async () => {
+  if (!needAdmin()) return;
+  const d = await call('POST', '/api/admin/games/dev/customers', { json: { name: $('#newCustName').value }, as: 'admin' }, 'Đã tạo khách demo'); if (!d) return;
+  S.tokens[d.customer.id] = d.token; store.set('tokens', S.tokens); $('#newCustName').value = '';
+  await loadContext(); pickCustomer(d.customer.id);
+};
+$('#btnSeed').onclick = async () => { if (needAdmin() && await call('POST', '/api/admin/games/dev/seed', { as: 'admin' }, 'Đã nạp dữ liệu mẫu')) { loadScratchAdmin(); loadRfAdmin(); } };
+$('#btnReset').onclick = async () => {
+  if (!needAdmin() || !confirm('Xoá toàn bộ khách [DEMO] và dữ liệu game của họ?')) return;
+  if (await call('POST', '/api/admin/games/dev/reset', { as: 'admin' }, 'Đã dọn dữ liệu demo')) { S.customer = null; store.set('customer', null); S.tokens = {}; store.set('tokens', {}); await loadContext(); $('#orderList').innerHTML = ''; }
+};
+
+async function createOrder(branchId, { status = 'paid', complete = true } = {}) {
+  if (!needAdmin() || !needCustomer()) return null;
+  const d = await call('POST', '/api/admin/games/dev/orders', { json: { customer_id: S.customer.id, branch_id: Number(branchId), room_id: $('#ordRoom').value || null, status, complete }, as: 'admin' });
+  if (d) toast(`Đơn ${d.data.order_code}: ${d.data.status === 'paid' ? 'đã trả đủ' : 'đặt cọc'}, ${d.data.order_status === 'checked_out' ? 'đã trả phòng' : 'chưa trả phòng'}`);
+  return d?.data ?? null;
+}
+$('#btnOrder').onclick = async () => { if (await createOrder($('#ordBranch').value, { status: $('#ordStatus').value, complete: $('#ordComplete').checked })) loadOrders(); };
+async function loadOrders() {
+  if (!S.customer || !S.adminToken) { $('#orderList').innerHTML = ''; return; }
+  const r = await api('GET', `/api/admin/games/dev/customers/${S.customer.id}/orders`, { as: 'admin' }); if (!r.ok) return;
+  $('#orderList').innerHTML = r.data.data.length ? `<table><tr><th>Mã đơn</th><th>Chi nhánh</th><th>Tiền</th><th>Thanh toán</th><th>Vòng đời</th><th></th></tr>${r.data.data.map(o =>
+    `<tr><td class="mono">${esc(o.order_code)}</td><td>${esc(o.branch_name)}</td><td>${money(o.amount)}</td><td><span class="badge">${esc(o.status)}</span></td><td><span class="badge">${esc(o.order_status)}</span></td><td>` +
+    (o.order_status !== 'checked_out' ? `<button class="b sm" data-complete="${o.id}">Trả phòng</button> ` : '') +
+    (o.status !== 'refunded' ? `<button class="b sm danger" data-refund="${o.id}">Hoàn tiền</button>` : '') + `</td></tr>`).join('')}</table>` : '<div class="empty">Khách này chưa có đơn demo.</div>';
+}
+$('#orderList').addEventListener('click', async e => {
+  const c = e.target.closest('[data-complete]'), f = e.target.closest('[data-refund]');
+  if (c && await call('POST', `/api/admin/games/dev/orders/${c.dataset.complete}/complete`, { as: 'admin' }, 'Đã trả phòng')) loadOrders();
+  if (f && await call('POST', `/api/admin/games/dev/orders/${f.dataset.refund}/refund`, { as: 'admin' }, 'Đã hoàn tiền — thẻ/mảnh/thưởng liên quan bị thu hồi')) loadOrders();
+});
+
+/* ============ 2. THẺ CÀO ============ */
+function confetti() {
+  const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#a855f7'];
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement('i'); s.className = 'confetti';
+    s.style.left = Math.random() * 100 + 'vw'; s.style.background = colors[i % colors.length]; s.style.animationDelay = Math.random() * .6 + 's'; s.style.animationDuration = 1.4 + Math.random() * 1.2 + 's';
+    document.body.appendChild(s); setTimeout(() => s.remove(), 3500);
+  }
+}
+const SOURCES = { order: 'Từ đơn trả phòng', rating_bonus: 'Thưởng đánh giá ảnh', referral: 'Thưởng giới thiệu' };
+const VSRC = { membership: 'Hạng thành viên', checkin: 'Điểm danh', scratch_card: 'Từ thẻ cào', collection: 'Sưu tầm mảnh ghép', referral: 'Quà giới thiệu' };
+
+function rewardHtml(rw) {
+  if (!rw) return '<span class="muted">Cào để biết giải</span>';
+  const c = rw.coupon;
+  return `<span class="tier">${esc(rw.tier)}</span><div class="lbl">${esc(rw.label)}</div>` +
+    (c ? `<div class="mono">${esc(c.code)} · hết hạn ${esc((c.end_at || '').slice(0, 10))}</div>` : '<div class="muted">Không có voucher</div>');
+}
+function paintSilver(cv) {
+  const g = cv.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, cv.width, cv.height); grad.addColorStop(0, '#c9ced6'); grad.addColorStop(.5, '#e7eaee'); grad.addColorStop(1, '#aab1bb');
+  g.fillStyle = grad; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = '#7b8490'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.fillText('CÀO TẠI ĐÂY', cv.width / 2, cv.height / 2 + 5);
+}
+function makeScratchable(wrap, card) {
+  const cv = $('canvas', wrap), under = $('.under', wrap); cv.width = 280; cv.height = 150; paintSilver(cv);
+  const g = cv.getContext('2d'); let down = false, moves = 0, finished = false;
+  const reveal = (data) => {
+    const rw = data.reward; under.className = 'under ' + rw.tier; under.innerHTML = rewardHtml(rw);
+    if (rw.tier === 'jackpot') confetti();
+    $('.meta', wrap.parentElement).innerHTML = `<span class="badge scratched">scratched</span> ${data.already_claimed ? '<span class="badge expired">already_claimed</span>' : ''}`;
+    loadCards.keepCount();
+  };
+  let inflight = null;
+  const fire = () => {
+    if (inflight) return inflight;
+    inflight = (async () => {
+      const d = await call('POST', `/api/games/scratch-cards/${card.id}/scratch`, {});
+      if (d) reveal(d.data); else inflight = null;
+    })();
+    return inflight;
+  };
+  const finish = async () => { if (finished) return; finished = true; await fire(); cv.classList.add('done'); };
+  const scratch = e => {
+    const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
+    g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(x, y, 18, 0, 7); g.fill();
+    if (++moves === 3) fire();
+    if (moves % 8 === 0) { const px = g.getImageData(0, 0, cv.width, cv.height).data; let clear = 0; for (let i = 3; i < px.length; i += 160) if (!px[i]) clear++; if (clear / (px.length / 160) > .45) finish(); }
+  };
+  cv.addEventListener('pointerdown', e => { down = true; cv.setPointerCapture(e.pointerId); scratch(e); });
+  cv.addEventListener('pointermove', e => { if (down) scratch(e); });
+  cv.addEventListener('pointerup', () => down = false);
+  $('[data-quick]', wrap.parentElement).onclick = finish;
+}
+async function loadCards() {
+  if (!needCustomer()) { $('#cardGrid').innerHTML = '<div class="empty">Chưa chọn khách.</div>'; return; }
+  const f = $('#cardFilter').value;
+  const r = await api('GET', '/api/games/scratch-cards' + (f ? '?status=' + f : '')); if (!r.ok) return toast(errMsg(r), true);
+  $('#cardAvail').textContent = r.data.available_count;
+  const grid = $('#cardGrid');
+  grid.innerHTML = r.data.data.length ? '' : '<div class="empty">Không có thẻ nào. Tạo đơn trả phòng ở tab 1 để sinh thẻ.</div>';
+  for (const c of r.data.data) {
+    const el = document.createElement('div'); el.className = 'cardwrap';
+    const done = c.status !== 'available';
+    el.innerHTML = `<div class="scratch"><div class="under ${esc(c.reward?.tier || '')}">${rewardHtml(c.reward)}${done && !c.reward ? `<div class="muted">Thẻ ${esc(c.status)}</div>` : ''}</div>${done ? '' : '<canvas></canvas>'}</div>` +
+      `<div class="meta"><span class="badge ${esc(c.status)}">${esc(c.status)}</span></div>` +
+      `<div class="muted">${esc(SOURCES[c.source] || c.source)}${c.order_code ? ' · đơn ' + esc(c.order_code) : ''}${c.branch_name ? ' · ' + esc(c.branch_name) : ''}</div>` +
+      `<div class="muted">Hạn cào: ${esc(c.expires_at || '—')}</div>` +
+      (c.status === 'available' ? '<div><button class="b sm ghost" data-quick>Cào nhanh</button></div>' : c.status === 'scratched' ? `<div><button class="b sm ghost" data-again="${esc(c.id)}">Cào lại (idempotent)</button></div>` : '');
+    grid.appendChild(el);
+    if (!done) makeScratchable($('.scratch', el), c);
+  }
+}
+loadCards.keepCount = async () => { const r = await api('GET', '/api/games/scratch-cards?status=available'); if (r.ok) $('#cardAvail').textContent = r.data.available_count; };
+$('#cardGrid').addEventListener('click', async e => {
+  const b = e.target.closest('[data-again]'); if (!b) return;
+  const d = await call('POST', `/api/games/scratch-cards/${b.dataset.again}/scratch`, {});
+  if (d) toast(d.data.already_claimed ? 'already_claimed = true — kết quả giữ nguyên, không bốc thêm' : 'Lần đầu cào');
+});
+$('#cardFilter').onchange = loadCards; $('#btnReloadCards').onclick = loadCards;
+$('#rateImg').onchange = () => {
+  $('#ratePreview').innerHTML = [...$('#rateImg').files].map(f => `<img src="${URL.createObjectURL(f)}" style="height:64px;border-radius:6px">`).join('');
+};
+$('#btnRate').onclick = async () => {
+  if (!needCustomer()) return;
+  const fd = new FormData(); fd.append('star', $('#rateStar').value); fd.append('comment', 'Đánh giá thử từ công cụ test');
+  [...$('#rateImg').files].forEach(f => fd.append('images[]', f));
+  const d = await call('POST', `/api/rooms/${$('#rateRoom').value}/ratings`, { form: fd }, 'Đã gửi đánh giá — kiểm tra thẻ cào mới');
+  if (d) loadCards();
+};
+
+/* --- quản trị thẻ cào --- */
+async function loadScratchAdmin() {
+  if (!S.adminToken) return;
+  const s = await api('GET', '/api/admin/games/scratch-card/settings', { as: 'admin' });
+  if (s.ok) { const x = s.data.data; $('#scEnabled').checked = x.is_enabled; $('#scExpire').value = x.expire_days; $('#scMinStay').value = x.min_stay_days; $('#scMinAmount').value = x.min_order_amount; $('#scRating').checked = x.rating_bonus_enabled; }
+  const p = await api('GET', '/api/admin/games/scratch-card/prizes', { as: 'admin' });
+  if (p.ok) $('#prizeTable').innerHTML = p.data.data.length ? `<table><tr><th>Giải</th><th>Hạng</th><th>Voucher</th><th>Trọng số</th><th>Giới hạn ngày/tổng</th><th>Đã trúng</th><th></th></tr>${p.data.data.map(z =>
+    `<tr><td>${esc(z.label)} ${z.is_fallback ? '<span class="badge ready">dự phòng</span>' : ''} ${z.is_active ? '' : '<span class="badge voided">tắt</span>'}</td><td>${esc(z.tier)}</td>` +
+    `<td>${z.type === 'coupon' ? (z.coupon_type === 'percentage' ? Number(z.coupon_value) + '%' : money(z.coupon_value)) : '—'}</td><td>${z.weight}</td><td>${z.daily_limit ?? '∞'} / ${z.total_limit ?? '∞'}</td><td>${z.awarded_count}</td>` +
+    `<td><button class="b sm danger" data-pzdel="${z.id}">Xoá/tắt</button></td></tr>`).join('')}</table>` : '<div class="empty">Chưa có giải — bấm “Nạp dữ liệu mẫu” ở tab 1.</div>';
+}
+$('#scratchAdmin').addEventListener('toggle', e => { if (e.target.open) loadScratchAdmin(); });
+$('#btnScSave').onclick = async () => {
+  if (!needAdmin()) return;
+  if (await call('PUT', '/api/admin/games/scratch-card/settings', { json: { is_enabled: $('#scEnabled').checked, expire_days: +$('#scExpire').value, min_stay_days: +$('#scMinStay').value, min_order_amount: +$('#scMinAmount').value, rating_bonus_enabled: $('#scRating').checked }, as: 'admin' }, 'Đã lưu cấu hình thẻ cào')) loadScratchAdmin();
+};
+$('#btnPrizeAdd').onclick = async () => {
+  if (!needAdmin()) return;
+  const n = id => $(id).value === '' ? null : +$(id).value;
+  const body = { label: $('#pzLabel').value, type: $('#pzType').value, tier: $('#pzTier').value, weight: n('#pzWeight') || 1, daily_limit: n('#pzDaily'), total_limit: n('#pzTotal'), is_fallback: $('#pzFallback').checked };
+  if (body.type === 'coupon') Object.assign(body, { coupon_type: $('#pzCType').value, coupon_value: n('#pzValue'), max_discount: n('#pzMax') });
+  if (await call('POST', '/api/admin/games/scratch-card/prizes', { json: body, as: 'admin' }, 'Đã thêm giải')) loadScratchAdmin();
+};
+$('#prizeTable').addEventListener('click', async e => { const b = e.target.closest('[data-pzdel]'); if (b && await call('DELETE', `/api/admin/games/scratch-card/prizes/${b.dataset.pzdel}`, { as: 'admin' }, 'Đã xử lý')) loadScratchAdmin(); });
+$('#btnScStats').onclick = async () => {
+  const d = await call('GET', '/api/admin/games/scratch-card/stats', { as: 'admin' }); if (!d) return; const x = d.data;
+  $('#scStats').innerHTML = `<div class="row"><span class="chip">Đã phát <b>${x.issued}</b></span><span class="chip">Đã cào <b>${x.scratched}</b></span><span class="chip">Chưa cào <b>${x.available}</b></span><span class="chip">Hết hạn <b>${x.expired}</b></span><span class="chip">Thu hồi <b>${x.voided}</b></span><span class="chip">Voucher đã dùng <b>${money(x.used_voucher_amount)}</b></span></div>` +
+    (x.prizes.length ? `<table><tr><th>Giải</th><th>Lượt trúng</th></tr>${x.prizes.map(p => `<tr><td>${esc(p.prize_label)}</td><td>${p.won}</td></tr>`).join('')}</table>` : '');
+};
+$('#btnScWinners').onclick = async () => {
+  const d = await call('GET', '/api/admin/games/scratch-card/winners', { as: 'admin' }); if (!d) return;
+  $('#scStats').innerHTML = d.data.length ? `<table><tr><th>Lúc</th><th>Khách</th><th>Đơn</th><th>Nguồn</th><th>Giải</th><th>Mã voucher</th><th>Đã dùng</th></tr>${d.data.map(w =>
+    `<tr><td>${esc(w.scratched_at)}</td><td>${esc(w.customer_name)}</td><td class="mono">${esc(w.order_code || '—')}</td><td>${esc(w.source)}</td><td>${esc(w.prize_label)}</td><td class="mono">${esc(w.coupon_code || '—')}</td><td>${w.coupon_used ? 'Có' : 'Chưa'}</td></tr>`).join('')}</table>` : '<div class="empty">Chưa có lượt trúng.</div>';
+};
+$('#btnScExport').onclick = async () => {
+  if (!needAdmin()) return;
+  const r = await fetch('/api/admin/games/scratch-card/winners/export', { headers: { Authorization: 'Bearer ' + S.adminToken } });
+  logEntry('GET', '/api/admin/games/scratch-card/winners/export', r.status, '(tệp .xlsx)', undefined, 0);
+  if (!r.ok) return toast('Không tải được tệp', true);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'trung-thuong-the-cao.xlsx'; a.click();
+};
+
+/* ============ 3. MẢNH GHÉP ============ */
+async function loadCamps() {
+  const guest = $('#campGuest').checked;
+  const r = await api('GET', '/api/games/collections', { as: guest ? 'none' : 'customer' }); if (!r.ok) return toast(errMsg(r), true);
+  S.campaigns = r.data.data;
+  $('#campList').innerHTML = S.campaigns.length ? S.campaigns.map(campHtml).join('') : '<div class="empty">Chưa có chiến dịch đang chạy — bấm “Nạp dữ liệu mẫu” ở tab 1.</div>';
+}
+function campHtml(c) {
+  const pct = Math.min(100, Math.round(c.collected_count / c.pieces_required * 100));
+  return `<div class="card camp"><img class="cover" src="${esc(img(c.cover_url))}" alt="" onerror="this.style.visibility='hidden'"><div class="body">` +
+    `<h2><span>${esc(c.name)} <span class="badge ${esc(c.status)}">${esc(c.status)}</span></span><span class="muted">#${c.id}</span></h2>` +
+    `<p class="note">${esc(c.description || '')} · ${esc(c.start_at.slice(0, 10))} → ${esc(c.end_at.slice(0, 10))} · đổi thưởng đến ${esc(c.redeem_until.slice(0, 10))}</p>` +
+    `<div><b>${c.collected_count}/${c.pieces_required}</b> mảnh · thưởng: <b>${esc(c.reward.label)}</b>${c.reward.coupon ? ` — mã <span class="mono">${esc(c.reward.coupon.code)}</span> (${esc(c.reward.coupon.source)})` : ''}</div>` +
+    `<div class="bar"><i style="width:${pct}%"></i></div><div class="pieces">` +
+    c.pieces.map(p => `<div class="piece ${p.collected ? '' : 'locked'}"><img src="${esc(img(p.image_url))}" alt="" onerror="this.style.visibility='hidden'"><div class="nm">${esc(p.branch_name)}</div>` +
+      (p.collected ? `<div class="muted">✓ đơn ${esc(p.order_code || '')}</div>` : `<button class="b sm ghost" data-simpiece="${p.branch_id}">Giả lập đơn ở đây</button><div class="muted mono">${esc(p.branch_slug || '')}</div>`) + `</div>`).join('') +
+    `</div><div class="row" style="margin-top:12px">` +
+    `<button class="b" data-redeem="${c.id}" ${c.status === 'ready' ? '' : 'disabled'}>Đổi thưởng</button>` +
+    `<button class="b ghost" data-redeem-force="${c.id}">Gọi đổi thưởng (thử lỗi / idempotent)</button></div></div></div>`;
+}
+$('#campList').addEventListener('click', async e => {
+  const sim = e.target.closest('[data-simpiece]'), rd = e.target.closest('[data-redeem]'), rf = e.target.closest('[data-redeem-force]');
+  if (sim && await createOrder(sim.dataset.simpiece)) loadCamps();
+  const id = (rd || rf)?.dataset.redeem || rf?.dataset.redeemForce;
+  if (id) {
+    const r = await api('POST', `/api/games/collections/${id}/redeem`, {});
+    toast(r.ok ? (r.data.already_claimed ? 'already_claimed = true — voucher giữ nguyên' : 'Đổi thưởng thành công!') : errMsg(r), !r.ok);
+    if (r.ok) { if (!r.data.already_claimed) confetti(); loadCamps(); }
+  }
+});
+$('#campGuest').onchange = loadCamps; $('#btnReloadCamps').onclick = loadCamps;
+
+/* --- quản trị mảnh ghép --- */
+$('#cmStart').value = localNow(-1); $('#cmEnd').value = localNow(30); $('#cmRedeem').value = localNow(45);
+async function loadCampAdmin() {
+  if (!S.adminToken) return;
+  const r = await api('GET', '/api/admin/games/collections', { as: 'admin' }); if (!r.ok) return;
+  S.adminCamps = r.data.data;
+  $('#pcCamp').innerHTML = S.adminCamps.map(c => `<option value="${c.id}">#${c.id} ${esc(c.name)}${c.is_active ? '' : ' (tắt)'}</option>`).join('');
+}
+$('#campAdmin').addEventListener('toggle', e => { if (e.target.open) loadCampAdmin(); });
+$('#btnCampCreate').onclick = async () => {
+  if (!needAdmin()) return;
+  const fd = new FormData();
+  fd.append('name', $('#cmName').value); fd.append('description', $('#cmDesc').value);
+  fd.append('start_at', dt($('#cmStart').value)); fd.append('end_at', dt($('#cmEnd').value)); fd.append('redeem_until', dt($('#cmRedeem').value));
+  fd.append('pieces_required', $('#cmReq').value); fd.append('reward_label', $('#cmReward').value); fd.append('coupon_type', $('#cmCType').value); fd.append('coupon_value', $('#cmValue').value);
+  if ($('#cmCover').files[0]) fd.append('cover_image', $('#cmCover').files[0]);
+  const d = await call('POST', '/api/admin/games/collections', { form: fd, as: 'admin' }, 'Đã tạo chiến dịch — giờ chọn chi nhánh & ảnh mảnh');
+  if (d) { await loadCampAdmin(); $('#pcCamp').value = d.data.id; loadPieceEditor(); }
+};
+async function loadPieceEditor() {
+  const id = $('#pcCamp').value; if (!id) return;
+  const r = await api('GET', `/api/admin/games/collections/${id}`, { as: 'admin' }); if (!r.ok) return toast(errMsg(r), true);
+  S.pcCampaign = r.data.data; const cur = Object.fromEntries(S.pcCampaign.pieces.map(p => [p.branch_id, p]));
+  $('#pcEditor').innerHTML = (S.pcCampaign.is_locked ? '<p class="note" style="color:var(--bad)">Chiến dịch đã bắt đầu và có người nhận mảnh — không sửa được chi nhánh (thử bấm Lưu để thấy lỗi 422).</p>' : '') +
+    `<p class="note">Tích chi nhánh tham gia, chọn ảnh mảnh (không chọn thì giữ ảnh cũ). Cần ≥ ${S.pcCampaign.pieces_required} chi nhánh.</p>` +
+    `<table><tr><th></th><th>Chi nhánh</th><th>Ảnh hiện tại</th><th>Ảnh mới</th></tr>${S.branches.map(b =>
+      `<tr><td><input type="checkbox" data-pcb="${b.id}" ${cur[b.id] ? 'checked' : ''}></td><td>${esc(b.name)}</td><td>${cur[b.id]?.image_url ? `<img src="${esc(img(cur[b.id].image_url))}" style="height:44px;border-radius:6px">` : '—'}</td>` +
+      `<td><input type="file" accept="image/*" data-pci="${b.id}"></td></tr>`).join('')}</table><div class="row" style="margin-top:8px"><button class="b" id="btnPcSave">Lưu chi nhánh &amp; ảnh</button></div>`;
+  $('#btnPcSave').onclick = savePieces;
+}
+async function savePieces() {
+  const fd = new FormData(); let i = 0;
+  $$('[data-pcb]:checked').forEach(cb => { fd.append(`pieces[${i}][branch_id]`, cb.dataset.pcb); const f = $(`[data-pci="${cb.dataset.pcb}"]`).files[0]; if (f) fd.append(`pieces[${i}][image]`, f); i++; });
+  if (await call('POST', `/api/admin/games/collections/${S.pcCampaign.id}/pieces`, { form: fd, as: 'admin' }, 'Đã lưu mảnh ghép')) { loadPieceEditor(); loadCamps(); }
+}
+$('#btnPcLoad').onclick = loadPieceEditor;
+$('#btnCampStats').onclick = async () => {
+  const d = await call('GET', `/api/admin/games/collections/${$('#pcCamp').value}/stats`, { as: 'admin' }); if (!d) return; const x = d.data;
+  $('#campStats').innerHTML = `<div class="row"><span class="chip">Người tham gia <b>${x.participants}</b></span><span class="chip">Đủ mảnh <b>${x.ready_to_redeem}</b></span><span class="chip">Đã đổi <b>${x.redeemed}</b></span></div>` +
+    `<table><tr><th>Số mảnh</th><th>Số người</th></tr>${x.customers_by_pieces.map(r => `<tr><td>${r.pieces}</td><td>${r.customers}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">Chưa có ai</td></tr>'}</table>` +
+    `<table><tr><th>Chi nhánh</th><th>Lượt nhận mảnh</th></tr>${x.branches.map(b => `<tr><td>${esc(b.branch_name)}</td><td>${b.collected}</td></tr>`).join('')}</table>`;
+};
+
+/* ============ 4. GIỚI THIỆU ============ */
+S.device = store.get('device', null) || ('tester-' + Math.random().toString(36).slice(2, 10)); store.set('device', S.device); $('#refDevice').value = S.device;
+async function loadRef() {
+  if (!needCustomer()) { $('#refMe').innerHTML = '<div class="empty">Chưa chọn khách.</div>'; return; }
+  const r = await api('GET', '/api/referrals/me'); if (!r.ok) return toast(errMsg(r), true);
+  const x = r.data.data;
+  $('#refMe').innerHTML = `<div class="row" style="align-items:center"><span class="refcode">${esc(x.code)}</span><button class="b ghost sm" id="btnCopyRef">Sao chép lời mời</button></div>` +
+    `<p class="note">${esc(x.share_text)}</p>` +
+    `<div class="row"><span class="chip">Bạn nhận: <b>${esc(x.referee_reward_label)}</b></span><span class="chip">Bạn mời nhận: <b>${esc(x.referrer_reward_label)}</b></span><span class="chip">Tháng này: <b>${x.rewarded_this_month}/${x.monthly_limit}</b></span>` +
+    `<span class="chip">Mã đã nhập: <b>${esc(x.applied_code || 'chưa')}</b></span><span class="chip">Được nhập đến: <b>${esc(x.can_apply_until || '—')}</b></span></div>` +
+    `<h3>Bạn đã mời (tên/SĐT được che)</h3>` + (x.invited.length ? `<table><tr><th>Tên</th><th>SĐT</th><th>Trạng thái</th><th>Lý do</th><th>Tham gia</th></tr>${x.invited.map(i =>
+      `<tr><td>${esc(i.name)}</td><td class="mono">${esc(i.phone)}</td><td><span class="badge ${esc(i.status)}">${esc(i.status)}</span></td><td>${esc(i.reason || '')}</td><td>${esc(i.joined_at)}</td></tr>`).join('')}</table>` : '<div class="empty">Chưa mời ai.</div>');
+  $('#btnCopyRef').onclick = () => { navigator.clipboard?.writeText(x.share_text); $('#refCode').value = x.code; toast('Đã sao chép lời mời và điền mã vào ô nhập'); };
+}
+$('#btnReloadRef').onclick = loadRef;
+$('#btnRefApply').onclick = async () => {
+  if (!needCustomer()) return;
+  const r = await api('POST', '/api/referrals/apply', { json: { code: $('#refCode').value, device_id: $('#refDevice').value } });
+  $('#refApplyResult').innerHTML = r.ok ? `<p class="note" style="color:var(--good)">Thành công! Voucher chào mừng <b class="mono">${esc(r.data.data.coupon.code)}</b> (${esc(r.data.data.coupon.name)}), nguồn <b>${esc(r.data.data.coupon.source)}</b>.</p>` : `<p class="note" style="color:var(--bad)"><b>${r.status}</b> — ${esc(errMsg(r))}</p>`;
+  if (r.ok) loadRef();
+};
+$('#btnRefFlow').onclick = async () => {
+  if (!needAdmin() || !needCustomer()) return;
+  const steps = $('#refSteps'); steps.innerHTML = '';
+  const step = (t, cls = '') => { const li = document.createElement('li'); li.className = cls; li.textContent = t; steps.appendChild(li); return li; };
+  const referrer = S.customer; const me = await api('GET', '/api/referrals/me'); if (!me.ok) return step('Không lấy được mã giới thiệu: ' + errMsg(me), 'err');
+  const code = me.data.data.code; step(`Người giới thiệu: ${referrer.fullname}, mã ${code}`, 'ok');
+  const nc = await api('POST', '/api/admin/games/dev/customers', { json: { name: 'Bạn mới ' + Math.floor(Math.random() * 900 + 100) }, as: 'admin' }); if (!nc.ok) return step('Tạo bạn mới thất bại: ' + errMsg(nc), 'err');
+  S.tokens[nc.data.customer.id] = nc.data.token; store.set('tokens', S.tokens); step(`Tạo bạn mới: ${nc.data.customer.fullname}`, 'ok');
+  await loadContext(); const friend = S.customers.find(c => c.id === nc.data.customer.id);
+  S.customer = friend;
+  const ap = await api('POST', '/api/referrals/apply', { json: { code, device_id: 'flow-' + Date.now() } });
+  if (!ap.ok) { S.customer = referrer; return step('Bạn nhập mã bị từ chối: ' + errMsg(ap), 'err'); }
+  step(`Bạn nhập mã → nhận voucher chào mừng ${ap.data.data.coupon.code}`, 'ok');
+  const od = await createOrder($('#ordBranch').value);
+  if (!od) { S.customer = referrer; return step('Tạo đơn thất bại', 'err'); }
+  step(`Bạn đặt và trả phòng đơn đầu ${od.order_code}`, 'ok');
+  S.customer = referrer; store.set('customer', referrer); renderChips(); renderCustomers();
+  const cards = await api('GET', '/api/games/scratch-cards?status=available');
+  const ref = cards.ok ? cards.data.data.filter(c => c.source === 'referral') : [];
+  step(ref.length ? `Người giới thiệu nhận ${ref.length} thẻ cào thưởng giới thiệu (xem tab Thẻ cào)` : 'Chưa thấy thẻ thưởng — kiểm tra thẻ cào đã bật và hạn mức tháng', ref.length ? 'ok' : 'err');
+  loadRef();
+};
+
+async function loadRfAdmin() {
+  if (!S.adminToken) return;
+  const s = await api('GET', '/api/admin/games/referral/settings', { as: 'admin' });
+  if (s.ok) { const x = s.data.data; $('#rfEnabled').checked = x.is_enabled; $('#rfCType').value = x.coupon_type; $('#rfValue').value = Number(x.coupon_value); $('#rfValidity').value = x.validity_days; $('#rfMonthly').value = x.monthly_limit; $('#rfApplyDays').value = x.apply_days; }
+}
+$('#refAdmin').addEventListener('toggle', e => { if (e.target.open) { loadRfAdmin(); $('#btnRfList').click(); } });
+$('#btnRfSave').onclick = async () => {
+  if (!needAdmin()) return;
+  await call('PUT', '/api/admin/games/referral/settings', { json: { is_enabled: $('#rfEnabled').checked, coupon_type: $('#rfCType').value, coupon_value: +$('#rfValue').value, validity_days: +$('#rfValidity').value, monthly_limit: +$('#rfMonthly').value, apply_days: +$('#rfApplyDays').value }, as: 'admin' }, 'Đã lưu cấu hình giới thiệu');
+};
+$('#btnRfList').onclick = async () => {
+  if (!needAdmin()) return;
+  const st = $('#rfStatus').value; const d = await call('GET', '/api/admin/games/referral/referrals' + (st ? '?status=' + st : ''), { as: 'admin' }); if (!d) return;
+  $('#rfTable').innerHTML = d.data.length ? `<table><tr><th>Mã</th><th>Người giới thiệu</th><th>Bạn được mời</th><th>Trạng thái</th><th>Voucher chào mừng</th><th></th></tr>${d.data.map(r =>
+    `<tr><td class="mono">${esc(r.code)}</td><td>${esc(r.referrer.name)}</td><td>${esc(r.referee.name)}</td><td><span class="badge ${esc(r.status)}">${esc(r.status)}</span> ${esc(r.reason || '')}</td>` +
+    `<td class="mono">${esc(r.welcome_coupon_code || '—')} ${r.welcome_coupon_used ? '(đã dùng)' : ''}</td><td>${r.status !== 'invalid' ? `<button class="b sm danger" data-rfinv="${r.id}">Huỷ (gian lận)</button>` : ''}</td></tr>`).join('')}</table>` : '<div class="empty">Không có cặp nào.</div>';
+};
+$('#rfTable').addEventListener('click', async e => { const b = e.target.closest('[data-rfinv]'); if (b && confirm('Huỷ cặp giới thiệu này (một chiều)?') && await call('POST', `/api/admin/games/referral/referrals/${b.dataset.rfinv}/invalidate`, { json: { reason: 'fraud' }, as: 'admin' }, 'Đã huỷ cặp')) $('#btnRfList').click(); });
+
+/* ============ 5. VÍ VOUCHER ============ */
+async function loadWallet() {
+  if (!needCustomer()) { $('#walletList').innerHTML = '<div class="empty">Chưa chọn khách.</div>'; return; }
+  const r = await api('GET', '/api/coupons/mine'); if (!r.ok) return toast(errMsg(r), true);
+  $('#walletList').innerHTML = r.data.data.length ? `<div class="grid">${r.data.data.map(c =>
+    `<div class="card" style="margin:0"><div class="row" style="margin:0 0 6px;justify-content:space-between"><b class="mono">${esc(c.code)}</b><span class="badge ${c.source !== 'membership' ? 'ready' : ''}">${esc(VSRC[c.source] || c.source)}</span></div>` +
+    `<div><b>${esc(c.name)}</b></div><div class="muted">${c.type === 'percentage' ? Number(c.value) + '%' : money(c.value)}${c.max_discount ? ' · tối đa ' + money(c.max_discount) : ''}${c.min_order_value ? ' · đơn từ ' + money(c.min_order_value) : ''}</div>` +
+    `<div class="muted">Hạn: ${esc((c.end_at || 'không hạn').slice(0, 10))} · còn ${c.usage_remaining ?? '∞'} lượt · ${c.is_personal ? 'mã cá nhân' : 'mã chung'}</div></div>`).join('')}</div>` : '<div class="empty">Ví trống. Cào thẻ, đổi mảnh hoặc nhập mã giới thiệu để có voucher.</div>';
+}
+$('#btnReloadWallet').onclick = loadWallet;
+$('#btnClearLog').onclick = () => $('#logList').innerHTML = '';
+
+/* ---------- khởi động ---------- */
+// Mở nhanh bằng đường dẫn có hash (không gửi lên máy chủ): /game-tester#adm=TOKEN&tab=scratch&cust=ID&ctok=TOKEN_KHACH
+{
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('adm')) { S.adminToken = h.get('adm'); store.set('adminToken', S.adminToken); }
+  if (h.get('cust') && h.get('ctok')) { S.tokens[h.get('cust')] = h.get('ctok'); store.set('tokens', S.tokens); S.pendingCust = h.get('cust'); }
+  if (h.get('tab')) store.set('tab', h.get('tab'));
+}
+$('#origin').textContent = location.host;
+renderChips();
+(async () => {
+  await loadContext();
+  if (S.pendingCust) { const c = S.customers.find(x => x.id === S.pendingCust); if (c) { S.customer = c; store.set('customer', c); renderChips(); renderCustomers(); } }
+  showTab(store.get('tab', 'setup'));
+})();
+</script>
+</body>
+</html>
