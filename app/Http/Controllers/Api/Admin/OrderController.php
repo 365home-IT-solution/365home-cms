@@ -105,6 +105,8 @@ class OrderController extends Controller
                 'items', fn ($q2) => $q2->where('product_id', (int) $f('room_id'))
             ))
             ->when(filled($f('status')), fn ($q) => $q->where('status', $f('status')))
+            // 1/true = chỉ đơn đã ẩn khỏi trang khách "Tra cứu đơn" (/ticket-booking); 0/false = chỉ đơn đang hiện.
+            ->when(filled($f('hidden_from_lookup')), fn ($q) => $q->where('hidden_from_lookup', filter_var($f('hidden_from_lookup'), FILTER_VALIDATE_BOOLEAN)))
             ->when(filled($f('payment_method')), fn ($q) => $q->where('payment_method', $f('payment_method')))
             ->when(filled($f('search')), function ($q) use ($f) {
                 $search = $f('search');
@@ -966,6 +968,50 @@ class OrderController extends Controller
      * order_code không tồn tại hoặc không thuộc phạm vi bị BỎ QUA (không lỗi cả request), liệt kê
      * riêng trong 'not_found' của response để FE biết đơn nào chưa xoá được.
      */
+    /**
+     * POST /api/admin/orders/lookup-visibility
+     * ẨN / HIỆN lại đơn ở trang khách "Tra cứu đơn đặt phòng" (/ticket-booking) — KHÔNG xoá đơn: đơn vẫn còn trong hệ thống, admin vẫn
+     * thấy, doanh thu/đối soát/hoa hồng không đổi. Body: {"order_codes": [...], "hidden": true|false}. Đơn không tồn tại hoặc ngoài
+     * phạm vi đối tác của tài khoản bị bỏ qua, trả trong 'not_found' (cùng quy ước destroyBatch()).
+     */
+    public function lookupVisibility(Request $request): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $data = $request->validate([
+            'order_codes'   => 'required|array|min:1|max:500',
+            'order_codes.*' => 'string',
+            'hidden'        => 'required|boolean',
+        ]);
+
+        $query = Order::query()->whereIn('order_code', $data['order_codes']);
+
+        if (! $admin->seesAllPartners()) {
+            $query->where('partner_id', $admin->partner_id);
+
+            $allowedCategoryIds = $admin->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereIn('category_id', $allowedCategoryIds);
+            }
+        }
+
+        $codes  = (clone $query)->pluck('order_code')->values();
+        $hidden = (bool) $data['hidden'];
+
+        // update() hàng loạt không chạy observer (không bắn thông báo/realtime) — đây chỉ là cờ hiển thị, không đổi trạng thái đơn.
+        $query->update(['hidden_from_lookup' => $hidden]);
+
+        \Illuminate\Support\Facades\Log::info('Đơn ' . ($hidden ? 'ẨN khỏi' : 'HIỆN lại ở') . ' trang tra cứu', ['orders' => $codes->all(), 'by' => $admin->id]);
+
+        return response()->json([
+            'message'   => ($hidden ? 'Đã ẩn ' : 'Đã hiện lại ') . "{$codes->count()} đơn" . ($hidden ? ' khỏi trang tra cứu.' : ' ở trang tra cứu.'),
+            'hidden'    => $hidden,
+            'updated'   => $codes,
+            'not_found' => collect($data['order_codes'])->diff($codes)->values(),
+        ]);
+    }
+
     public function destroyBatch(Request $request): JsonResponse
     {
         /** @var User $admin */
@@ -1025,6 +1071,8 @@ class OrderController extends Controller
             'id'             => $order->id,
             'order_code'     => $order->order_code,
             ...PartnerLabel::for($order->partner_id),
+            // true = đã ẩn khỏi trang khách "Tra cứu đơn" (/ticket-booking), xem lookupVisibility().
+            'hidden_from_lookup' => (bool) $order->hidden_from_lookup,
             'status'         => $order->status,
             'payment_status' => $order->payment_status,
             'order_status'   => $order->order_status,

@@ -139,6 +139,13 @@ class RatingController extends Controller
 
         $rating->load('media');
 
+        // Đánh giá kèm ảnh ⇒ +1 thẻ cào cho đơn của phòng này (mỗi đơn một lần); lỗi game không làm hỏng đánh giá.
+        try {
+            app(\App\Services\ScratchCardService::class)->issueRatingBonus($user, $rating);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $this->recalcRatingScore($roomId);
 
         $room->refresh();

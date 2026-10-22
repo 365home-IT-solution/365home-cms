@@ -17,6 +17,9 @@ use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\MiniGameController;
+use App\Http\Controllers\Api\ScratchCardController;
+use App\Http\Controllers\Api\CollectionController;
+use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\MinihouseRoomController;
 use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
@@ -424,6 +427,8 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 /*
 |--------------------------------------------------------------------------
 | Orders / Booking
+| GET    /api/orders → Danh sách đơn của khách (không gồm đơn khách đã "xoá")
+| DELETE /api/orders/{order_code} → Khách "xoá" đơn khỏi danh sách của mình: CHỈ ẨN phía khách (orders.customer_hidden_at), admin/doanh thu/đối soát không đổi
 | POST /api/orders → Tạo đơn đặt phòng (slot hoặc monthly)
 |                    - Nếu có token Sanctum: lấy buyer từ customer
 |                    - Nếu không có token:  bắt buộc buyer_name + buyer_phone
@@ -437,6 +442,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('customer.active')->group(function () {
         Route::post('orders',                                   [BookingController::class,     'store'])->name('api.orders.store');
         Route::post('orders/{order_code}',                   [OrderController::class,       'update'])->name('api.orders.update');
+        Route::delete('orders/{order_code}',                 [OrderController::class,       'hide'])->name('api.orders.hide');
         Route::get('orders/{order_code}/payment-qr',         [OrderController::class,       'paymentQr'])->name('api.orders.payment-qr');
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class, 'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class, 'remainingPayment'])->name('api.orders.remaining-payment');
@@ -571,6 +577,45 @@ Route::middleware(['auth:sanctum', 'customer.active'])->prefix('wishlist')->name
 | POST /api/mini-games/{code}/unmark   → Bỏ đánh dấu 1 lá (card_id) hoặc tất cả
 |--------------------------------------------------------------------------
 */
+/*
+|--------------------------------------------------------------------------
+| Thẻ cào sau trả phòng (khách đã đăng nhập) — BE bốc giải, voucher trúng vào GET /api/coupons/mine (source = scratch_card)
+| GET  /api/games/scratch-cards?status=&page=       → Danh sách thẻ + available_count
+| POST /api/games/scratch-cards/{id}/scratch        → Cào thẻ (gọi lại trả đúng kết quả cũ, already_claimed = true)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('games/scratch-cards')->name('api.games.scratch-cards.')->group(function () {
+    Route::get('/',              [ScratchCardController::class, 'index'])->name('index');
+    Route::post('{id}/scratch',  [ScratchCardController::class, 'scratch'])->name('scratch');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Sưu tầm mảnh ghép theo chi nhánh — xem danh sách/chi tiết KHÔNG cần đăng nhập (chưa đăng nhập: mọi mảnh collected = false), đổi thưởng cần đăng nhập
+| GET  /api/games/collections            → Chiến dịch đang chạy (+ đã kết thúc mà khách còn quyền đổi thưởng) kèm tiến độ
+| GET  /api/games/collections/{id}       → Một chiến dịch, cùng shape
+| POST /api/games/collections/{id}/redeem → Đổi thưởng 1 lần / chiến dịch (gọi lại: already_claimed = true)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('throttle:60,1')->prefix('games/collections')->name('api.games.collections.')->group(function () {
+    Route::get('/',        [CollectionController::class, 'index'])->name('index');
+    Route::get('{id}',     [CollectionController::class, 'show'])->whereNumber('id')->name('show');
+    Route::post('{id}/redeem', [CollectionController::class, 'redeem'])->whereNumber('id')->middleware(['auth:sanctum', 'customer.active'])->name('redeem');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Giới thiệu bạn bè (khách đã đăng nhập) — bạn mới nhập mã nhận voucher chào mừng, bạn ở xong đơn đầu thì người giới thiệu nhận 1 thẻ cào
+| GET  /api/referrals/me     → Mã của tôi, link chia sẻ, danh sách đã mời (che tên/SĐT), mã đã nhập + hạn còn được nhập
+| POST /api/referrals/apply  → Nhập mã (code, device_id); thành công trả voucher chào mừng, lỗi 422 kèm message
+| (Lúc đăng ký: POST /api/auth/register nhận thêm referral_code + device_id tuỳ chọn)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('referrals')->name('api.referrals.')->group(function () {
+    Route::get('me',     [ReferralController::class, 'me'])->name('me');
+    Route::post('apply', [ReferralController::class, 'apply'])->name('apply')->middleware('throttle:10,1');
+});
+
 Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('mini-games/{code}')->name('api.mini-games.')->group(function () {
     Route::get('/',        [MiniGameController::class, 'show'])->name('show');
     Route::post('shuffle', [MiniGameController::class, 'shuffle'])->name('shuffle');

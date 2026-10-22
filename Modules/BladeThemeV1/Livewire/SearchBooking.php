@@ -2,78 +2,134 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Models\Customer;
+use Laravel\Sanctum\PersonalAccessToken;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Payment\Entities\Order;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
+/**
+ * Trang khách "Tra cứu đơn đặt phòng" (/ticket-booking): BẮT BUỘC đăng nhập. Chỉ hiện đơn của chính khách đang đăng nhập (đơn đặt lúc đã đăng nhập
+ * hoặc đơn đặt bằng đúng SĐT của khách), không còn tra cứu theo SĐT tuỳ ý. Đơn admin đã ẩn khỏi tra cứu (hidden_from_lookup) và đơn khách đã tự
+ * "xoá" ở trang tài khoản (customer_hidden_at) không hiện ở đây.
+ */
 class SearchBooking extends Component
 {
-    public $sdt = '';
+    // Chỉ server gán sau khi xác thực token (#[Locked]: client không sửa được) — dùng để lọc đơn của khách.
+    #[Locked]
+    public bool $isLoggedIn = false;
+    public bool $isLoading  = true;
+    #[Locked]
+    public ?string $customerId = null;
+    #[Locked]
+    public string $phone = '';
+    #[Locked]
+    public string $phone84 = '';
+
     public $orders = [];
     public $remainingError = '';
     public $depositError = '';
 
-    protected $rules = [
-        'sdt' => 'required|numeric|digits_between:10,12',
-    ];
-
-    protected $messages = [
-        'sdt.required' => 'Vui lòng nhập số điện thoại.',
-        'sdt.numeric' => 'Số điện thoại phải là dạng số.',
-        'sdt.digits_between' => 'Số điện thoại không hợp lệ (10-12 số).',
-    ];
-
-    public function getBooking()
+    // Xác thực token khách (cùng cách với trang tài khoản) rồi nạp đơn của khách.
+    public function loadMyOrders(string $token): void
     {
-        try {
-            $this->validate();
-        } catch (ValidationException $e) {
+        $this->isLoading = true;
+        $customer = $this->customerFromToken($token);
+
+        if (! $customer) {
+            $this->isLoggedIn = false;
+            $this->customerId = null;
+            $this->phone = $this->phone84 = '';
             $this->orders = [];
-            throw $e;
+            $this->isLoading = false;
+
+            // Có token nhưng không hợp lệ (hết hạn, tài khoản bị vô hiệu...) → ép đăng xuất ở trình duyệt
+            if ($token !== '') {
+                $this->dispatch('auth-force-logout');
+            }
+
+            return;
         }
 
-        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
+        $raw = $customer->phone ?? '';
+        if (str_starts_with($raw, '84') && strlen($raw) >= 11) {
+            $raw = '0' . substr($raw, 2);
+        }
 
-        if (!empty($phone)) {
-            $this->orders = Order::with([
+        $this->isLoggedIn = true;
+        $this->customerId = (string) $customer->id;
+        $this->phone      = $raw;
+        $this->phone84    = '84' . substr($raw, 1);
+
+        $this->orders = $this->ownedOrders()
+            ->with([
                 'items.product.manualLockPasswords',
                 'accessCodes',
                 'category',
-                ])
-                ->where('buyer_phone', $phone)
-                ->where(function ($q) {
-                    // Đơn đã thanh toán hoặc đã cọc
-                    $q->whereIn('status', ['paid', 'deposit']);
-                })
-                ->orderBy('created_at', 'desc')
-                ->take(10)
-                ->get();
-        } else {
-            $this->orders = [];
-        }
+            ])
+            // Đơn đã thanh toán hoặc đã cọc
+            ->whereIn('status', ['paid', 'deposit'])
+            ->orderBy('created_at', 'desc')
+            ->take(20)
+            ->get();
 
         $this->remainingError = '';
+        $this->depositError   = '';
+        $this->isLoading      = false;
+    }
+
+    // Đơn của khách đang đăng nhập (theo customer_id hoặc SĐT đã xác thực OTP), trừ đơn bị ẩn.
+    private function ownedOrders()
+    {
+        $phone      = $this->phone;
+        $phone84    = $this->phone84;
+        $customerId = $this->customerId;
+
+        return Order::where(function ($q) use ($phone, $phone84, $customerId) {
+            $q->where('customer_id', $customerId);
+            if ($phone !== '') {
+                $q->orWhere('buyer_phone', $phone)->orWhere('buyer_phone', $phone84);
+            }
+        })
+            // Đơn admin đã "Ẩn khỏi tra cứu" không hiện ở trang này (đơn vẫn còn trong hệ thống).
+            ->where('hidden_from_lookup', false)
+            // Đơn khách đã tự "xoá" ở trang tài khoản (chỉ ẩn phía khách).
+            ->whereNull('customer_hidden_at');
+    }
+
+    private function customerFromToken(string $token): ?Customer
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $pat = PersonalAccessToken::findToken($token);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $customer = $pat && $pat->tokenable_type === Customer::class ? $pat->tokenable : null;
+
+        return $customer && $customer->status === Customer::STATUS_ACTIVE ? $customer : null;
     }
 
     public function createDepositPayment(string $orderCode)
     {
         $this->depositError = '';
 
-        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
-
-        if (empty($phone)) {
-            $this->depositError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+        if (! $this->isLoggedIn) {
+            $this->depositError = 'Vui lòng đăng nhập để thanh toán.';
             return;
         }
 
         try {
-            $order = Order::with('items')
+            $order = $this->ownedOrders()->with('items')
                 ->where('order_code', $orderCode)
-                ->where('buyer_phone', $phone)
                 ->firstOrFail();
 
             if ($order->status !== 'deposit' || $order->deposit_percent === null) {
@@ -138,17 +194,14 @@ class SearchBooking extends Component
     {
         $this->remainingError = '';
 
-        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
-
-        if (empty($phone)) {
-            $this->remainingError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+        if (! $this->isLoggedIn) {
+            $this->remainingError = 'Vui lòng đăng nhập để thanh toán.';
             return;
         }
 
         try {
-            $order = Order::with('items')
+            $order = $this->ownedOrders()->with('items')
                 ->where('order_code', $orderCode)
-                ->where('buyer_phone', $phone)
                 ->firstOrFail();
 
             if ($order->status !== 'deposit') {

@@ -12,6 +12,13 @@ use Illuminate\Support\Facades\Route;
 // admin — thay vì phải sửa từng route/middleware, chặn đứng lỗi tại điểm chung này.
 Route::get('/login', fn () => redirect(\Filament\Facades\Filament::getLoginUrl()))->name('login');
 
+// Trang thử mini game (thẻ cào / mảnh ghép / giới thiệu) — chỉ máy dev, bật bằng GAME_TESTER_ENABLED=true.
+Route::get('/game-tester', function () {
+    abort_unless(config('app.game_tester_enabled'), 404);
+
+    return response(file_get_contents(resource_path('dev/game-tester.html')))->header('Content-Type', 'text/html; charset=UTF-8');
+})->name('game-tester');
+
 // "Chuyển đổi tài khoản" — bước commit thật sự, xem giải thích trong AccountSwitchController.
 Route::middleware('web')->group(function () {
     Route::get('/admin/account-switch/commit', [\App\Http\Controllers\AccountSwitchController::class, 'commit'])

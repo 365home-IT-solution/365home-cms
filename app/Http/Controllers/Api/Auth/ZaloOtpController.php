@@ -222,6 +222,8 @@ class ZaloOtpController extends Controller
             'date_of_birth'        => 'required|date_format:d-m-Y|before:today',
             'password'             => 'sometimes|nullable|string|min:8|confirmed',
             'password_confirmation'=> 'sometimes|nullable|string',
+            'referral_code'        => 'sometimes|nullable|string|max:20',
+            'device_id'            => 'sometimes|nullable|string|max:100',
         ]);
 
         $normalizedPhone = $this->otp->getPhoneByToken($request->phone_token);
@@ -258,6 +260,17 @@ class ZaloOtpController extends Controller
             ->whereNull('customer_id')
             ->update(['customer_id' => $customer->id]);
 
+        // Mã giới thiệu nhập lúc đăng ký: mã sai KHÔNG chặn đăng ký, app đọc kết quả ở `referral` rồi báo khách (vẫn nhập lại được trong hạn ở POST /referrals/apply)
+        $referral = null;
+        if (filled($request->referral_code)) {
+            try {
+                $applied  = app(\App\Services\ReferralService::class)->apply($customer, (string) $request->referral_code, $request->device_id);
+                $referral = ['applied' => true, 'applied_code' => $applied['referral']->code, 'coupon' => \App\Services\ScratchCardService::couponPayload($applied['coupon'])];
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $referral = ['applied' => false, 'message' => $e->validator->errors()->first('message')];
+            }
+        }
+
         $expiresAt = now()->addDays(30);
         $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
@@ -266,7 +279,7 @@ class ZaloOtpController extends Controller
             'expires_at'  => $expiresAt->toIso8601String(),
             'is_new_user' => true,
             'user'        => $this->customerResource($customer),
-        ], 201);
+        ] + ($referral ? ['referral' => $referral] : []), 201);
     }
 
     /**
@@ -605,6 +618,7 @@ class ZaloOtpController extends Controller
             'fullname'          => $customer->fullname,
             'date_of_birth'     => $customer->date_of_birth?->toDateString(),
             'phone'             => $customer->phone,
+            'scratch_cards_available' => \App\Http\Controllers\Api\ScratchCardController::availableCount($customer),
             'status'            => $customer->status,
             'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
             'cccd_front'        => $customer->cccd_front

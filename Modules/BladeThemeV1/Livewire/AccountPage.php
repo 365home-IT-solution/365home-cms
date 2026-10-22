@@ -8,6 +8,7 @@ use App\Models\MembershipTier;
 use App\Services\CccdIntakeService;
 use App\Support\CccdIdentity;
 use App\Settings\GeneralSettings;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -280,30 +281,67 @@ class AccountPage extends Component
         try {
             $this->loadDiscountCodes($customer);
 
-            $phoneQ = $this->phoneQuery();
-
-            // Stats tổng (không filter chi nhánh)
-            $this->totalOrders   = $phoneQ->count();
-            $this->paidOrders    = (clone $phoneQ)->where('status', 'paid')->count();
-            $this->pendingOrders = (clone $phoneQ)->whereIn('status', ['pending', 'deposit'])->count();
-
-            // Danh sách chi nhánh có trong đơn của user
-            $branchIds = (clone $phoneQ)->whereNotNull('category_id')->pluck('category_id')->unique();
-            $this->branches = Category::whereIn('id', $branchIds)
-                ->orderBy('name')
-                ->get(['id', 'name'])
-                ->toArray();
-
-            // Load trang đầu (không filter chi nhánh)
-            $this->selectedBranchId = null;
-            $this->currentPage      = 1;
-            $this->totalCount       = $this->totalOrders;
-            $this->fetchPage();
+            $this->refreshOrders(resetFilters: true);
         } catch (\Throwable) {
             $this->orders = [];
         } finally {
             $this->isLoading = false;
         }
+    }
+
+    // Tính lại thống kê, danh sách chi nhánh và trang đơn hiện tại. resetFilters = về trang 1, bỏ lọc chi nhánh (lúc mới vào trang).
+    private function refreshOrders(bool $resetFilters): void
+    {
+        $phoneQ = $this->phoneQuery();
+
+        // Stats tổng (không filter chi nhánh) — không tính đơn khách đã xoá
+        $this->totalOrders   = $phoneQ->count();
+        $this->paidOrders    = (clone $phoneQ)->where('status', 'paid')->count();
+        $this->pendingOrders = (clone $phoneQ)->whereIn('status', ['pending', 'deposit'])->count();
+
+        // Danh sách chi nhánh có trong đơn của user
+        $branchIds = (clone $phoneQ)->whereNotNull('category_id')->pluck('category_id')->unique();
+        $this->branches = Category::whereIn('id', $branchIds)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->toArray();
+
+        // Đang lọc một chi nhánh mà không còn đơn nào (vd. vừa xoá đơn cuối) thì bỏ lọc
+        if ($resetFilters || ($this->selectedBranchId && ! $branchIds->contains($this->selectedBranchId))) {
+            $this->selectedBranchId = null;
+            $this->currentPage      = 1;
+        }
+
+        $this->totalCount  = $this->baseQuery()->count();
+        $this->currentPage = max(1, min($this->currentPage, (int) ceil($this->totalCount / $this->perPage) ?: 1));
+        $this->fetchPage();
+    }
+
+    /**
+     * Khách "xoá" đơn khỏi danh sách của mình: CHỈ ẨN ở phía khách (orders.customer_hidden_at). Đơn vẫn nguyên trong hệ thống — admin vẫn thấy, doanh
+     * thu, đối soát, hoa hồng, mini game không đổi; không đổi trạng thái, không huỷ đơn, không hoàn tiền. Xác thực lại token mỗi lần và chỉ ẩn được
+     * đơn của chính khách (cùng điều kiện với danh sách đơn).
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function hideOrder(string $token, string $orderCode): array
+    {
+        $customer = $this->customerFromToken($token);
+        if (! $customer || (string) $customer->id !== (string) $this->customerId) {
+            return ['ok' => false, 'message' => 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.'];
+        }
+
+        $id = $this->phoneQuery()->where('order_code', $orderCode)->value('id');
+        if (! $id) {
+            return ['ok' => false, 'message' => 'Không tìm thấy đơn hàng.'];
+        }
+
+        // Update thẳng bằng query: không bắn sự kiện/observer của đơn, không đổi updated_at
+        DB::table('orders')->where('id', $id)->update(['customer_hidden_at' => now()]);
+
+        $this->refreshOrders(resetFilters: false);
+
+        return ['ok' => true, 'message' => 'Đã xoá đơn khỏi danh sách của bạn.'];
     }
 
     // ── Load mã giảm giá của khách hàng (gán riêng qua customer_id + qua bảng coupon_customers) ──
@@ -381,7 +419,7 @@ class AccountPage extends Component
             if ($customerId) {
                 $q->orWhere('user_id', $customerId);
             }
-        });
+        })->whereNull('customer_hidden_at'); // đơn khách đã "xoá" (chỉ ẩn) không hiện nữa
     }
 
     // ── Query có thêm filter chi nhánh (dùng cho list + pagination) ──────────

@@ -32,6 +32,7 @@ class OrderController extends Controller
 
         $orders = Order::with(['items.product.media', 'services'])
             ->where('customer_id', $customer->id)
+            ->whereNull('customer_hidden_at') // đơn khách đã "xoá" (chỉ ẩn) không hiện nữa
             ->orderByDesc('created_at')
             ->paginate(10);
 
@@ -44,6 +45,30 @@ class OrderController extends Controller
                 'total'        => $orders->total(),
             ],
         ]);
+    }
+
+    /**
+     * DELETE /api/orders/{order_code}
+     *
+     * Khách "xoá" đơn của mình khỏi danh sách: CHỈ ẨN ở phía khách (orders.customer_hidden_at). Đơn vẫn nguyên trong hệ thống — admin vẫn thấy,
+     * doanh thu, đối soát, hoa hồng, mini game không đổi; không đổi trạng thái đơn, không huỷ đơn, không hoàn tiền.
+     * Gọi lại trên đơn đã ẩn vẫn trả 200 (idempotent). Chỉ ẩn được đơn của chính khách; đơn người khác hoặc không tồn tại trả 404.
+     */
+    public function hide(string $orderCode): JsonResponse
+    {
+        /** @var \App\Models\Customer $customer */
+        $customer = auth('sanctum')->user();
+
+        $id = Order::where('order_code', $orderCode)->where('customer_id', $customer->id)->value('id');
+
+        if (! $id) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
+        }
+
+        // Cập nhật thẳng bằng query (không qua model): không bắn sự kiện/observer của đơn, không đổi updated_at
+        \Illuminate\Support\Facades\DB::table('orders')->where('id', $id)->whereNull('customer_hidden_at')->update(['customer_hidden_at' => now()]);
+
+        return response()->json(['message' => 'Đã xoá đơn khỏi danh sách của bạn.']);
     }
 
     // GET /api/orders/{order_code}

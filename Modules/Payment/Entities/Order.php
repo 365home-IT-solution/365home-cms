@@ -105,6 +105,8 @@ class Order extends Model implements Eventable
         'collected_by',
         'commission_rate',
         'commission_waived',
+        // Ẩn khỏi trang khách "Tra cứu đơn đặt phòng" (/ticket-booking) — không xoá đơn.
+        'hidden_from_lookup',
         'commission_amount',
         'platform_subsidy',
         'discounts',
@@ -115,6 +117,8 @@ class Order extends Model implements Eventable
     ];
 
     protected $casts = [
+        'hidden_from_lookup'     => 'boolean',
+        'customer_hidden_at'     => 'datetime',
         'cccd_data'              => 'array',
         'cccd_data_2'            => 'array',
         'coupon_codes'           => 'array',
@@ -255,6 +259,53 @@ class Order extends Model implements Eventable
             // (không lỗi 500 vì không có ràng buộc khoá ngoại, nhưng làm sai dữ liệu "ai tạo đơn").
             if (empty($order->user_id) && auth()->user() instanceof \App\Models\User) {
                 $order->user_id = (string) auth()->id();
+            }
+        });
+
+        // Mini game (thẻ cào + sưu tầm mảnh ghép + giới thiệu bạn bè): đơn vừa trả phòng / vừa trả đủ → sinh thẻ / nhận mảnh; đơn bị huỷ/hoàn tiền → thu hồi thẻ + voucher chưa dùng.
+        // Không để lỗi của game làm hỏng việc cập nhật đơn.
+        // Chạy SAU commit: nếu nơi gọi đang trong transaction rồi rollback thì không sinh thẻ/mảnh cho đơn chưa trả phòng thật.
+        static::updated(function (self $order): void {
+            // "Hoàn tất" = đã trả đủ + (trả phòng HOẶC hết giờ lưu trú) — cùng định nghĩa với chốt hoa hồng; đơn tự hết giờ do lệnh scratch-cards:sync bắt.
+            $completed = $order->wasChanged(['order_status', 'status']) && \App\Support\CompletedOrders::isCompleted($order);
+            $reversed  = $order->wasChanged('status') && in_array($order->status, ['refunded', 'cancelled_payment', 'failed'], true);
+
+            // Hoàn tiền MỘT PHẦN (vd. đền bù sau khi khách đã ở xong) không làm mất thưởng — chỉ hoàn toàn bộ số đã trả mới thu hồi.
+            if ($reversed && $order->status === 'refunded' && (int) $order->refund_amount > 0
+                && (int) $order->refund_amount < app(\App\Services\OrderCommissionService::class)->paidAmount($order)) {
+                $reversed = false;
+            }
+
+            if (! $completed && ! $reversed) {
+                return;
+            }
+
+            \Illuminate\Support\Facades\DB::afterCommit(function () use ($order, $completed, $reversed): void {
+                try {
+                    if ($completed) {
+                        app(\App\Services\ScratchCardService::class)->issueForOrder($order);
+                        app(\App\Services\CollectionService::class)->collectForOrder($order);
+                        app(\App\Services\ReferralService::class)->onOrderCompleted($order);
+                    }
+                    if ($reversed) {
+                        app(\App\Services\ScratchCardService::class)->voidForOrder($order);
+                        app(\App\Services\CollectionService::class)->voidForOrder($order);
+                        app(\App\Services\ReferralService::class)->voidForOrder($order);
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Mini game hook thất bại', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                }
+            });
+        });
+
+        // Đơn bị xoá: thu hồi thẻ cào / mảnh ghép / thưởng giới thiệu sinh từ đơn đó (tránh thưởng mồ côi).
+        static::deleted(function (self $order): void {
+            try {
+                app(\App\Services\ScratchCardService::class)->voidForOrder($order);
+                app(\App\Services\CollectionService::class)->voidForOrder($order);
+                app(\App\Services\ReferralService::class)->voidForOrder($order);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Mini game hook (xoá đơn) thất bại', ['order_id' => $order->id, 'error' => $e->getMessage()]);
             }
         });
 

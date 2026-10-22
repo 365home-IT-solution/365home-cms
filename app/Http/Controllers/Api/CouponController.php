@@ -87,6 +87,8 @@ class CouponController extends Controller
             'usage_remaining' => $c->usage_limit !== null
                 ? max(0, (int) $c->usage_limit - (int) $c->used_count)
                 : null,
+            // Nguồn voucher để app dán nhãn: membership (mặc định mã cũ) · checkin · scratch_card · collection · referral
+            'source'          => $c->source ?? 'membership',
         ]);
 
         return response()->json(['data' => $data]);
