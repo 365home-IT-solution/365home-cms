@@ -203,6 +203,9 @@ class Product extends Model implements HasMedia, Resourceable
             }
         });
 
+        // Phòng bị xoá: yêu cầu duyệt đang chờ của phòng tự đóng, không treo mãi.
+        static::deleted(fn (Product $product) => app(\App\Services\ApprovalService::class)->closeForDeletedSubject('product', $product->id));
+
         // Phòng chưa được duyệt (pending / rejected) không bao giờ bật được, dù bật bằng đường nào (API, Filament, nhập liệu...).
         static::saving(function (Product $product) {
             if (($product->approval_status ?? 'approved') !== 'approved' && $product->is_activated) {

@@ -296,6 +296,19 @@ class ApprovalService
             throw new ApprovalException('Chỉ gửi lại được yêu cầu bị từ chối hoặc đã rút lại.');
         }
 
+        if (! $this->subjectExists($request)) {
+            throw new ApprovalException('Bản ghi này đã bị xoá nên không gửi lại được.');
+        }
+
+        // Đã có yêu cầu mới hơn đang chờ của cùng bản ghi: gửi lại bản cũ sẽ ghi đè nội dung mới đó (open() gộp vào yêu cầu chờ), nên chặn.
+        $newerPending = ApprovalRequest::query()
+            ->where('subject_type', $request->subject_type)->where('subject_id', $request->subject_id)
+            ->where('kind', $request->kind)->where('status', ApprovalRequest::STATUS_PENDING)->exists();
+
+        if ($newerPending) {
+            throw new ApprovalException('Bản ghi này đã có yêu cầu mới hơn đang chờ duyệt, không gửi lại yêu cầu cũ được. Hãy sửa trên bản hiện tại hoặc rút lại yêu cầu đang chờ trước.');
+        }
+
         if ($request->isCreate()) {
             $this->setSubjectStatus($request, 'pending');
         }
@@ -435,6 +448,21 @@ class ApprovalService
         if ($priceTouched) {
             $sync->afterManualPriceEdit($product->fresh(), $before);
         }
+    }
+
+    private function subjectExists(ApprovalRequest $request): bool
+    {
+        return $request->subject_type === ApprovalRequest::SUBJECT_PRICE_BOARD
+            ? PriceBoard::withoutGlobalScopes()->whereKey($request->subject_id)->exists()
+            : Product::withoutGlobalScopes()->whereKey($request->subject_id)->exists();
+    }
+
+    /** Bảng giá / phòng bị xoá: các yêu cầu đang chờ của nó không còn gì để duyệt nên tự đóng (cancelled), tránh treo mãi trong danh sách chờ. */
+    public function closeForDeletedSubject(string $subjectType, string|int $subjectId): void
+    {
+        ApprovalRequest::query()
+            ->where('subject_type', $subjectType)->where('subject_id', (string) $subjectId)->where('status', ApprovalRequest::STATUS_PENDING)
+            ->update(['status' => ApprovalRequest::STATUS_CANCELLED, 'reviewed_at' => now(), 'review_note' => 'Bản ghi đã bị xoá.', 'updated_at' => now()]);
     }
 
     /** Đặt approval_status cho bản ghi gốc của yêu cầu "đăng mới". */

@@ -69,6 +69,8 @@ class PriceBoard extends Model
             }
         });
 
+        static::deleted(fn (PriceBoard $board) => app(\App\Services\ApprovalService::class)->closeForDeletedSubject('price_board', $board->id));
+
         static::saving(function (PriceBoard $board) {
             if (($board->approval_status ?? 'approved') !== 'approved' && $board->is_active) {
                 $board->setAttribute('is_active', false);

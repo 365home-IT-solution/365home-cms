@@ -952,9 +952,17 @@ class ProductController extends Controller
             // target_id/dòng), liệt kê đủ toàn bộ room_ids đã áp dụng trong new_values.
             $anchor = Product::whereKey($foundIds[0])->first();
 
-            Product::whereIn('id', $foundIds)->update($update);
+            // Đối tác phải xin duyệt: cập nhật từng phòng bằng model để hook Product::updating giữ bản đang chạy và gom bản sửa vào
+            // yêu cầu "Sửa phòng" (query builder sẽ lách qua cổng duyệt). Super Admin / nhân viên 365home được miễn nên giữ đường hàng loạt.
+            $gated = app(\App\Services\ApprovalService::class)->guards();
 
-            if ($anchor) {
+            if ($gated) {
+                Product::whereIn('id', $foundIds)->get()->each(fn (Product $room) => $room->update($update));
+            } else {
+                Product::whereIn('id', $foundIds)->update($update);
+            }
+
+            if ($anchor && ! $gated) {
                 AuditLogger::log(
                     action: 'update',
                     module: 'Product',
@@ -969,7 +977,7 @@ class ProductController extends Controller
         }
 
         return response()->json([
-            'message' => 'Đã áp dụng.',
+            'message' => ! empty($foundIds) && app(\App\Services\ApprovalService::class)->guards() ? 'Đã gửi 365home duyệt — thay đổi sẽ có hiệu lực sau khi được duyệt.' : 'Đã áp dụng.',
             'updated' => $foundIds,
             'skipped' => $skipped,
         ]);
