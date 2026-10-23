@@ -1310,90 +1310,16 @@
             @elseif($bookingStyle == 2)
                 {{-- Style 2: Daterange picker hiển thị ngay dưới ảnh/tiện ích --}}
                 @php
-                    $product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
-                    $pricePerNight = $product->price ?? 0;
-                    $bookedRanges = \Modules\Payment\Entities\OrderItem::where('product_id', $product->id)
-                        ->whereNotNull('checkin_date')
-                        ->whereNotNull('checkout_date')
-                        ->whereHas('order', function ($q) {
-                            $q->where(function ($inner) {
-                                $inner
-                                    ->whereIn('status', ['paid', 'deposit', 'shipping', 'completed', 'confirmed'])
-                                    ->orWhere(function ($pq) {
-                                        $pq->where('status', 'pending')->where(function ($eq) {
-                                            $eq->whereNull('expired_at')->orWhere('expired_at', '>', now());
-                                        });
-                                    });
-                            });
-                        })
-                        ->get()
-                        ->map(
-                            fn($it) => [
-                                'start' => \Carbon\Carbon::parse($it->checkin_date)->format('Y-m-d'),
-                                'end' => \Carbon\Carbon::parse($it->checkout_date)->format('Y-m-d'),
-                            ],
-                        )
-                        ->values()
-                        ->toArray();
-                    $dayPriceMap = ['mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5, 'sat' => 6, 'sun' => 0];
-                    $dayPrices = [];
-                    foreach ($product->day_prices ?? [] as $k => $v) {
-                        if (isset($dayPriceMap[$k]) && (int) $v > 0) {
-                            $dayPrices[$dayPriceMap[$k]] = (int) $v;
-                        }
-                    }
-                    $datePrices = [];
-                    $promoLabels = [];
-                    $promoDiscounts = [];
-                    $surchargeData = [];
-                    $adminBlockedRanges = array_values(
-                        array_filter(
-                            $product->room_config['blocked_ranges'] ?? [],
-                            fn($r) => !empty($r['start']) && !empty($r['end']),
-                        ),
-                    );
-                    $nowDt = now();
-                    foreach ($product->roomTimeSlots ?? [] as $rts) {
-                        if (
-                            $rts->timeSlot &&
-                            ($rts->timeSlot->type ?? '') === 'date' &&
-                            !empty($rts->timeSlot->label)
-                        ) {
-                            $dk = $rts->timeSlot->label;
-                            if ($rts->price !== null) {
-                                $datePrices[$dk] = (int) $rts->price;
-                            }
-                            $maxDisc = 0;
-                            $bestLbl = '';
-                            $surcharges = [];
-                            foreach ($rts->promotions as $promo) {
-                                if (!$promo->is_active) {
-                                    continue;
-                                }
-                                $inPeriod =
-                                    (!$promo->start_at || $promo->start_at <= $nowDt) &&
-                                    (!$promo->end_at || $promo->end_at >= $nowDt);
-                                if (!$inPeriod) {
-                                    continue;
-                                }
-                                if ($promo->type === 'percentage') {
-                                    if ((float) $promo->value > $maxDisc) {
-                                        $maxDisc = (float) $promo->value;
-                                        $bestLbl = $promo->lable_client ?: $promo->name;
-                                    }
-                                } elseif (in_array($promo->type, ['increase_percentage', 'increase_fixed'])) {
-                                    $surcharges[] = ['type' => $promo->type, 'value' => (float) $promo->value];
-                                }
-                            }
-                            if ($maxDisc > 0) {
-                                $promoDiscounts[$dk] = $maxDisc;
-                                $promoLabels[$dk] = $bestLbl;
-                            }
-                            if (!empty($surcharges)) {
-                                $surchargeData[$dk] = $surcharges;
-                            }
-                        }
-                    }
+                    // Dùng chung với Lịch đặt phòng trực tuyến của chi nhánh (livewire/book/_daily-cards.blade.php).
+                    $calendar = \Modules\BladeThemeV1\Support\DailyRoomCalendar::data($product);
+                    $pricePerNight = $calendar['pricePerNight'];
+                    $bookedRanges = $calendar['bookedRanges'];
+                    $adminBlockedRanges = $calendar['adminBlockedRanges'];
+                    $datePrices = $calendar['datePrices'];
+                    $dayPrices = $calendar['dayPrices'];
+                    $promoLabels = $calendar['promoLabels'];
+                    $promoDiscounts = $calendar['promoDiscounts'];
+                    $surchargeData = $calendar['surchargeData'];
                 @endphp
                 <div wire:ignore id="pd-timeslots-section">
                     @include('bladethemev1::components.product-detail.daterange-picker', [

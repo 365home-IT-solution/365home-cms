@@ -1,20 +1,108 @@
-// Card phòng theo ngày ở bảng đặt phòng trang chủ — xem livewire/book/_daily-cards.blade.php.
-.daily-rooms { margin-top: 24px; }
-.daily-rooms__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
-@media (max-width: 639px) {
-    // Mobile: trượt ngang 1 hàng, card ~80% màn hình để thấy card kế tiếp.
-    .daily-rooms__grid { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 80%; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; }
-    .daily-card { scroll-snap-align: start; }
+// Carousel lịch đặt phòng theo ngày (mỗi phòng 1 slide) ở bảng đặt phòng — xem livewire/book/_daily-cards.blade.php.
+.daily-wrap { --dc-primary: var(--color-primary, #2f5d57); --dc-tint: rgba(var(--color-primary-rgb, 47, 93, 87), .1); margin-top: 20px; }
+.daily-wrap__head { margin-bottom: 12px; }
+.daily-pagination { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.daily-swiper { overflow: hidden; padding: 2px 2px 6px; }
+.daily-swiper .swiper-slide { height: auto; }
+
+.daily-cal { height: 100%; display: flex; flex-direction: column; padding: 14px 14px 12px; border: 1px solid #edf0f2; border-radius: 18px; background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 6px 18px rgba(16, 24, 40, .05); transition: box-shadow .2s; }
+
+.daily-cal__title { display: flex; align-items: center; gap: 6px; color: #111827; text-decoration: none; }
+.daily-cal__title span { min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.daily-cal__title svg { flex-shrink: 0; width: 15px; height: 15px; color: #9ca3af; transition: color .15s, transform .15s; }
+
+.daily-cal__nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 4px; padding: 4px; border-radius: 12px; background: #f7f8f9; }
+.daily-cal__month { font-size: 13px; font-weight: 700; color: #1f2937; text-transform: capitalize; }
+.daily-cal__arrow { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 9px; color: #4b5563; background: none; cursor: pointer; transition: background .15s; }
+.daily-cal__arrow:disabled { opacity: .3; cursor: default; }
+.daily-cal__arrow svg { width: 14px; height: 14px; }
+
+.daily-cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.daily-cal__dow { padding: 6px 0 4px; text-align: center; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: #9ca3af; }
+
+// Ô ngày — màu khớp chú thích dùng chung với bảng khung giờ (book/_legend.blade.php): Đã Đặt = màu chủ đạo,
+// Còn Trống = trắng, Đang chọn = gray-900 (red-600 khi bật giao diện ngày lễ), Khuyến mãi = viền cầu vồng.
+// ::before = dải nền khoảng ngày (liền mạch từ ngày nhận tới ngày trả), ::after = viền khuyến mãi, span = số ngày.
+.daily-wrap { --dc-pick: #111827; --dc-pick-tint: rgba(17, 24, 39, .08); }
+.holiday-theme .daily-wrap { --dc-pick: #dc2626; --dc-pick-tint: rgba(220, 38, 38, .1); }
+
+.daily-cal__day { position: relative; height: 40px; padding: 0; border: 0; background: none; cursor: pointer; }
+.daily-cal__day::before { content: ''; position: absolute; top: 3px; bottom: 3px; left: 0; right: 0; }
+.daily-cal__day span { position: relative; z-index: 1; width: 34px; height: 34px; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 13px; font-weight: 600; color: #374151; transition: background .15s, color .15s; }
+.daily-cal__day:disabled { cursor: not-allowed; }
+
+.daily-cal__day.is-today span { box-shadow: inset 0 0 0 1.5px #d1d5db; }
+.daily-cal__day.is-past span { color: #d1d5db; font-weight: 500; }
+.daily-cal__day.is-booked span, .daily-cal__day.is-blocked span { color: #fff; background: var(--dc-primary); opacity: .55; }
+
+.daily-cal__day.is-promo span { background: #fff; }
+.daily-cal__day.is-promo::after { content: ''; position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: linear-gradient(270deg, #ff4d4d, #ffb84d, #70ff70, #70ffff, #7070ff, #ff70e0, #ff4d4d); background-size: 200% 200%; animation: borderFlow 15s linear infinite; filter: blur(3px); }
+
+.daily-cal__day.is-range::before { background: var(--dc-pick-tint); }
+.daily-cal__day.is-range span { color: var(--dc-pick); background: transparent; }
+.daily-cal__day.is-start.has-range::before { left: 50%; background: var(--dc-pick-tint); }
+.daily-cal__day.is-end::before, .daily-cal__day.is-hover-end::before { right: 50%; background: var(--dc-pick-tint); }
+.daily-cal__day.is-start span, .daily-cal__day.is-end span { color: #fff; background: var(--dc-pick); box-shadow: 0 2px 6px rgba(17, 24, 39, .25); }
+// Ngày nằm trong khoảng đang chọn chỉ hiện dải nền "Đang chọn" — tắt viền khuyến mãi (nền trong suốt sẽ lộ cả vòng cầu vồng).
+.daily-cal__day.is-start::after, .daily-cal__day.is-end::after, .daily-cal__day.is-range::after { display: none; }
+.daily-cal__day.is-hover-end span { box-shadow: inset 0 0 0 1.5px var(--dc-pick); }
+
+.daily-cal__foot { margin-top: auto; padding-top: 10px; }
+.daily-cal__hint { display: flex; align-items: center; gap: 4px; margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; font-size: 12px; color: #6b7280; background: #f7f8f9; }
+.daily-cal__hint b { color: #111827; }
+.daily-cal__clear { margin-left: auto; padding: 2px 6px; border: 0; border-radius: 6px; font-size: 12px; font-weight: 600; color: #ef4444; background: none; cursor: pointer; }
+.daily-cal__picked { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 8px 8px 12px; border-radius: 14px; background: var(--dc-tint); }
+.daily-cal__sum { min-width: 0; flex: 1; }
+.daily-cal__sum span { display: block; font-size: 11px; color: #6b7280; }
+.daily-cal__sum p { margin: 1px 0 0; display: flex; align-items: baseline; gap: 6px; }
+.daily-cal__sum b { font-size: 16px; font-weight: 800; color: var(--dc-primary); }
+.daily-cal__sum s { font-size: 11px; color: #9ca3af; }
+.daily-cal__picked .daily-cal__clear { margin-left: 0; color: #9ca3af; }
+.daily-cal__book { flex-shrink: 0; padding: 9px 14px; border: 0; border-radius: 11px; font-size: 13px; font-weight: 700; color: #fff; background: var(--dc-primary); cursor: pointer; transition: filter .15s, transform .15s; }
+
+// Hiệu ứng hover chỉ cho thiết bị có chuột — trên màn cảm ứng, :hover "dính" lại sau khi chạm (ô ngày vừa chạm
+// giữ nền xám, thẻ giữ bóng đổ đậm).
+@media (hover: hover) {
+    .daily-cal:hover { box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 26px rgba(16, 24, 40, .09); }
+    .daily-cal__title:hover svg { color: var(--dc-primary); transform: translate(1px, -1px); }
+    .daily-cal__arrow:hover:not(:disabled) { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+    .daily-cal__day:hover:not(:disabled) span { background: #f1f3f5; }
+    .daily-cal__clear:hover { background: #fef2f2; }
+    .daily-cal__book:hover { filter: brightness(1.1); transform: translateY(-1px); }
 }
 
-.daily-card { display: flex; flex-direction: column; border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background: #fff; color: inherit; text-decoration: none; transition: box-shadow .15s, transform .15s; }
-.daily-card:hover { box-shadow: 0 8px 24px rgba(17, 24, 39, .08); transform: translateY(-2px); }
-.daily-card__media { position: relative; aspect-ratio: 3 / 2; background: #f3f4f6; }
-.daily-card__media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.daily-card__body { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; flex: 1; }
-.daily-card__name { margin: 0; font-size: 15px; font-weight: 700; color: #111827; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.daily-card__meta { margin: 0; font-size: 12px; color: #6b7280; }
-.daily-card__foot { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding-top: 6px; }
-.daily-card__old { display: block; font-size: 12px; color: #9ca3af; text-decoration: line-through; }
-.daily-card__price { font-size: 16px; font-weight: 800; color: #111827; }
-.daily-card__price small { font-size: 11px; font-weight: 500; color: #6b7280; }
+// ── Mobile (< md): 1 phòng/slide hé phòng kế tiếp, lề 10px thẳng hàng chú thích như bảng khung giờ mobile
+// (lề slide do Swiper slidesOffsetBefore/After lo — xem mountDailySwiper()). Ô ngày to hơn cho dễ chạm.
+@media (max-width: 767px) {
+    .daily-wrap { margin-top: 16px; }
+    .daily-wrap__head { margin-bottom: 10px; padding: 0 10px; }
+    .daily-swiper { padding: 2px 0 8px; }
+    .daily-cal { padding: 12px 12px 10px; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 4px 12px rgba(16, 24, 40, .06); }
+    .daily-cal__title span { font-size: 15px; }
+    .daily-cal__nav { margin-top: 8px; }
+    .daily-cal__arrow { width: 34px; height: 34px; }
+    .daily-cal__day { height: 44px; }
+    .daily-cal__day span { width: 38px; height: 38px; font-size: 14px; }
+    // Viền khuyến mãi mảnh hơn trên mobile: vòng sát mép số ngày + nhoè ít (desktop giữ nhoè 3px).
+    .daily-cal__day.is-promo::after { width: 37px; height: 37px; margin: -18.5px 0 0 -18.5px; filter: blur(1.5px); }
+    .daily-cal__hint { padding: 11px 12px; font-size: 13px; }
+    .daily-cal__clear { padding: 6px 8px; font-size: 13px; }
+    // Ngày + tổng tiền + ✕ trong thẻ; nút đặt phòng nằm ở bottom sheet (xem bên dưới).
+    .daily-cal__picked { padding: 10px 10px 10px 12px; }
+    .daily-cal__sum span { font-size: 12px; }
+    .daily-cal__sum b { font-size: 17px; }
+}
+
+// Màn rất hẹp (≤ 360px, vd iPhone SE / Android nhỏ): thu ô ngày lại để 7 cột không bị chật.
+@media (max-width: 360px) {
+    .daily-cal { padding: 10px 8px 8px; }
+    .daily-cal__day { height: 40px; }
+    .daily-cal__day span { width: 34px; height: 34px; font-size: 13px; }
+    .daily-cal__day.is-promo::after { width: 33px; height: 33px; margin: -16.5px 0 0 -16.5px; filter: blur(1.5px); }
+}
+
+// < lg: chọn xong khoảng ngày thì bottom sheet (.daily-sheet, dùng chung .book-bottom-sheet của phòng khung giờ)
+// chứa bảng giá + nút "Đặt phòng ngay" — ẩn nút trong thẻ cho khỏi trùng. ≥ lg: sheet tự ẩn (CSS .book-bottom-sheet).
+@media (max-width: 1023px) {
+    .daily-cal__picked .daily-cal__book { display: none; }
+}

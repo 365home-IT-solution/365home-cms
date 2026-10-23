@@ -47,6 +47,44 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
     };
 }
 
+// Carousel lịch phòng theo ngày (livewire/book/_daily-cards.blade.php) — cùng kiểu nút Trước/Sau với bảng
+// khung giờ. KHÔNG bật loop: loop nhân bản slide, bản sao không có state Alpine riêng (ngày đang chọn).
+if (typeof window.mountDailySwiper === 'undefined') {
+    window.mountDailySwiper = function (wrapEl) {
+        if (typeof Swiper === 'undefined' || !wrapEl) return;
+        const container = wrapEl.querySelector('.daily-swiper');
+        if (!container || !container.querySelector('.swiper-slide')) return;
+        if (container.swiper) container.swiper.destroy(true, true);
+
+        new Swiper(container, {
+            observer: true,
+            observeParents: true,
+            // Giống bảng khung giờ: 2 phòng mỗi hàng (mobile 1 phòng, hé phòng kế tiếp), trượt 1 phòng/lần.
+            // Mobile: lề 10px 2 bên cho thẳng hàng chú thích (px-2.5) như bảng khung giờ mobile. Vuốt trên
+            // lịch vẫn trượt được (Swiper tự bỏ click sau khi kéo — preventClicks), chạm nhẹ thì chọn ngày.
+            slidesPerView: 1.08,
+            slidesPerGroup: 1,
+            spaceBetween: 10,
+            slidesOffsetBefore: 10,
+            slidesOffsetAfter: 10,
+            watchOverflow: true,
+            threshold: 6,
+            breakpoints: {
+                768: { slidesPerView: 2, spaceBetween: 16, slidesOffsetBefore: 0, slidesOffsetAfter: 0 },
+                1536: { slidesPerView: 2, spaceBetween: 20, slidesOffsetBefore: 0, slidesOffsetAfter: 0 },
+            },
+            navigation: {
+                nextEl: wrapEl.querySelector('.daily-nav-next'),
+                prevEl: wrapEl.querySelector('.daily-nav-prev'),
+            },
+            pagination: {
+                el: wrapEl.querySelector('.daily-pagination'),
+                clickable: true,
+            },
+        });
+    };
+}
+
 // Hook toàn cục (đăng ký 1 lần): mỗi khi Livewire morph lại 1 vùng chứa (hoặc nằm trong)
 // .book-dt-wrap — ví dụ đổi chi nhánh, hoặc lần đầu nạp dữ liệu sau khi mount rỗng — gắn lại
 // Swiper để không bị mất class active/next/prev do morph ghi đè DOM.
@@ -65,6 +103,13 @@ if (typeof window.__bookDtMorphHookRegistered === 'undefined') {
             const ancestorWrap = el.closest ? el.closest('.book-dt-wrap') : null;
             if (ancestorWrap && !wraps.includes(ancestorWrap)) wraps.push(ancestorWrap);
             wraps.forEach((wrapEl) => window.mountBookDtSwiper(wrapEl));
+
+            const dailyWraps = el.classList && el.classList.contains('daily-wrap')
+                ? [el]
+                : (el.querySelectorAll ? Array.from(el.querySelectorAll('.daily-wrap')) : []);
+            const dailyAncestor = el.closest ? el.closest('.daily-wrap') : null;
+            if (dailyAncestor && !dailyWraps.includes(dailyAncestor)) dailyWraps.push(dailyAncestor);
+            dailyWraps.forEach((wrapEl) => window.mountDailySwiper(wrapEl));
         });
     });
 }
@@ -518,14 +563,141 @@ if (typeof window.homeSections === 'undefined') {
     };
 }
 
+// Lịch đặt phòng THEO NGÀY của từng phòng ở Lịch đặt phòng trực tuyến (livewire/book/_daily-cards.blade.php).
+// Cùng cách tính giá / ngày kín với lịch ở trang chi tiết phòng (components/product-detail/daterange-picker
+// .blade.php — dữ liệu từ Modules\BladeThemeV1\Support\DailyRoomCalendar), nhưng không gắn Livewire: chọn
+// xong ngày nhận/trả thì "Đặt phòng" mở trang chi tiết phòng với đúng khoảng ngày đó (booking_preselect).
+if (typeof window.dailyRoomCalendar === 'undefined') {
+    window.dailyRoomCalendar = function (cfg, roomUrl) {
+        cfg = cfg || {};
+        const today = new Date();
+        const inRanges = (iso, ranges) => (ranges || []).some(r => iso >= r.start && iso <= r.end);
+        return {
+            startDate: null,
+            endDate: null,
+            hoveredDate: null,
+            viewYear: today.getFullYear(),
+            viewMonth: today.getMonth(),
+            pricePerNight: Number(cfg.pricePerNight || 0),
+            bookedRanges: cfg.bookedRanges || [],
+            adminBlockedRanges: cfg.adminBlockedRanges || [],
+            datePrices: cfg.datePrices || {},
+            dayPrices: cfg.dayPrices || {},
+            promoDiscounts: cfg.promoDiscounts || {},
+            promoLabels: cfg.promoLabels || {},
+            surchargeData: cfg.surchargeData || {},
+
+            prevMonth() { if (this.viewMonth === 0) { this.viewMonth = 11; this.viewYear--; } else this.viewMonth--; },
+            nextMonth() { if (this.viewMonth === 11) { this.viewMonth = 0; this.viewYear++; } else this.viewMonth++; },
+            get canPrev() { return this.viewYear > today.getFullYear() || (this.viewYear === today.getFullYear() && this.viewMonth > today.getMonth()); },
+            isoDate(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); },
+            monthName() { return new Date(this.viewYear, this.viewMonth, 1).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' }); },
+            daysInMonth() { return new Date(this.viewYear, this.viewMonth + 1, 0).getDate(); },
+            firstDay() { const d = new Date(this.viewYear, this.viewMonth, 1).getDay(); return d === 0 ? 6 : d - 1; },
+            iso(d) { return this.isoDate(this.viewYear, this.viewMonth, d); },
+            isPast(d) { const t = new Date(); t.setHours(0, 0, 0, 0); return new Date(this.viewYear, this.viewMonth, d) < t; },
+            isToday(d) { return d === today.getDate() && this.viewMonth === today.getMonth() && this.viewYear === today.getFullYear(); },
+            isBooked(d) { return inRanges(this.iso(d), this.bookedRanges); },
+            isBlocked(d) { return inRanges(this.iso(d), this.adminBlockedRanges); },
+            isUnavailable(d) { return this.isBooked(d) || this.isBlocked(d); },
+            isDisabled(d) { return this.isPast(d) || this.isUnavailable(d); },
+            inRange(d) {
+                const end = this.endDate || this.hoveredDate, i = this.iso(d);
+                return !!this.startDate && !!end && i > this.startDate && i < end && !this.isUnavailable(d);
+            },
+            hasPromo(d) { const i = this.iso(d); return !this.isDisabled(d) && (this.promoDiscounts[i] !== undefined || !!this.promoLabels[i]); },
+
+            selectDay(d) {
+                if (this.isDisabled(d)) return;
+                const i = this.iso(d);
+                if (!this.startDate || this.endDate || i <= this.startDate) { this.startDate = i; this.endDate = null; return; }
+                // Không cho khoảng ngày đè lên ngày đã có đơn / admin khoá (giống trang chi tiết phòng).
+                const crosses = this.bookedRanges.some(r => r.start < i && r.end > this.startDate)
+                    || this.adminBlockedRanges.some(r => r.start <= i && r.end >= this.startDate);
+                if (crosses) { this.startDate = i; this.endDate = null; return; }
+                this.endDate = i;
+                // Mỗi lúc chỉ 1 phòng đang chọn (1 bottom sheet trên mobile) — báo các lịch khác bỏ chọn.
+                window.dispatchEvent(new CustomEvent('daily-range-picked', { detail: { url: roomUrl } }));
+            },
+            init() {
+                window.addEventListener('daily-range-picked', (e) => {
+                    if (e.detail?.url !== roomUrl) this.clear();
+                });
+            },
+            clear() { this.startDate = null; this.endDate = null; this.hoveredDate = null; },
+
+            // Giao diện từng ô ngày nằm hết ở CSS (_daily-cards.scss) — ở đây chỉ gắn class trạng thái.
+            dayClass(d) {
+                const i = this.iso(d), end = this.endDate || this.hoveredDate;
+                return {
+                    'is-past': this.isPast(d),
+                    'is-blocked': this.isBlocked(d),
+                    'is-booked': !this.isBlocked(d) && this.isBooked(d),
+                    'is-start': i === this.startDate,
+                    'is-end': !!this.endDate && i === this.endDate,
+                    'has-range': !!this.startDate && !!end && end > this.startDate,
+                    'is-range': this.inRange(d),
+                    'is-hover-end': !this.endDate && !!this.startDate && i === this.hoveredDate && i > this.startDate,
+                    'is-today': this.isToday(d),
+                    'is-promo': this.hasPromo(d),
+                };
+            },
+
+            basePriceFor(i) {
+                if (Object.prototype.hasOwnProperty.call(this.datePrices, i) && this.datePrices[i] !== null) return this.datePrices[i];
+                const dow = new Date(i + 'T00:00:00').getDay();
+                return this.dayPrices[dow] > 0 ? this.dayPrices[dow] : this.pricePerNight;
+            },
+            surchargeFor(i) {
+                const base = this.basePriceFor(i);
+                return (this.surchargeData[i] || []).reduce((sum, s) => sum + (s.type === 'increase_percentage' ? Math.round(base * s.value / 100) : Math.round(s.value)), 0);
+            },
+            priceFor(i) {
+                const p = this.basePriceFor(i), disc = this.promoDiscounts[i] || 0;
+                return (disc > 0 ? Math.round(p * (1 - disc / 100)) : p) + this.surchargeFor(i);
+            },
+            nights() {
+                const out = [];
+                if (!this.startDate || !this.endDate) return out;
+                const d = new Date(this.startDate + 'T00:00:00'), end = new Date(this.endDate + 'T00:00:00');
+                while (d < end) { out.push(this.isoDate(d.getFullYear(), d.getMonth(), d.getDate())); d.setDate(d.getDate() + 1); }
+                return out;
+            },
+            get nightCount() { return this.nights().length; },
+            get total() { return this.nights().reduce((s, i) => s + this.priceFor(i), 0); },
+            get originalTotal() { return this.nights().reduce((s, i) => s + this.basePriceFor(i) + this.surchargeFor(i), 0); },
+            get savings() { return Math.max(0, this.originalTotal - this.total); },
+            get rangePromos() {
+                const seen = {};
+                return this.nights().filter(i => this.promoLabels[i] && !seen[this.promoLabels[i]] && (seen[this.promoLabels[i]] = true))
+                    .map(i => ({ label: this.promoLabels[i], discount: this.promoDiscounts[i] }));
+            },
+            fmt(i) { if (!i) return '--'; const p = i.split('-'); return p[2] + '/' + p[1]; },
+            vnd(n) { return Number(n || 0).toLocaleString('vi-VN') + 'đ'; },
+
+            book() {
+                if (!this.startDate || !this.endDate) return;
+                try { sessionStorage.setItem('booking_preselect', JSON.stringify({ checkin: this.startDate, checkout: this.endDate })); } catch (e) {}
+                window.location.href = roomUrl + (roomUrl.includes('?') ? '&' : '?')
+                    + 'checkin=' + this.startDate + '&checkout=' + this.endDate;
+            },
+        };
+    };
+}
+
 if (typeof window.homeBookingBoard === 'undefined') {
     window.homeBookingBoard = function (initialBooking) {
         initialBooking = initialBooking || {};
+        // Chi nhánh chưa có phòng nào (room_count = 0, đếm phòng đang bật bán — xem
+        // SearchController::branchesDataForProvince()) thì không hiện ở Lịch đặt phòng. Lọc ở đây vì
+        // API /api/v1/search/branches dùng chung với trang tìm kiếm/app.
+        const withRooms = (list) => (list || []).filter(b => b.room_count === undefined || Number(b.room_count) > 0);
+        const initialBranches = withRooms(initialBooking.default_branches);
         return {
             provinces: initialBooking.provinces || [],
-            branches: initialBooking.default_branches || [],
+            branches: initialBranches,
             activeProvinceId: initialBooking.active_province_id || null,
-            activeBranchSlug: initialBooking.default_branches?.[0]?.slug || null,
+            activeBranchSlug: initialBranches[0]?.slug || null,
             loadedBranchSlug: initialBooking.default_book_config
                 ? (initialBooking.default_branches?.[0]?.slug || null)
                 : null,
@@ -584,7 +756,7 @@ if (typeof window.homeBookingBoard === 'undefined') {
                             if (data.default_branches) {
                                 // Server đã gộp sẵn chi nhánh của tỉnh mặc định vào response này —
                                 // dùng thẳng, không cần gọi thêm /api/v1/search/branches nữa.
-                                this.branches = data.default_branches.data || [];
+                                this.branches = withRooms(data.default_branches.data);
                                 if (this.branches.length) {
                                     this.selectBranch(this.branches[0]);
                                 }
@@ -618,7 +790,7 @@ if (typeof window.homeBookingBoard === 'undefined') {
                 window.__dedupeFetch('/api/v1/search/branches?province_id=' + encodeURIComponent(this.activeProvinceId))
                     .then(res => res.json())
                     .then(data => {
-                        this.branches = data.data || [];
+                        this.branches = withRooms(data.data);
                         if (this.branches.length) {
                             this.selectBranch(this.branches[0]);
                         }

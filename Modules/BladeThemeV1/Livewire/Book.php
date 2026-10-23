@@ -273,17 +273,16 @@ class Book extends Component
             'parent_name' => $parentName,
             'products' => $products,
             // Phòng THEO NGÀY (styles=2) cùng chi nhánh — bảng khung giờ ở trên không hiển thị được
-            // kiểu phòng này, nên in thành danh sách card dẫn sang trang chi tiết (chọn ngày ở đó).
+            // kiểu phòng này, nên in thành carousel lịch đặt phòng theo ngày (mỗi phòng 1 lịch).
             'daily' => $this->buildDailyCards((int) $categoryId),
         ];
     }
 
     /**
-     * Card phòng theo ngày: ảnh, giá gốc / đêm và "giá từ" thấp nhất 30 ngày tới — tính đúng công
-     * thức đặt phòng (giá ghi đè hoặc giá gốc → phụ thu → KM, PromotionCalculator::calculateForDate).
-     * Trả mảng scalar (không phải model) để state Livewire gọn. Lấy THẲNG theo chi nhánh (gồm khu
-     * vực con) chứ không theo danh sách products của config — config đó (BranchBookConfig::build(),
-     * cấu hình trang chủ) chỉ chứa phòng khung giờ.
+     * Phòng theo ngày của chi nhánh cho carousel lịch đặt phòng (livewire/book/_daily-cards.blade.php):
+     * tên, link chi tiết và dữ liệu lịch (DailyRoomCalendar — giá/ngày kín, dùng chung với trang chi tiết
+     * phòng). Trả mảng scalar để state Livewire gọn. Lấy THẲNG theo chi nhánh (gồm khu vực con) chứ không
+     * theo danh sách products của config — config đó (BranchBookConfig::build()) chỉ chứa phòng khung giờ.
      *
      * @return list<array<string, mixed>>
      */
@@ -301,11 +300,11 @@ class Book extends Component
             ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
             ->orderBy('sort_order')
             ->with([
-                'media',
                 'categories',
                 'roomType',
+                // Mọi ngày đặc biệt từ hôm nay trở đi — lịch xem được các tháng sau.
                 'roomTimeSlots' => fn ($q) => $q->whereHas('timeSlot', fn ($q2) => $q2->where('type', 'date')
-                    ->whereBetween('label', [now()->format('Y-m-d'), now()->addDays(29)->format('Y-m-d')])),
+                    ->where('label', '>=', now()->format('Y-m-d'))),
                 'roomTimeSlots.timeSlot',
                 'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             ])
@@ -316,38 +315,15 @@ class Book extends Component
             return [];
         }
 
-        $calculator = app(\App\Services\PromotionCalculator::class);
-        $resolver   = app(\App\Services\PriceBoards\StayPriceResolver::class);
+        $booked = \Modules\BladeThemeV1\Support\DailyRoomCalendar::bookedRangesFor($rooms->pluck('id')->all());
 
         return $rooms
-            ->map(function (Product $room) use ($calculator, $resolver) {
-                $base  = (float) $room->price;
-                $slots = $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
-                $min   = null;
-
-                for ($day = now()->startOfDay(), $i = 0; $i < 30; $i++, $day->addDay()) {
-                    $date  = $day->format('Y-m-d');
-                    $rts   = $slots->get($date);
-                    $price = $rts?->price !== null ? (float) $rts->price : $resolver->nightPrice($room, $date, $base);
-                    $final = $calculator->calculateForDate($rts, $price, $date)['final_price'];
-                    $min   = $min === null ? $final : min($min, $final);
-                }
-
-                $media = $room->getFirstMedia('Ảnh bìa') ?? $room->getFirstMedia('Thư viện') ?? $room->getFirstMedia();
-                $image = $media ? ($media->hasGeneratedConversion('card') ? $media->getUrl('card') : $media->getUrl()) : null;
-
-                return [
-                    'id'         => (string) $room->id,
-                    'name'       => $room->name,
-                    'url'        => \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($room),
-                    'image'      => $image,
-                    'base_price' => (int) $base,
-                    'from_price' => (int) ($min ?? $base),
-                    'checkin'    => substr((string) ($room->default_checkin ?? '14:00'), 0, 5),
-                    'checkout'   => substr((string) ($room->default_checkout ?? '12:00'), 0, 5),
-                    'max_guests' => (int) ($room->room_config['max_free_guests'] ?? 0),
-                ];
-            })
+            ->map(fn (Product $room) => [
+                'id'       => (string) $room->id,
+                'name'     => $room->name,
+                'url'      => \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($room),
+                'calendar' => \Modules\BladeThemeV1\Support\DailyRoomCalendar::data($room, $booked[(string) $room->id] ?? []),
+            ])
             ->values()
             ->all();
     }
