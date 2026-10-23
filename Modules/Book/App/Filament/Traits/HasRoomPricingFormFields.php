@@ -35,8 +35,12 @@ trait HasRoomPricingFormFields
      *  "Bảng giá mặc định" khi cân nhắc đổi giá mới, KHÔNG truyền ở SettingBook (trang "Hệ thống giá"
      *  = chính đang sửa bảng mặc định, không có "gốc" nào khác để so sánh) — giữ nguyên giao diện
      *  trang đó như cũ. Callable nhận (?string $productId, ?string $timeslotId): ?int.
+     *
+     *  $withPromotions: false = đối tác — vẫn tự thiết lập khung giờ + giá từng khung, nhưng KHÔNG có
+     *  cột "Khuyến mãi" (gắn khuyến mãi vào khung giờ chỉ dành cho super_admin; SettingBook::save()
+     *  cũng bỏ qua promotions gửi lên từ đối tác).
      */
-    protected static function slotPricingSchema(string $prefix, bool $isSuperAdmin, callable $promotionOptions, array $extraInfoFields = [], ?\Closure $baselinePriceResolver = null): array
+    protected static function slotPricingSchema(string $prefix, bool $withPromotions, callable $promotionOptions, array $extraInfoFields = [], ?\Closure $baselinePriceResolver = null): array
     {
         $schema = [
             Section::make('Thông tin Phòng')
@@ -97,99 +101,100 @@ trait HasRoomPricingFormFields
                 ])->columns(2),
         ];
 
-        if ($isSuperAdmin) {
-            $schema[] = Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
-                ->schema([
-                    TableRepeater::make($prefix . 'roomTimeSlots')
-                        ->headers([
-                            Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
-                            ...($baselinePriceResolver ? [Header::make('_baseline_price')->label('Giá gốc')->width('150px')] : []),
-                            Header::make('price')->label('Giá')->width('150px'),
-                            Header::make('promotions')->label('Khuyến mãi')->width('250px'),
-                            Header::make('over_night')->label('Qua đêm')->width('100px'),
-                        ])
-                        ->schema([
-                            Hidden::make('id'),
+        $schema[] = Section::make($withPromotions ? 'Khung giờ, giá, Thiết lập khuyến mãi' : 'Khung giờ, giá')
+            ->description($withPromotions ? null : 'Tự thêm khung giờ (hoặc tạo khung giờ mới) và nhập giá cho từng khung.')
+            ->schema([
+                TableRepeater::make($prefix . 'roomTimeSlots')
+                    ->headers([
+                        Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
+                        ...($baselinePriceResolver ? [Header::make('_baseline_price')->label('Giá gốc')->width('150px')] : []),
+                        Header::make('price')->label('Giá')->width('150px'),
+                        ...($withPromotions ? [Header::make('promotions')->label('Khuyến mãi')->width('250px')] : []),
+                        Header::make('over_night')->label('Qua đêm')->width('100px'),
+                    ])
+                    ->schema([
+                        Hidden::make('id'),
 
-                            Select::make('timeslot_id')
-                                ->label('Khung giờ')
-                                // Bỏ time_slots type=date (1 bản ghi / NGÀY do lịch giá phòng theo ngày tạo ra —
-                                // không phải khung giờ, và mỗi ngày thiết lập lại phình thêm option ở MỌI ô
-                                // chọn của MỌI phòng). type NULL = khung giờ cũ trước khi có cột type.
-                                ->options(fn () => TimeSlot::forCurrentAdmin()
-                                    ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
-                                    ->pluck('label', 'id'))
-                                ->preload()
-                                ->searchable()
-                                ->createOptionForm([
-                                    TextInput::make('label')->required(),
-                                    TextInput::make('start_time')
-                                        ->label('Giờ bắt đầu')
-                                        ->required()
-                                        ->placeholder('07:50')
-                                        ->helperText('Định dạng HH:MM (VD: 07:50)')
-                                        ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                    TextInput::make('end_time')
-                                        ->label('Giờ kết thúc')
-                                        ->required()
-                                        ->placeholder('10:40')
-                                        ->helperText('Định dạng HH:MM (VD: 10:40)')
-                                        ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                ])
-                                // Đối tác tạo = khung giờ riêng của đối tác; super_admin không chọn đối tác tạo = mẫu hệ thống.
-                                ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, [
-                                    'type'       => 'time',
-                                    'partner_id' => auth()->user()?->seesAllPartners() === false ? auth()->user()->partner_id : null,
-                                ]))->id)
-                                ->required()
-                                ->live()
-                                ->afterStateUpdated(function ($state, Set $set, Get $get) use ($baselinePriceResolver) {
-                                    if (! $baselinePriceResolver) {
-                                        return;
-                                    }
+                        Select::make('timeslot_id')
+                            ->label('Khung giờ')
+                            // Bỏ time_slots type=date (1 bản ghi / NGÀY do lịch giá phòng theo ngày tạo ra —
+                            // không phải khung giờ, và mỗi ngày thiết lập lại phình thêm option ở MỌI ô
+                            // chọn của MỌI phòng). type NULL = khung giờ cũ trước khi có cột type.
+                            ->options(fn () => TimeSlot::forCurrentAdmin()
+                                ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
+                                ->pluck('label', 'id'))
+                            ->preload()
+                            ->searchable()
+                            ->createOptionForm([
+                                TextInput::make('label')->required(),
+                                TextInput::make('start_time')
+                                    ->label('Giờ bắt đầu')
+                                    ->required()
+                                    ->placeholder('07:50')
+                                    ->helperText('Định dạng HH:MM (VD: 07:50)')
+                                    ->rules(['regex:/^\d{1,2}:\d{2}$/']),
+                                TextInput::make('end_time')
+                                    ->label('Giờ kết thúc')
+                                    ->required()
+                                    ->placeholder('10:40')
+                                    ->helperText('Định dạng HH:MM (VD: 10:40)')
+                                    ->rules(['regex:/^\d{1,2}:\d{2}$/']),
+                            ])
+                            // Đối tác tạo = khung giờ riêng của đối tác; super_admin không chọn đối tác tạo = mẫu hệ thống.
+                            ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, [
+                                'type'       => 'time',
+                                'partner_id' => auth()->user()?->seesAllPartners() === false ? auth()->user()->partner_id : null,
+                            ]))->id)
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(function ($state, Set $set, Get $get) use ($baselinePriceResolver) {
+                                if (! $baselinePriceResolver) {
+                                    return;
+                                }
 
-                                    $set('_baseline_price', $baselinePriceResolver($get('../../product_id'), $state));
-                                }),
+                                $set('_baseline_price', $baselinePriceResolver($get('../../product_id'), $state));
+                            }),
 
-                            ...($baselinePriceResolver ? [
-                                TextInput::make('_baseline_price')
-                                    ->label('Giá gốc')
-                                    ->disabled()
-                                    ->dehydrated(false)
-                                    ->suffix('VNĐ')
-                                    ->helperText('Giá đang lưu ở Bảng giá mặc định'),
-                            ] : []),
-
-                            TextInput::make('price')
-                                ->label('Giá')
-                                ->required()
+                        ...($baselinePriceResolver ? [
+                            TextInput::make('_baseline_price')
+                                ->label('Giá gốc')
+                                ->disabled()
+                                ->dehydrated(false)
                                 ->suffix('VNĐ')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
+                                ->helperText('Giá đang lưu ở Bảng giá mặc định'),
+                        ] : []),
 
+                        TextInput::make('price')
+                            ->label('Giá')
+                            ->required()
+                            ->suffix('VNĐ')
+                            ->extraInputAttributes(['inputmode' => 'numeric']),
+
+                        ...($withPromotions ? [
                             Select::make('promotions')
                                 ->label('Khuyến mãi')
                                 ->options($promotionOptions)
                                 ->multiple()
                                 ->preload()
                                 ->searchable(),
+                        ] : []),
 
-                            Toggle::make('over_night')
-                                ->label('Qua đêm')
-                                ->default(false),
+                        Toggle::make('over_night')
+                            ->label('Qua đêm')
+                            ->default(false),
 
-                            Hidden::make('status')->default('available'),
-                        ])
-                        ->defaultItems(0)
-                        ->columns($baselinePriceResolver ? 5 : 4)
-                        ->label('')
-                        ->emptyLabel('Chưa thiết lập cấu hình giá')
-                        ->reorderableWithButtons()
-                        ->reorderable(true)
-                        ->createItemButtonLabel('Thêm khung giờ')
-                        ->columnSpan('full')
-                        ->collapsible(),
-                ]);
-        }
+                        Hidden::make('status')->default('available'),
+                    ])
+                    ->defaultItems(0)
+                    ->columns(3 + ($baselinePriceResolver ? 1 : 0) + ($withPromotions ? 1 : 0))
+                    ->label('')
+                    ->emptyLabel('Chưa thiết lập cấu hình giá')
+                    ->reorderableWithButtons()
+                    ->reorderable(true)
+                    ->createItemButtonLabel('Thêm khung giờ')
+                    ->columnSpan('full')
+                    ->collapsible(),
+            ]);
 
         return $schema;
     }

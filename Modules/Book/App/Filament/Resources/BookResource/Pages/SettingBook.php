@@ -17,6 +17,7 @@ use Filament\Forms\Components\DatePicker;
 use Modules\Book\App\Filament\Forms\Components\DatePriceCalendarField;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use Modules\Product\App\Models\TimeSlot;
 use Modules\Promotion\App\Models\Promotion;
 use Filament\Notifications\Notification;
 use Modules\Promotion\App\Models\Coupon;
@@ -408,9 +409,9 @@ class SettingBook extends Page implements HasForms
     {
         $rooms = Product::whereIn('id', $this->currentRoomIds())->orderBy('name')->get();
 
-        // Chỉ super_admin được xem/sửa Khung giờ, giá và Thiết lập khuyến mãi — các role khác chỉ
-        // được thao tác trên Thông tin Phòng, nên 2 section thiết lập giá/khuyến mãi theo khung giờ
-        // (buildSlotRoomTab) và theo ngày (buildDayRoomTab) bị ẩn hẳn khỏi form với các role khác.
+        // Phòng theo khung giờ: đối tác tự thiết lập khung giờ + giá từng khung, nhưng KHÔNG có cột
+        // "Khuyến mãi" (chỉ super_admin) — save() cũng bỏ qua promotions từ đối tác. Lịch "Ngày đặc
+        // biệt & Khuyến mãi" của phòng theo ngày (buildDayRoomTab) vẫn chỉ super_admin.
         $isSuperAdmin = (bool) auth()->user()?->isSuperAdmin();
 
         $buildSlotRoomTab = function ($product) use ($isSuperAdmin) {
@@ -606,7 +607,13 @@ class SettingBook extends Page implements HasForms
 
                     // Style=1: lưu roomTimeSlots (timeslot_id NOT NULL)
                     if ($productStyle === 1 && isset($roomData['roomTimeSlots']) && is_array($roomData['roomTimeSlots'])) {
-                        RoomTimeSlot::withoutAuditLog(function () use ($roomData, $productId) {
+                        $canManagePromotions = $allowedIds === null;
+                        // Đối tác chỉ được dùng khung giờ hệ thống/của chính mình (không dùng type=date).
+                        $usableTimeslotIds = $canManagePromotions ? null : TimeSlot::forCurrentAdmin()
+                            ->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))
+                            ->pluck('id')->map(fn ($id) => (string) $id)->all();
+
+                        RoomTimeSlot::withoutAuditLog(function () use ($roomData, $productId, $canManagePromotions, $usableTimeslotIds) {
                             $existingIds = collect($roomData['roomTimeSlots'])->pluck('id')->filter()->toArray();
                             $slotsToDelete = RoomTimeSlot::where('room_id', $productId)
                                 ->when(!empty($existingIds), fn($q) => $q->whereNotIn('id', $existingIds))
@@ -618,6 +625,10 @@ class SettingBook extends Page implements HasForms
                             }
 
                             foreach ($roomData['roomTimeSlots'] as $slot) {
+                                if ($usableTimeslotIds !== null && ! in_array((string) ($slot['timeslot_id'] ?? ''), $usableTimeslotIds, true)) {
+                                    continue;
+                                }
+
                                 $slotData = [
                                     'room_id' => $productId,
                                     'timeslot_id' => $slot['timeslot_id'],
@@ -629,7 +640,7 @@ class SettingBook extends Page implements HasForms
                                 $roomTimeSlotModel = null;
 
                                 if (!empty($slot['id'])) {
-                                    $roomTimeSlotModel = RoomTimeSlot::find($slot['id']);
+                                    $roomTimeSlotModel = RoomTimeSlot::where('room_id', $productId)->find($slot['id']);
                                     if ($roomTimeSlotModel) {
                                         $roomTimeSlotModel->update($slotData);
                                     }
@@ -637,7 +648,8 @@ class SettingBook extends Page implements HasForms
                                     $roomTimeSlotModel = RoomTimeSlot::create($slotData);
                                 }
 
-                                if ($roomTimeSlotModel) {
+                                // Đối tác không có cột "Khuyến mãi" — giữ nguyên khuyến mãi super_admin đã gắn.
+                                if ($roomTimeSlotModel && $canManagePromotions) {
                                     $roomTimeSlotModel->promotions()->sync($slot['promotions'] ?? []);
                                 }
                             }
