@@ -15,7 +15,6 @@
                 @if ($room['image'])
                 <img src="{{ $room['image'] }}" alt="{{ $room['name'] }}" width="480" height="320" loading="lazy" decoding="async">
                 @endif
-                <span class="daily-card__badge">Theo ngày</span>
             </div>
             <div class="daily-card__body">
                 <p class="daily-card__name">{{ $room['name'] }}</p>
