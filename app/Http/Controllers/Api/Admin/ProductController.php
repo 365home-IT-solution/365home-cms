@@ -477,16 +477,16 @@ class ProductController extends Controller
             }
         }
 
-        // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:8' đã đủ chặn), update()
+        // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:18' đã đủ chặn), update()
         // phải cộng dồn ảnh gallery ĐÃ CÓ SẴN của phòng — kiểm tra TRƯỚC khi ghi bất kỳ thay đổi nào
         // xuống DB (fail fast), không để handleImages() âm thầm bỏ qua ảnh mới nếu vượt hạn mức.
         if (array_key_exists('gallery', $data)) {
             $existingGalleryCount = $product->getMedia('Thư viện')->count();
             $newGalleryCount      = count($data['gallery']);
 
-            if ($existingGalleryCount + $newGalleryCount > 8) {
+            if ($existingGalleryCount + $newGalleryCount > 18) {
                 return response()->json([
-                    'message' => "Tổng số ảnh phụ vượt quá 8 (hiện có {$existingGalleryCount} ảnh, thêm mới {$newGalleryCount} ảnh). Hãy xoá bớt ảnh cũ hoặc thêm ít ảnh mới hơn.",
+                    'message' => "Tổng số ảnh phụ vượt quá 18 (hiện có {$existingGalleryCount} ảnh, thêm mới {$newGalleryCount} ảnh). Hãy xoá bớt ảnh cũ hoặc thêm ít ảnh mới hơn.",
                 ], 422);
             }
         }
@@ -1083,7 +1083,7 @@ class ProductController extends Controller
             'tags.*'              => 'integer|exists:tags,id',
 
             'image_main'          => ($isUpdate ? 'sometimes|' : 'required|') . self::IMAGE_RULE,
-            'gallery'             => 'nullable|array|max:8',
+            'gallery'             => 'nullable|array|max:18',
             'gallery.*'           => self::IMAGE_RULE,
 
             'partner_id'          => 'nullable|uuid|exists:partners,id',

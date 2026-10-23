@@ -536,7 +536,7 @@ class ProductForm
                 ->defaultItems(0)
                 ->minItems(0)
                 ->grid(2)
-                ->maxItems(8)
+                ->maxItems(18)
                 ->columnSpanFull(),
         ])->columns(1);
     }
