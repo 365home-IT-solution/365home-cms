@@ -97,6 +97,9 @@ class PartnerContractVersion extends Model implements HasMedia
         // Đối tác ký bằng chữ ký số (CKS): PDF gốc đã đưa cho đối tác và bản đối tác đã ký (nền tảng ký chồng lên bản này).
         $this->addMediaCollection('partner_base_pdf')->singleFile()->useDisk('local');
         $this->addMediaCollection('partner_signed_pdf')->singleFile()->useDisk('local');
+        // Đối tác KÝ TAY: tải PDF về in, ký tay rồi tải lên bản scan/ảnh chụp (PDF hoặc ảnh từng trang) — chỉ để lưu và đối chiếu,
+        // KHÔNG phải PDF ký số nên nền tảng ký số trên bản PDF hệ thống dựng (không ký chồng lên bản scan).
+        $this->addMediaCollection('partner_manual_signed')->useDisk('local');
     }
 
     public function partner(): BelongsTo
@@ -129,6 +132,12 @@ class PartnerContractVersion extends Model implements HasMedia
     public function isPartnerSignedByCks(): bool
     {
         return $this->partner_sign_method === 'cks' && $this->isPartnerConfirmed();
+    }
+
+    // Đối tác ký tay trên bản in và tải bản scan/ảnh chụp lên (PartnerContractCksService::submitManual).
+    public function isPartnerSignedManually(): bool
+    {
+        return $this->partner_sign_method === 'manual' && $this->isPartnerConfirmed();
     }
 
     public function isPartnerSigned(): bool

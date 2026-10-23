@@ -118,6 +118,76 @@ class PartnerContractCksService
         return ['certificate' => $certificate];
     }
 
+    /**
+     * Đối tác KÝ TAY: tải PDF (preparePdf) về in, ký vào ô ĐẠI DIỆN BÊN B, rồi tải lên bản đã ký (1 file PDF scan hoặc ảnh chụp từng trang).
+     * Không kiểm tra được chữ ký như CKS — 365 Home đối chiếu bản scan khi duyệt hồ sơ. Ghi nhận đối tác đã ký như OTP rồi chạy tiếp luồng cũ.
+     *
+     * @param  array<int, \Illuminate\Http\UploadedFile>  $files
+     */
+    public function submitManual(PartnerContractVersion $version, array $files, string $signerName, string $ip, string $userAgent): void
+    {
+        $this->assertCanSign($version);
+
+        $now = now();
+        foreach (array_values($files) as $i => $file) {
+            $version->addMedia($file)
+                ->usingFileName("hop-dong-{$version->id}-doi-tac-ky-tay-" . ($i + 1) . '.' . strtolower($file->getClientOriginalExtension() ?: $file->extension()))
+                ->toMediaCollection('partner_manual_signed', 'local');
+        }
+        $version->update([
+            'partner_confirmed_at' => $now,
+            'partner_signed_at' => $now,
+            'partner_sign_method' => 'manual',
+            'partner_signing_provider' => 'manual_upload',
+            'partner_signed_by_name' => trim($signerName),
+            'partner_signed_ip' => $ip,
+            'partner_signed_user_agent' => $userAgent,
+        ]);
+
+        app(PartnerContractWorkflowService::class)->completeAfterPartnerSignature($version);
+        app(PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
+    }
+
+    /** Cách ký đối tác chọn được: otp (chỉ khi cấu hình cho phép), cks, manual (ký tay). */
+    public static function signMethods(): array
+    {
+        return [...(\App\Services\ContractSigning\ContractSigningManager::otpAllowed() ? ['otp', 'cks'] : ['cks']), 'manual'];
+    }
+
+    /** @return array<int, array{id: int, file_name: string, mime_type: ?string, size: int}> các tệp hợp đồng đối tác ký tay đã nộp */
+    public function manualFiles(?PartnerContractVersion $version): array
+    {
+        return $version ? $version->getMedia('partner_manual_signed')->map(fn ($m) => [
+            'id' => $m->id, 'file_name' => $m->file_name, 'mime_type' => $m->mime_type, 'size' => (int) $m->size,
+        ])->values()->all() : [];
+    }
+
+    /**
+     * Tải bản hợp đồng ký tay: $mediaId = một tệp; không truyền thì 1 tệp trả nguyên tệp, nhiều tệp gộp ZIP.
+     *
+     * @return array{path: string, file_name: string, temporary: bool}|null
+     */
+    public function manualDownload(PartnerContractVersion $version, ?int $mediaId = null): ?array
+    {
+        $files = $version->getMedia('partner_manual_signed')->filter(fn ($m) => is_file($m->getPath()) && ($mediaId === null || $m->id === $mediaId))->values();
+        if ($files->isEmpty()) {
+            return null;
+        }
+        if ($files->count() === 1) {
+            return ['path' => $files[0]->getPath(), 'file_name' => $files[0]->file_name, 'temporary' => false];
+        }
+
+        $zipPath = (string) tempnam(sys_get_temp_dir(), 'hdkt');
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::OVERWRITE);
+        foreach ($files as $media) {
+            $zip->addFile($media->getPath(), $media->file_name);
+        }
+        $zip->close();
+
+        return ['path' => $zipPath, 'file_name' => "hop-dong-{$version->id}-ky-tay.zip", 'temporary' => true];
+    }
+
     private function assertCanSign(PartnerContractVersion $version): void
     {
         if (! $this->documents->canPartnerSign($version->partner)) {

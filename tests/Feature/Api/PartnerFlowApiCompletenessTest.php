@@ -115,8 +115,95 @@ class PartnerFlowApiCompletenessTest extends TestCase
         $this->getJson($this->base)->assertJsonPath('data.stage', 'pending_review');
         $this->post("{$this->base}/documents/{$id}", ['dkkd_issuer' => 'Sửa lúc chờ duyệt'], ['Accept' => 'application/json'])->assertStatus(422)->assertJsonValidationErrors('status');
         $this->postJson("{$this->base}/withdraw")->assertOk()->assertJsonPath('data.stage', 'ready_to_submit')->assertJsonPath('data.steps.contract_signed', true);
-        $this->post("{$this->base}/documents/{$id}", ['dkkd_issuer' => 'Sở Tài chính'], ['Accept' => 'application/json'])->assertOk();
+        // Sửa ô KHÔNG in trong hợp đồng → giữ chữ ký, gửi duyệt lại được ngay (ô đổi thông tin hợp đồng, vd nơi cấp, sẽ tạo bản hợp đồng mới phải ký lại).
+        $this->post("{$this->base}/documents/{$id}", ['dkkd_business_lines' => 'Dịch vụ lưu trú ngắn ngày'], ['Accept' => 'application/json'])->assertOk();
         $this->postJson("{$this->base}/submit")->assertOk()->assertJsonPath('data.stage', 'pending_review');
+    }
+
+    public function test_partner_can_sign_by_hand_and_upload_the_signed_contract(): void
+    {
+        $this->uploadLicense();
+        $this->putJson("{$this->base}/contract-info", [
+            'legal_name' => 'Homestay Ký Tay', 'address' => '12 Lê Lợi, Cần Thơ', 'email' => 'flow-gaps@example.test',
+            'representative_name' => 'Nguyễn Văn An', 'representative_id_number' => '092088001234', 'representative_id_issued_at' => '2021-07-10',
+        ])->assertOk();
+        $signing = $this->postJson("{$this->base}/contract")->assertOk()->json('data.contract.signing_token');
+        $this->getJson("/api/partner-contracts/{$signing}")->assertOk()->assertJsonPath('data.can_sign_manual', true);
+        $this->assertContains('manual', $this->getJson("/api/partner-contracts/{$signing}")->json('data.sign_methods'));
+
+        // Thiếu tệp / sai định dạng → 422.
+        $this->post("/api/partner-contracts/{$signing}/confirm-manual", ['signer_name' => 'Nguyễn Văn An', 'agree' => '1'], ['Accept' => 'application/json'])
+            ->assertStatus(422)->assertJsonValidationErrors('signed_files');
+        $this->post("/api/partner-contracts/{$signing}/confirm-manual", [
+            'signed_files' => [UploadedFile::fake()->create('hd.docx', 10)], 'signer_name' => 'Nguyễn Văn An', 'agree' => '1',
+        ], ['Accept' => 'application/json'])->assertStatus(422)->assertJsonValidationErrors('signed_files.0');
+
+        // Ảnh chụp 2 trang đã ký tay → ghi nhận đã ký, hồ sơ tự gửi duyệt (luồng ký trước).
+        $this->post("/api/partner-contracts/{$signing}/confirm-manual", [
+            'signed_files' => [UploadedFile::fake()->image('trang-1.jpg'), UploadedFile::fake()->image('trang-2.jpg')],
+            'signer_name' => 'Nguyễn Văn An', 'agree' => '1',
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('data.partner_sign_method', 'manual');
+
+        $version = $this->partner->fresh()->contractVersions()->first();
+        $this->assertTrue($version->isPartnerSignedManually());
+        $this->assertCount(2, $version->getMedia('partner_manual_signed'));
+        $this->assertStringContainsString('ĐÃ KÝ TAY', \App\Support\PartnerContractRenderer::renderFramed($version->content, $this->partner->fresh(), $version));
+        $this->getJson($this->base)->assertJsonPath('data.stage', 'pending_review')->assertJsonPath('data.contract.partner_sign_method', 'manual');
+
+        // API admin: thấy danh sách tệp ký tay, tải từng tệp hoặc gộp ZIP.
+        $files = $this->getJson("/api/admin/partners/{$this->partner->id}/contract", $this->adminHeaders)->assertOk()
+            ->assertJsonPath('data.partner_sign_method', 'manual')->assertJsonCount(2, 'data.partner_manual_files')->json('data.partner_manual_files');
+        $this->get("/api/admin/partners/{$this->partner->id}/contract/partner-manual-files", $this->adminHeaders)->assertOk()
+            ->assertDownload("hop-dong-{$version->id}-ky-tay.zip");
+        $this->get("/api/admin/partners/{$this->partner->id}/contract/partner-manual-files?file={$files[1]['id']}", $this->adminHeaders)->assertOk()
+            ->assertDownload($files[1]['file_name']);
+
+        // Đã ký rồi thì không ký tay lại được.
+        $this->post("/api/partner-contracts/{$signing}/confirm-manual", [
+            'signed_files' => [UploadedFile::fake()->create('hd.pdf', 50, 'application/pdf')], 'signer_name' => 'X', 'agree' => '1',
+        ], ['Accept' => 'application/json'])->assertStatus(422);
+    }
+
+    public function test_admin_uploads_a_hand_signed_contract_for_the_partner(): void
+    {
+        $this->uploadLicense();
+        $this->putJson("{$this->base}/contract-info", [
+            'legal_name' => 'Homestay Ký Tay', 'address' => '12 Lê Lợi, Cần Thơ', 'email' => 'flow-gaps@example.test',
+            'representative_name' => 'Nguyễn Văn An', 'representative_id_number' => '092088001234', 'representative_id_issued_at' => '2021-07-10',
+        ])->assertOk();
+        $status = $this->postJson("{$this->base}/contract")->assertOk();
+        $this->assertContains('manual', $status->json('data.contract.sign_methods'));
+
+        $url = "/api/admin/partners/{$this->partner->id}/contract/partner-manual-upload";
+        $this->post($url, ['signer_name' => 'Nguyễn Văn An'], $this->adminHeaders)->assertStatus(422)->assertJsonValidationErrors('signed_files');
+        $this->post($url, ['signed_files' => [UploadedFile::fake()->create('hd-da-ky.pdf', 80, 'application/pdf')], 'signer_name' => 'Nguyễn Văn An'], $this->adminHeaders)
+            ->assertOk()->assertJsonPath('data.partner_sign_method', 'manual')->assertJsonCount(1, 'data.partner_manual_files');
+        $this->getJson($this->base)->assertJsonPath('data.stage', 'pending_review')->assertJsonPath('data.contract.sign_methods', []);
+
+        // 1 tệp → tải nguyên tệp.
+        $this->get("/api/admin/partners/{$this->partner->id}/contract/partner-manual-files", $this->adminHeaders)->assertOk()->assertHeader('content-disposition');
+    }
+
+    public function test_status_exposes_document_values_for_contract_info_cross_check(): void
+    {
+        $this->post("{$this->base}/documents", [
+            'type' => 'business_license', 'dkkd_business_name' => 'CÔNG TY TNHH AN BÌNH', 'dkkd_business_address' => '252 Xuân Thủy, Cần Thơ',
+            'file' => UploadedFile::fake()->create('dkkd.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertCreated();
+
+        // Giấy tờ đã điền sẵn hồ sơ → khớp; khách sửa tay khác giấy tờ → matches = false.
+        $this->getJson($this->base)
+            ->assertJsonPath('data.contract_info_sources.legal_name.value', 'CÔNG TY TNHH AN BÌNH')
+            ->assertJsonPath('data.contract_info_sources.legal_name.document_type', 'business_license')
+            ->assertJsonPath('data.contract_info_sources.legal_name.field', 'dkkd_business_name')
+            ->assertJsonPath('data.contract_info_sources.legal_name.matches', true)
+            ->assertJsonMissingPath('data.contract_info_sources.email');
+        $this->putJson("{$this->base}/contract-info", [
+            'legal_name' => 'Tên khác', 'address' => '252 Xuân Thủy, Cần Thơ', 'email' => 'flow-gaps@example.test',
+            'representative_name' => 'Nguyễn Văn An', 'representative_id_number' => '092088001234', 'representative_id_issued_at' => '2021-07-10',
+        ])->assertOk()
+            ->assertJsonPath('data.contract_info_sources.legal_name.matches', false)
+            ->assertJsonPath('data.contract_info_sources.address.matches', true);
     }
 
     public function test_admin_can_read_status_logs_reactivate_and_delete_partners(): void

@@ -31,6 +31,10 @@ class PartnerContractSignController extends Controller
             'platform_signed_at' => $version->platform_signed_at?->toIso8601String(),
             // Đối tác có thể ký bằng chữ ký số (CKS) thay cho OTP: GET pdf → ký → POST confirm-cks.
             'can_sign_cks' => $documents->canPartnerSign($version->partner) && ! $version->isPartnerConfirmed(),
+            // Ký tay: GET pdf → in, ký → POST confirm-manual (bản scan / ảnh chụp).
+            'can_sign_manual' => $documents->canPartnerSign($version->partner) && ! $version->isPartnerConfirmed(),
+            // Cách ký đối tác chọn được (trang đăng ký dựa vào đây để hiện / ẩn OTP): otp chỉ khi cấu hình cho phép.
+            'sign_methods' => PartnerContractCksService::signMethods(),
             'partner_sign_method' => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
             'partner_certificate' => $version->isPartnerSignedByCks() ? [
                 'subject' => $version->partner_signature_certificate['cert_subject'] ?? null,
@@ -69,6 +73,33 @@ class PartnerContractSignController extends Controller
                 'subject' => $cert['cert_subject'] ?? null, 'organization' => $cert['cert_org'] ?? null, 'issuer' => $cert['cert_issuer'] ?? null,
                 'tax_code' => $cert['tax_code'] ?? null, 'valid_to' => $cert['valid_to'] ?? null,
             ],
+        ]]);
+    }
+
+    // POST /api/partner-contracts/{token}/confirm-manual — KÝ TAY: tải PDF (GET pdf) về in, ký, rồi tải lên bản đã ký
+    // (multipart signed_files[]: 1 file PDF scan hoặc tối đa 10 ảnh chụp từng trang). Thay cho OTP/CKS.
+    public function confirmManual(Request $request, string $token, PartnerContractCksService $cks): JsonResponse
+    {
+        $version = $this->version($token);
+        $data = $request->validate([
+            'signed_files' => ['required', 'array', 'min:1', 'max:10'],
+            'signed_files.*' => ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:20480'],
+            'signer_name' => ['required', 'string', 'max:255'],
+            'agree' => ['required', 'accepted'],
+        ], [
+            'signed_files.required' => 'Vui lòng tải lên hợp đồng đã ký.',
+            'signed_files.max' => 'Tối đa 10 tệp.',
+            'signed_files.*.mimes' => 'Chỉ nhận PDF hoặc ảnh JPG, PNG, WEBP.',
+            'signed_files.*.max' => 'Mỗi tệp tối đa 20 MB.',
+        ], ['signer_name' => 'họ tên người ký', 'agree' => 'xác nhận đồng ý']);
+
+        $cks->submitManual($version, $request->file('signed_files'), $data['signer_name'], (string) $request->ip(), (string) $request->userAgent());
+
+        return response()->json(['message' => 'Đã nhận hợp đồng ký tay.', 'data' => [
+            'partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String(),
+            'partner_sign_method' => 'manual',
+            'is_fully_signed' => $version->fresh()->isFullySigned(),
+            'contract_status' => $version->partner->fresh()->contract_status,
         ]]);
     }
 

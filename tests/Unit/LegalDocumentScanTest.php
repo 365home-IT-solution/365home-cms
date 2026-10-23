@@ -21,6 +21,8 @@ class LegalDocumentScanTest extends TestCase
         $result = $this->scan('business_license', 'dkkd');
 
         $this->assertSame([
+            // Mục "1. Tên công ty": tên tiếng Việt tràn 2 dòng, dừng trước dòng tên tiếng nước ngoài.
+            'dkkd_business_name'            => 'CÔNG TY TNHH TRUYỀN THÔNG VÀ DỊCH VỤ VẬN TẢI CẦN THƠ EXPRESS',
             'dkkd_document_number'          => '1800000047',
             // "Đăng ký lần đầu", không lấy ngày đăng ký thay đổi.
             'dkkd_issued_at'                => '2021-09-28',
@@ -36,7 +38,7 @@ class LegalDocumentScanTest extends TestCase
             'dkkd_phone'                    => '0900000188',
         ], $result['fields']);
         $this->assertTrue($result['type_matches']);
-        $this->assertSame(7, $result['found']);
+        $this->assertSame(8, $result['found']);
         $this->assertStringContainsString('Ngành, nghề kinh doanh', implode(' ', $result['warnings']));
     }
 
@@ -135,7 +137,7 @@ class LegalDocumentScanTest extends TestCase
         $empty = (new LegalDocumentScanService())->suggest('business_license', '');
         $this->assertFalse($empty['text_found']);
         $this->assertSame(0, $empty['found']);
-        $this->assertSame(8, $empty['total']);
+        $this->assertSame(9, $empty['total']);
         $this->assertNull($empty['fields']['dkkd_document_number']);
     }
 }

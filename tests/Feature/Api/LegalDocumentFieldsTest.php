@@ -40,7 +40,7 @@ class LegalDocumentFieldsTest extends TestCase
 
         $this->assertSame(['business_license', 'security_order', 'fire_safety', 'citizen_id'], array_column($response->json('data.forms'), 'type'));
         $this->assertSame(
-            ['dkkd_document_number', 'dkkd_issued_at', 'dkkd_issuer', 'dkkd_business_address', 'dkkd_business_lines', 'dkkd_legal_representative', 'dkkd_representative_id_number', 'dkkd_phone'],
+            ['dkkd_business_name', 'dkkd_document_number', 'dkkd_issued_at', 'dkkd_issuer', 'dkkd_business_address', 'dkkd_business_lines', 'dkkd_legal_representative', 'dkkd_representative_id_number', 'dkkd_phone'],
             array_column($response->json('data.forms.0.fields'), 'key'),
         );
         $this->assertSame('Số văn bản', $response->json('data.forms.2.fields.0.label'));
@@ -48,7 +48,7 @@ class LegalDocumentFieldsTest extends TestCase
 
         // Không ô nào của loại này trùng tên cột với loại khác — kể cả số / ngày cấp / nơi cấp.
         $keys = array_merge(...array_map(fn ($form) => array_column($form['fields'], 'key'), $response->json('data.forms')));
-        $this->assertCount(29, $keys);
+        $this->assertCount(30, $keys);
         $this->assertSame($keys, array_values(array_unique($keys)));
         $this->assertCount(9, $response->json('data.types'));
     }
@@ -161,17 +161,17 @@ class LegalDocumentFieldsTest extends TestCase
             'dkkd_legal_representative' => 'Nguyễn Văn An', 'pccc_investor' => 'Không thuộc loại này',
             'file' => UploadedFile::fake()->create('dkkd.pdf', 100, 'application/pdf'),
         ], $headers)->assertCreated()
-            ->assertJsonPath('data.fields.0.value', '1800000047')
+            ->assertJsonPath('data.fields.1.value', '1800000047')
             ->assertJsonPath('data.document_number', '1800000047')
-            ->assertJsonPath('data.fields.5.value', 'Nguyễn Văn An')
+            ->assertJsonPath('data.fields.6.value', 'Nguyễn Văn An')
             ->json('data.id');
         $this->assertNull($this->partner->legalDocuments()->find($id)->pccc_investor);
 
         // Sửa: gửi ô nào cập nhật ô đó, ô khác giữ nguyên; cột tóm tắt chung đổi theo.
         $this->post("{$base}/{$id}", ['dkkd_issuer' => 'Phòng Đăng ký kinh doanh, Sở Tài chính', 'dkkd_phone' => '0900000188'], $headers)->assertOk()
             ->assertJsonPath('data.issuer', 'Phòng Đăng ký kinh doanh, Sở Tài chính')
-            ->assertJsonPath('data.fields.0.value', '1800000047')
-            ->assertJsonPath('data.fields.7.value', '0900000188');
+            ->assertJsonPath('data.fields.1.value', '1800000047')
+            ->assertJsonPath('data.fields.8.value', '0900000188');
 
         // Quét phía admin dùng chung bộ dò với phía công khai.
         $this->app->bind(LegalDocumentScanService::class, fn () => new class extends LegalDocumentScanService
@@ -232,6 +232,54 @@ class LegalDocumentFieldsTest extends TestCase
         $qr(null);
         $this->post("{$base}/{$id}", ['file' => $image(900), 'file_back' => $back(910)], $headers)->assertStatus(422)->assertJsonValidationErrors('file');
         $this->assertSame('092088001234', $document->fresh()->cccd_document_number);
+    }
+
+    public function test_registration_needs_no_business_name_or_address(): void
+    {
+        $this->postJson('/api/public/partner-onboarding', [
+            'partner_type' => Partner::TYPE_HOMESTAY, 'full_name' => 'Trần Thị Bình', 'phone' => '0970000299', 'email' => 'no-address@example.test',
+            'accept_terms' => true,
+        ])->assertCreated();
+
+        $partner = Partner::query()->where('phone', '0970000299')->firstOrFail();
+        $this->assertSame('Trần Thị Bình', $partner->name);
+        $this->assertNull($partner->legal_name);
+        $this->assertNull($partner->address);
+    }
+
+    public function test_uploaded_documents_prefill_the_contract_info(): void
+    {
+        $this->partner->update(['legal_name' => null, 'address' => null, 'representative_name' => 'Người đăng ký']);
+
+        $this->upload([
+            'type' => 'business_license', 'dkkd_business_name' => 'CÔNG TY TNHH NHÀ TRỌ AN BÌNH', 'dkkd_document_number' => '1800000047',
+            'dkkd_issued_at' => '2021-09-28', 'dkkd_issuer' => 'Phòng ĐKKD, Sở Tài chính, Thành phố Cần Thơ',
+            'dkkd_business_address' => 'Số 252 Xuân Thủy, Phường An Bình, Thành phố Cần Thơ, Việt Nam',
+            'dkkd_legal_representative' => 'NGUYỄN VĂN AN', 'dkkd_representative_id_number' => '092088000001',
+        ])->assertCreated();
+
+        $partner = $this->partner->fresh();
+        $this->assertSame('CÔNG TY TNHH NHÀ TRỌ AN BÌNH', $partner->legal_name);
+        $this->assertSame('CÔNG TY TNHH NHÀ TRỌ AN BÌNH', $partner->name);
+        $this->assertSame('Số 252 Xuân Thủy, Phường An Bình, Thành phố Cần Thơ, Việt Nam', $partner->address);
+        $this->assertSame('1800000047', $partner->tax_code);
+        $this->assertSame('2021-09-28', $partner->business_license_date?->format('Y-m-d'));
+        $this->assertSame('NGUYỄN VĂN AN', $partner->representative_name);
+        $this->assertSame('092088000001', $partner->representative_id_number);
+        $province = \App\Models\Province::query()->where('name', 'like', '%Cần Thơ%')->value('code');
+        if ($province) {
+            $this->assertSame((int) $province, (int) $partner->province_code);
+        }
+
+        // Bước Thông tin đọc lại từ API trạng thái.
+        $this->getJson("/api/public/partner-onboarding/{$this->token}")
+            ->assertJsonPath('data.partner.legal_name', 'CÔNG TY TNHH NHÀ TRỌ AN BÌNH')
+            ->assertJsonPath('data.partner.address', 'Số 252 Xuân Thủy, Phường An Bình, Thành phố Cần Thơ, Việt Nam');
+
+        // GCN ANTT chỉ bù ô còn trống — không ghi đè tên/địa chỉ đã lấy từ giấy phép kinh doanh.
+        $this->upload(['type' => 'security_order', 'antt_business_name' => 'NHÀ TRỌ KHÁC', 'antt_business_address' => '1 Trần Phú'])->assertCreated();
+        $this->assertSame('CÔNG TY TNHH NHÀ TRỌ AN BÌNH', $this->partner->fresh()->legal_name);
+        $this->assertSame('Số 252 Xuân Thủy, Phường An Bình, Thành phố Cần Thơ, Việt Nam', $this->partner->fresh()->address);
     }
 
     private function upload(array $fields)

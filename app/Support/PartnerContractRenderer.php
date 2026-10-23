@@ -332,7 +332,8 @@ class PartnerContractRenderer
                 'ĐẠI DIỆN BÊN B',
                 $version?->isPartnerConfirmed() ?? false,
                 $version?->partner_signed_by_name,
-                $version?->partner_confirmed_at?->format('d/m/Y H:i')
+                $version?->partner_confirmed_at?->format('d/m/Y H:i'),
+                ($version?->isPartnerSignedManually() ?? false) ? 'ĐÃ KÝ TAY (BẢN SCAN ĐÃ NỘP) BỞI' : 'ĐÃ XÁC NHẬN QUA OTP BỞI'
             );
 
         $font = self::FONT;
@@ -384,7 +385,7 @@ class PartnerContractRenderer
     }
 
     // Dùng riêng cho phía Đối tác — xác nhận qua OTP, KHÔNG phải chữ ký số PKI nên không dùng wording "ĐÃ KÝ SỐ".
-    private static function renderConfirmationBox(string $label, bool $confirmed, ?string $signerName, ?string $confirmedAt): string
+    private static function renderConfirmationBox(string $label, bool $confirmed, ?string $signerName, ?string $confirmedAt, string $how = 'ĐÃ XÁC NHẬN QUA OTP BỞI'): string
     {
         $lh = self::LH13;
         $labelHtml = '<p style="margin:6pt 0;padding-left:0.95pt;text-align:center;font-weight:700;line-height:' . $lh . ';">' . $label . '</p>';
@@ -394,7 +395,7 @@ class PartnerContractRenderer
 
             return $labelHtml . <<<HTML
                 <div style="border:1px solid #0369a1;padding:8px;min-height:84pt;font-size:10pt;line-height:1.4;color:#0369a1;">
-                    ĐÃ XÁC NHẬN QUA OTP BỞI: {$name}<br>THỜI GIAN: {$confirmedAt}
+                    {$how}: {$name}<br>THỜI GIAN: {$confirmedAt}
                 </div>
             HTML;
         }

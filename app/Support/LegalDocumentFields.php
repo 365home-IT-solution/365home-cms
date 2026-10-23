@@ -21,6 +21,7 @@ class LegalDocumentFields
     // tên ô (chưa gắn tiền tố) => [nhãn, kiểu ô nhập]. Thứ tự = thứ tự hiển thị trên form.
     private const DEFINITIONS = [
         'business_license' => [
+            'business_name'            => ['Tên doanh nghiệp/hộ kinh doanh', 'text'],
             'document_number'          => ['Mã số doanh nghiệp', 'text'],
             'issued_at'                => ['Ngày cấp', 'date'],
             'issuer'                   => ['Nơi cấp/Cơ quan cấp', 'text'],

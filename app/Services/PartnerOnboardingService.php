@@ -132,13 +132,14 @@ class PartnerOnboardingService
         $this->assertEmailFree($data['email'], $existing?->id);
 
         $token = Str::random(48);
+        // Web không còn hỏi tên cơ sở / địa chỉ (lấy từ giấy tờ pháp lý khi nộp); client cũ vẫn gửi được.
         $attributes = [
-            'name'                => $data['business_name'],
-            'legal_name'          => $data['business_name'],
+            'name'                => filled($data['business_name'] ?? null) ? $data['business_name'] : $data['full_name'],
+            'legal_name'          => filled($data['business_name'] ?? null) ? $data['business_name'] : null,
             'representative_name' => $data['full_name'],
             'phone'               => $phone,
             'email'               => $data['email'],
-            'address'             => $data['address'],
+            'address'             => filled($data['address'] ?? null) ? $data['address'] : null,
             'onboarding_token'    => self::hashToken($token),
         ];
 
@@ -277,14 +278,16 @@ class PartnerOnboardingService
         $token = Str::random(48);
 
         $partner = DB::transaction(function () use ($data, $phone, $token) {
+            // Đăng ký chỉ còn người liên hệ: tên pháp lý, địa chỉ kinh doanh... điền tự động từ giấy tờ đã quét (applyDocumentToProfile).
+            // Chưa có tên cơ sở thì tạm dùng họ tên người đăng ký.
             $partner = Partner::create([
                 'partner_type'        => $data['partner_type'],
-                'name'                => $data['business_name'],
-                'legal_name'          => $data['business_name'],
+                'name'                => filled($data['business_name'] ?? null) ? $data['business_name'] : $data['full_name'],
+                'legal_name'          => filled($data['business_name'] ?? null) ? $data['business_name'] : null,
                 'representative_name' => $data['full_name'],
                 'phone'               => $phone,
                 'email'               => $data['email'],
-                'address'             => $data['address'],
+                'address'             => filled($data['address'] ?? null) ? $data['address'] : null,
                 'province_code'       => filled($data['address_province_code'] ?? null) ? (int) $data['address_province_code'] : null,
                 'status'              => false,
                 'verification_status' => 'pending',
@@ -344,9 +347,93 @@ class PartnerOnboardingService
             if ($back && PartnerLegalDocument::needsBackSide($data['type'])) {
                 $document->addMedia($back)->toMediaCollection('file_back');
             }
+            $this->applyDocumentToProfile($partner, $document);
 
             return $document;
         });
+    }
+
+    /**
+     * Điền thông tin hồ sơ đối tác (bước "Thông tin" trên trang đăng ký) từ giấy tờ vừa nộp/sửa — khách chỉ cần đối chiếu, sửa nếu sai:
+     *  - Giấy phép kinh doanh: tên pháp lý, địa chỉ kinh doanh (+ tỉnh/thành), mã số thuế, ngày/nơi cấp giấy phép; người đại diện khi chưa có CCCD.
+     *  - CCCD (đọc từ mã QR): họ tên, số, ngày cấp, nơi cấp, ngày sinh người đại diện — ưu tiên hơn giấy phép kinh doanh.
+     *  - GCN an ninh trật tự: chỉ bù tên cơ sở / địa chỉ kinh doanh khi hồ sơ còn trống.
+     * Ô giấy tờ để trống thì giữ nguyên giá trị đang có.
+     */
+    private function applyDocumentToProfile(Partner $partner, PartnerLegalDocument $document): void
+    {
+        $get = fn (string $key) => ($v = $document->{$key}) instanceof \DateTimeInterface ? $v->format('Y-m-d') : (filled($v) ? trim((string) $v) : null);
+        $values = [];
+
+        if ($document->type === 'business_license') {
+            $values = [
+                'legal_name'              => $get('dkkd_business_name'),
+                'address'                 => $get('dkkd_business_address'),
+                'business_license_date'   => $get('dkkd_issued_at'),
+                'business_license_issuer' => $get('dkkd_issuer'),
+            ];
+            // Mã số doanh nghiệp / hộ kinh doanh = mã số thuế khi đúng định dạng MST.
+            $number = (string) preg_replace('/\s+/', '', (string) $get('dkkd_document_number'));
+            if (preg_match('/^(\d{10}(-?\d{3})?|\d{12})$/', $number)) {
+                $values['tax_code'] = $number;
+            }
+            if (! $partner->legalDocuments()->where('type', 'citizen_id')->where('status', '!=', 'rejected')->exists()) {
+                $values['representative_name'] = $get('dkkd_legal_representative');
+                $values['representative_id_number'] = $get('dkkd_representative_id_number');
+            }
+        } elseif ($document->type === 'citizen_id') {
+            $values = [
+                'representative_name'            => $get('cccd_full_name'),
+                'representative_id_number'       => $get('cccd_document_number'),
+                'representative_id_issued_at'    => $get('cccd_issued_at'),
+                'representative_id_issued_place' => $get('cccd_issuer'),
+                'representative_dob'             => $get('cccd_dob'),
+            ];
+        } elseif ($document->type === 'security_order') {
+            $values = [
+                'legal_name' => blank($partner->legal_name) ? $get('antt_business_name') : null,
+                'address'    => blank($partner->address) ? $get('antt_business_address') : null,
+            ];
+        }
+
+        $values = array_filter($values, fn ($v) => filled($v));
+        if (isset($values['legal_name'])) {
+            $values['name'] = $values['legal_name'];
+        }
+        if (isset($values['address']) && ($province = $this->provinceIn($values['address']))) {
+            $values['province_code'] = $province;
+        }
+        if ($values === []) {
+            return;
+        }
+        $partner->update($values);
+
+        // Đối tác ký trước mà hợp đồng đã tạo: thông tin in trong hợp đồng vừa đổi theo giấy tờ → tạo bản mới để ký lại (như updateContractInfo).
+        if ($partner->signsBeforeReview() && $partner->wasChanged(self::CONTRACT_FIELDS)
+            && ($latest = $this->latestContract($partner)) && ! $latest->isPlatformSigned()
+            && $this->missingContractFields($partner) === [] && $this->missingRequiredDocuments($partner) === []) {
+            $this->createPreApprovalContract($partner, 'Tạo lại vì thông tin ký hợp đồng đổi theo giấy tờ pháp lý vừa nộp');
+        }
+    }
+
+    /** Mã tỉnh/thành có tên xuất hiện trong địa chỉ (so khớp bỏ dấu, lấy tên đứng sau cùng — tỉnh/thành luôn ở cuối địa chỉ). */
+    private function provinceIn(string $address): ?int
+    {
+        $haystack = Str::lower(Str::ascii($address));
+        $best = null;
+        $bestPos = -1;
+        foreach (\App\Models\Province::query()->whereNotNull('code')->get(['code', 'name']) as $province) {
+            $short = trim((string) preg_replace('/^(tinh|thanh pho|tp\.?)\s+/', '', Str::lower(Str::ascii((string) $province->name))));
+            if ($short === '') {
+                continue;
+            }
+            $pos = strrpos($haystack, $short);
+            if ($pos !== false && $pos > $bestPos) {
+                [$best, $bestPos] = [(int) $province->code, $pos];
+            }
+        }
+
+        return $best;
     }
 
     /**
@@ -370,7 +457,7 @@ class PartnerOnboardingService
             $values = array_merge($values, app(LegalDocumentScanService::class)->citizenIdValues($file ?? $stored('file'), $back ?? $stored('file_back')));
         }
 
-        return DB::transaction(function () use ($document, $values, $file, $back) {
+        return DB::transaction(function () use ($partner, $document, $values, $file, $back) {
             $document->update($values + ['status' => 'draft', 'review_note' => null, 'reviewed_at' => null, 'reviewed_by' => null]);
             if ($file) {
                 $document->addMedia($file)->toMediaCollection('file');
@@ -378,6 +465,7 @@ class PartnerOnboardingService
             if ($back && PartnerLegalDocument::needsBackSide($document->type)) {
                 $document->addMedia($back)->toMediaCollection('file_back');
             }
+            $this->applyDocumentToProfile($partner, $document);
 
             return $document->fresh('media');
         });
@@ -408,7 +496,9 @@ class PartnerOnboardingService
             'partner_signed_by'    => $version->partner_signed_by_name,
             // Cách ký đối tác có thể chọn khi còn chờ ký: otp (mã gửi email) hoặc cks (chữ ký số của đối tác: GET /api/partner-contracts/{token}/pdf rồi
             // POST .../confirm-cks). Sau khi ký: partner_sign_method cho biết đã ký theo cách nào, partner_certificate là chứng thư khi ký CKS.
-            'sign_methods'         => $signingActive ? (\App\Services\ContractSigning\ContractSigningManager::otpAllowed() ? ['otp', 'cks'] : ['cks']) : [],
+            // manual = ký tay: GET .../pdf về in, ký rồi POST .../confirm-manual (bản scan / ảnh chụp).
+            'sign_methods'         => $signingActive ? PartnerContractCksService::signMethods() : [],
+            'partner_manual_files' => count(app(PartnerContractCksService::class)->manualFiles($version)),
             'partner_sign_method'  => $version->partner_sign_method ?? ($version->isPartnerConfirmed() ? 'otp' : null),
             'partner_certificate'  => $version->isPartnerSignedByCks() ? [
                 'subject'      => $version->partner_signature_certificate['cert_subject'] ?? null,
@@ -1150,6 +1240,8 @@ class PartnerOnboardingService
                 'active'              => $partner->contract_status === 'active',
             ],
             'missing_contract_fields' => $missing,
+            // Giá trị đọc từ giấy tờ đã nộp cho từng ô thông tin ký hợp đồng — để client hiện "Khớp/Khác <giấy tờ>" cho khách đối chiếu.
+            'contract_info_sources'   => $this->contractInfoSources($partner, $documents),
             'required_documents'      => $this->requiredDocumentsStatus($partner),
             'documents'    => $documents->map(fn (PartnerLegalDocument $d) => $this->formatDocument($d))->values()->all(),
             'contract'     => $contract ? [
@@ -1158,8 +1250,11 @@ class PartnerOnboardingService
                 'signing_active'       => $signingActive,
                 'signing_token'        => $signingActive ? $contract->signing_token : null,
                 'signing_url'          => $signingActive ? route('contract.sign.show', $contract->signing_token) : null,
+                // Cách ký chọn được khi đang chờ ký: otp / cks = ký điện tử; manual = ký tay (GET /api/partner-contracts/{token}/pdf → POST .../confirm-manual).
+                'sign_methods'         => $signingActive ? PartnerContractCksService::signMethods() : [],
                 'partner_confirmed_at' => $contract->partner_confirmed_at?->toIso8601String(),
                 'partner_signed_by'    => $contract->partner_signed_by_name,
+                'partner_sign_method'  => $contract->partner_sign_method ?? ($contract->isPartnerConfirmed() ? 'otp' : null),
                 'platform_signed_at'   => $contract->platform_signed_at?->toIso8601String(),
                 // Có bản PDF đã ký số để tải (GET .../contract/signed-pdf) — chỉ sau khi 365 Home ký.
                 'has_signed_pdf'       => $contract->isPlatformSigned() && $contract->hasMedia('signed_pdf'),
@@ -1175,6 +1270,54 @@ class PartnerOnboardingService
                 'note'         => $partner->verification_note,
             ],
         ];
+    }
+
+    /**
+     * Ô thông tin ký hợp đồng ↔ ô giấy tờ đã dùng để điền sẵn (theo thứ tự ưu tiên; cùng quy tắc với applyDocumentToProfile).
+     * Ô không có trong bảng (email, chức vụ...) không lấy từ giấy tờ.
+     */
+    public const CONTRACT_INFO_SOURCES = [
+        'legal_name'                     => ['business_license' => 'dkkd_business_name', 'security_order' => 'antt_business_name'],
+        'tax_code'                       => ['business_license' => 'dkkd_document_number'],
+        'address'                        => ['business_license' => 'dkkd_business_address', 'security_order' => 'antt_business_address'],
+        'representative_name'            => ['citizen_id' => 'cccd_full_name', 'business_license' => 'dkkd_legal_representative'],
+        'representative_id_number'       => ['citizen_id' => 'cccd_document_number', 'business_license' => 'dkkd_representative_id_number'],
+        'representative_id_issued_at'    => ['citizen_id' => 'cccd_issued_at'],
+        'representative_id_issued_place' => ['citizen_id' => 'cccd_issuer'],
+        'representative_dob'             => ['citizen_id' => 'cccd_dob'],
+        'business_license_date'          => ['business_license' => 'dkkd_issued_at'],
+        'business_license_issuer'        => ['business_license' => 'dkkd_issuer'],
+    ];
+
+    /**
+     * @return array<string, array{value: string, document_id: string|int, document_type: string, document_label: string, field: string, matches: bool}>
+     *         chỉ gồm các ô có giá trị trên giấy tờ (giấy tờ bị từ chối bỏ qua; nhiều bản cùng loại thì lấy bản mới nhất).
+     */
+    private function contractInfoSources(Partner $partner, \Illuminate\Support\Collection $documents): array
+    {
+        $norm = fn ($v) => mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', (string) $v)));
+        $sources = [];
+        foreach (self::CONTRACT_INFO_SOURCES as $field => $candidates) {
+            foreach ($candidates as $type => $column) {
+                $document = $documents->first(fn (PartnerLegalDocument $d) => $d->type === $type && $d->status !== 'rejected' && filled($d->{$column}));
+                if (! $document) {
+                    continue;
+                }
+                $value = $document->{$column} instanceof \DateTimeInterface ? $document->{$column}->format('Y-m-d') : trim((string) $document->{$column});
+                $current = $partner->{$field} instanceof \DateTimeInterface ? $partner->{$field}->format('Y-m-d') : $partner->{$field};
+                $sources[$field] = [
+                    'value'          => $value,
+                    'document_id'    => $document->id,
+                    'document_type'  => $type,
+                    'document_label' => PartnerLegalDocument::TYPES[$type] ?? $type,
+                    'field'          => $column,
+                    'matches'        => $norm($value) === $norm($current),
+                ];
+                break;
+            }
+        }
+
+        return $sources;
     }
 
     public function formatDocument(PartnerLegalDocument $document): array

@@ -198,6 +198,8 @@ class PartnerController extends Controller
             'can_platform_resign' => $version ? ($version->isPlatformSigned() && $version->platform_signing_provider === 'local' && ! app(ContractSigningManager::class)->isTestProvider()) : false,
             'platform_signed_method' => $version?->platform_sign_method,
             'partner_sign_method' => $version?->partner_sign_method ?? ($version?->isPartnerConfirmed() ? 'otp' : null),
+            // Đối tác ký tay (partner_sign_method = manual): các tệp scan/ảnh đã nộp — tải qua GET .../contract/partner-manual-files[?file={id}].
+            'partner_manual_files' => app(\App\Services\PartnerContractCksService::class)->manualFiles($version),
             'partner_certificate' => $version?->isPartnerSignedByCks() ? [
                 'subject' => $version->partner_signature_certificate['cert_subject'] ?? null,
                 'organization' => $version->partner_signature_certificate['cert_org'] ?? null,
@@ -402,6 +404,50 @@ class PartnerController extends Controller
                 'tax_code' => $cert['tax_code'] ?? null, 'valid_to' => $cert['valid_to'] ?? null,
             ],
         ]]);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/partner-manual-upload (Super Admin) — đối tác KÝ TAY gửi bản giấy/scan ngoài hệ thống (Zalo, bưu điện...):
+    // admin tải bản đã ký lên hộ (signed_files[]: 1 PDF scan hoặc tối đa 10 ảnh từng trang). Ghi nhận như đối tác tự ký tay trên trang đăng ký.
+    public function partnerManualUpload(Request $request, Partner $partner, \App\Services\PartnerContractCksService $cks): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $version = $partner->contractVersions()->first();
+        abort_unless($version, 404, 'Đối tác chưa có hợp đồng.');
+        $data = $request->validate([
+            'signed_files' => ['required', 'array', 'min:1', 'max:10'],
+            'signed_files.*' => ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:20480'],
+            'signer_name' => ['required', 'string', 'max:255'],
+        ], [
+            'signed_files.required' => 'Vui lòng tải lên hợp đồng đã ký.',
+            'signed_files.max' => 'Tối đa 10 tệp.',
+            'signed_files.*.mimes' => 'Chỉ nhận PDF hoặc ảnh JPG, PNG, WEBP.',
+            'signed_files.*.max' => 'Mỗi tệp tối đa 20 MB.',
+        ], ['signer_name' => 'họ tên người ký']);
+
+        $cks->submitManual($version, $request->file('signed_files'), $data['signer_name'], (string) $request->ip(), (string) $request->userAgent());
+        $version->refresh();
+
+        return response()->json(['message' => 'Đã ghi nhận hợp đồng đối tác ký tay.', 'data' => [
+            'partner_confirmed_at' => $version->partner_confirmed_at->toIso8601String(),
+            'partner_sign_method' => 'manual',
+            'partner_manual_files' => $cks->manualFiles($version),
+            'is_fully_signed' => $version->isFullySigned(),
+            'contract_status' => $partner->fresh()->contract_status,
+        ]]);
+    }
+
+    // GET /api/admin/partners/{partner}/contract/partner-manual-files[?file={id}] — tải hợp đồng đối tác KÝ TAY để đối chiếu:
+    // có ?file = đúng tệp đó; không có = 1 tệp trả nguyên tệp, nhiều tệp gộp ZIP. Super Admin hoặc chủ đối tác của chính hợp đồng.
+    public function partnerManualFiles(Request $request, Partner $partner, \App\Services\PartnerContractCksService $cks): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        $this->partnerAccess($request, $partner);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $version = $partner->contractVersions()->first();
+        $file = $version ? $cks->manualDownload($version, $request->filled('file') ? (int) $request->query('file') : null) : null;
+        abort_unless($file, 404, 'Không có hợp đồng ký tay.');
+
+        return response()->download($file['path'], $file['file_name'])->deleteFileAfterSend($file['temporary']);
     }
 
     // GET /api/admin/partners/{partner}/contract/display-pdf — BẢN HIỂN THỊ PDF đúng như màn hình xem hợp đồng trên web (khung ĐẠI DIỆN BÊN A / BÊN B có tên và giờ

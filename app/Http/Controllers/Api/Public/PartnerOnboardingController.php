@@ -30,10 +30,10 @@ class PartnerOnboardingController extends Controller
             'full_name'     => ['required', 'string', 'max:255'],
             'phone'         => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
             'email'         => ['required', 'email', 'max:255'],
-            'business_name' => ['required', 'string', 'max:255'],
-            // Địa chỉ: gửi dạng có cấu trúc (khuyến nghị) HOẶC chuỗi `address` như bản cũ.
-            'address'               => ['required_without:address_street', 'nullable', 'string', 'max:500'],
-            'address_street'        => ['required_without:address', 'nullable', 'string', 'max:255'],
+            'business_name' => ['nullable', 'string', 'max:255'],
+            // Tên cơ sở + địa chỉ KHÔNG còn bắt buộc: web lấy từ giấy tờ pháp lý đã quét (Giấy phép kinh doanh). Client cũ vẫn gửi được dạng có cấu trúc hoặc chuỗi `address`.
+            'address'               => ['nullable', 'string', 'max:500'],
+            'address_street'        => ['nullable', 'string', 'max:255'],
             'address_province_code' => ['required_with:address_street', 'nullable', 'integer', \Illuminate\Validation\Rule::exists(\App\Models\Province::class, 'code')],
             'address_ward_code'     => ['required_with:address_street', 'nullable', 'integer', \Illuminate\Validation\Rule::exists(\App\Models\Ward::class, 'code')],
             'address_unit'          => ['nullable', 'string', 'max:100'],

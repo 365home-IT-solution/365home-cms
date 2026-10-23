@@ -88,6 +88,7 @@ Route::middleware('throttle:30,1')->prefix('partner-contracts/{token}')->name('a
     Route::post('confirm', [PartnerContractSignController::class, 'confirm'])->name('confirm');
     Route::get('pdf', [PartnerContractSignController::class, 'pdf'])->name('pdf');
     Route::post('confirm-cks', [PartnerContractSignController::class, 'confirmCks'])->name('confirm-cks');
+    Route::post('confirm-manual', [PartnerContractSignController::class, 'confirmManual'])->name('confirm-manual');
 });
 
 /*

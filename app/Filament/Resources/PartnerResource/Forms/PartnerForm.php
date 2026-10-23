@@ -952,6 +952,14 @@ class PartnerForm
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->canPartnerSign($record))
                                             ->action(fn (?Partner $record) => self::downloadPartnerPdfToSign($record)),
 
+                                        // Đối tác KÝ TAY trên trang đăng ký: tải bản scan / ảnh chụp đã nộp (nhiều tệp thì gộp ZIP) để đối chiếu.
+                                        Forms\Components\Actions\Action::make('downloadPartnerManualSigned')
+                                            ->label('Tải hợp đồng đối tác ký tay')
+                                            ->icon('heroicon-o-arrow-down-tray')
+                                            ->color('info')
+                                            ->visible(fn (?Partner $record) => (bool) self::latestVersion($record)?->isPartnerSignedManually())
+                                            ->action(fn (?Partner $record) => self::downloadPartnerManualSigned($record)),
+
                                         Forms\Components\Actions\Action::make('uploadPartnerSignedPdf')
                                             ->label('Tải lên PDF đối tác đã ký CKS')
                                             ->icon('heroicon-o-arrow-up-tray')
@@ -1380,6 +1388,19 @@ class PartnerForm
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
     }
 
+    private static function downloadPartnerManualSigned(?Partner $record): ?\Symfony\Component\HttpFoundation\Response
+    {
+        $version = self::latestVersion($record);
+        $file = $version ? app(\App\Services\PartnerContractCksService::class)->manualDownload($version) : null;
+        if (! $file) {
+            Notification::make()->title('Không tìm thấy tệp hợp đồng ký tay')->danger()->send();
+
+            return null;
+        }
+
+        return response()->download($file['path'], $file['file_name'])->deleteFileAfterSend($file['temporary']);
+    }
+
     private static function uploadPartnerSignedPdf(?Partner $record, string $path, ?string $signerName): void
     {
         $version = self::latestVersion($record);
@@ -1525,7 +1546,10 @@ class PartnerForm
             return '<div style="font-size:0.8rem;color:#9ca3af;">Chưa có hợp đồng điện tử nào được tạo.</div>';
         }
 
-        $partnerRow = $version->isPartnerConfirmed()
+        $partnerRow = $version->isPartnerConfirmed() && $version->isPartnerSignedManually()
+            ? '<span style="color:#0369a1;font-weight:700;">✓ Đã ký tay (bản scan)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
+                .' bởi '.e($version->partner_signed_by_name).' — '.$version->getMedia('partner_manual_signed')->count().' tệp, bấm "Tải hợp đồng đối tác ký tay" để đối chiếu'
+            : ($version->isPartnerConfirmed()
             ? ($version->isPartnerSignedByCks()
                 ? '<span style="color:#0369a1;font-weight:700;">✓ Đã ký số (CKS)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
                     .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')'
@@ -1536,7 +1560,7 @@ class PartnerForm
                         : '')
                 : '<span style="color:#0369a1;font-weight:700;">✓ Đã xác nhận (OTP)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
                     .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')')
-            : '<span style="color:#f59e0b;font-weight:700;">Chưa xác nhận</span> — đang chờ đối tác xác nhận qua link đã gửi';
+            : '<span style="color:#f59e0b;font-weight:700;">Chưa xác nhận</span> — đang chờ đối tác xác nhận qua link đã gửi');
 
         $platformRow = $version->isPlatformSigned()
             ? '<span style="color:#10b981;font-weight:700;">✓ Đã ký số & phát hành PDF</span> lúc '.e($version->platform_signed_at->format('H:i d/m/Y'))

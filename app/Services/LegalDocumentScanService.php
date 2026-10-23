@@ -266,6 +266,8 @@ class LegalDocumentScanService
         $number = (string) $this->after(['ma so doanh nghiep', 'ma so ho kinh doanh', 'ma so dang ky ho kinh doanh', 'ma so chi nhanh', 'ma so thue']);
 
         return [
+            // Mục "1. Tên công ty": lấy tên viết bằng tiếng Việt (dòng tên tiếng nước ngoài / viết tắt ngay dưới là nhãn khác nên tự dừng).
+            'business_name'   => $this->after(['ten cong ty viet bang tieng viet', 'ten doanh nghiep viet bang tieng viet', 'ten chi nhanh viet bang tieng viet', 'ten ho kinh doanh', 'ten doanh nghiep'], multiline: true),
             // 10 số (hoặc 10-3 cho đơn vị phụ thuộc); hộ kinh doanh có thể kèm chữ → giữ cụm đầu tiên.
             'document_number' => preg_match('/\b(?:\d{10}(?:-\d{3})?|\d{12})\b/', $number, $m) ? $m[0] : (preg_match('/[0-9A-Z][0-9A-Z.\-]{5,}/u', mb_strtoupper($number), $m) ? $m[0] : null),
             'issued_at'       => $this->dateIn($this->after(['dang ky lan dau'])) ?? $this->signatureDate(),
