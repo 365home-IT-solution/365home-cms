@@ -47,6 +47,11 @@ class CreateProduct extends CreateRecord
 
     // Dịch vụ bổ sung không còn chọn theo từng phòng — phòng kế thừa dịch vụ của chi nhánh. Ô
     // categories được Filament sync SAU khi tạo bản ghi nên phải đồng bộ ở đây.
+    protected function getCreatedNotification(): ?\Filament\Notifications\Notification
+    {
+        return \App\Support\ApprovalContext::hasNotices() ? null : parent::getCreatedNotification();
+    }
+
     protected function afterCreate(): void
     {
         app(BranchServiceSync::class)->syncRoom($this->record);

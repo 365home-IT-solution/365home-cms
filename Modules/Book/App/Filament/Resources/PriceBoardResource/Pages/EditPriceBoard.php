@@ -49,7 +49,7 @@ class EditPriceBoard extends EditRecord
                 ->color('warning')
                 ->requiresConfirmation()
                 ->modalDescription('Áp ngay giá của bảng này xuống các phòng, bất kể ngày hiệu lực. Job đêm sẽ tính lại theo ngày hiệu lực.')
-                ->visible(fn () => ! $this->record->is_template)
+                ->visible(fn () => ! $this->record->is_template && $this->record->isApproved())
                 ->action(function () {
                     app(PriceBoardSyncService::class)->applyBoard($this->record);
 
@@ -80,6 +80,12 @@ class EditPriceBoard extends EditRecord
                     app(PriceBoardSyncService::class)->resyncProductsAfterBoardDeleted($affectedProducts);
                 }),
         ];
+    }
+
+    // Bản sửa đã được gửi 365home duyệt (đối tác thường) thì không báo "Đã lưu" — thông báo "Đã gửi duyệt" đã hiện.
+    protected function getSavedNotification(): ?Notification
+    {
+        return \App\Support\ApprovalContext::hasNotices() ? null : parent::getSavedNotification();
     }
 
     protected function mutateFormDataBeforeFill(array $data): array

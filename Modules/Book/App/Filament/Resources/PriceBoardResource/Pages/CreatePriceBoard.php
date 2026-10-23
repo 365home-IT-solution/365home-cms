@@ -71,6 +71,11 @@ class CreatePriceBoard extends CreateRecord
         throw new Halt();
     }
 
+    protected function getCreatedNotification(): ?Notification
+    {
+        return \App\Support\ApprovalContext::hasNotices() ? null : parent::getCreatedNotification();
+    }
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');

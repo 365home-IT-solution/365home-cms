@@ -37,9 +37,16 @@
         loginPassword: '',
         showLoginPassword: false,
 
+        // Trang cần đăng nhập gửi khách sang đây kèm ?redirect=/duong-dan: đăng nhập xong quay lại đúng trang đó.
+        // Chỉ nhận đường dẫn nội bộ (bắt đầu bằng 1 dấu '/'), chặn '//' và '\' để không bị chuyển hướng sang trang ngoài.
+        nextUrl() {
+            const n = new URLSearchParams(window.location.search).get('redirect');
+            return (n && n.startsWith('/') && !n.startsWith('//') && !n.includes('\\')) ? n : '/';
+        },
+
         init() {
             // Đã đăng nhập rồi thì không cần thấy trang này nữa.
-            if (localStorage.getItem('auth_token')) { window.location.href = '/'; return; }
+            if (localStorage.getItem('auth_token')) { window.location.href = this.nextUrl(); return; }
 
             // Điều hướng từ trang kia sang (số điện thoại phát hiện là tài khoản mới lúc đang ở
             // trang đăng nhập -> chuyển sang trang đăng ký) mang theo phone_token còn hạn dùng
@@ -178,7 +185,7 @@
             localStorage.setItem('auth_token', token);
             localStorage.setItem('auth_user', JSON.stringify(user));
             window.dispatchEvent(new CustomEvent('auth-state-changed'));
-            window.location.href = '/';
+            window.location.href = this.nextUrl();
         },
     }"
 >

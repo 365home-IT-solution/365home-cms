@@ -28,6 +28,37 @@ class RoomTimeSlot extends Model
         'settings' => 'array', // ← Fix: đổi từ 'setting' → 'settings', json → array
     ];
 
+    // Đối tác sửa giá / giờ của khung giờ thuộc phòng ĐÃ duyệt: giữ bản đang chạy, bản sửa vào yêu cầu "Sửa phòng" chờ duyệt (xem App\Services\ApprovalService).
+    protected static function booted(): void
+    {
+        static::updating(function (RoomTimeSlot $slot) {
+            $gate = app(\App\Services\ApprovalService::class);
+
+            if (! $gate->guards()) {
+                return;
+            }
+
+            $room = Product::withoutGlobalScopes()->find($slot->room_id);
+
+            if (! $room || ($room->approval_status ?? 'approved') !== 'approved') {
+                return;
+            }
+
+            $changes = [];
+
+            foreach (array_keys(\App\Services\ApprovalService::SLOT_FIELDS) as $field) {
+                if ($slot->isDirty($field)) {
+                    $changes[$field] = ['old' => $slot->getOriginal($field), 'new' => $slot->getAttribute($field)];
+                    $slot->setAttribute($field, $slot->getOriginal($field));
+                }
+            }
+
+            if ($changes) {
+                $gate->mergeRoomChanges($room, [], [$slot->id => $changes], auth()->user());
+            }
+        });
+    }
+
     public function timeSlot()
     {
         return $this->belongsTo(TimeSlot::class, 'timeslot_id');

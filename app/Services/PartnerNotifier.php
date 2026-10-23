@@ -53,6 +53,11 @@ class PartnerNotifier
             }
 
             // Yêu cầu hoàn tiền khách: mở danh sách yêu cầu (đối tác bấm "Đã hoàn tiền cho khách" ngay tại đó).
+            // Kết quả duyệt bảng giá / phòng: mở danh sách yêu cầu duyệt.
+            if (str_starts_with($type, 'approval_')) {
+                return \App\Filament\Resources\ApprovalRequestResource::getUrl('index');
+            }
+
             if (str_starts_with($type, 'refund_claim_')) {
                 return \App\Filament\Resources\PartnerRefundClaimResource::getUrl('index');
             }

@@ -306,7 +306,7 @@ class PartnerContractRenderer
     }
 
     // Bọc phần nội dung pháp lý (đã hash/lưu bất biến ở render() phía trên) bằng khung "quốc hiệu - tiêu ngữ" ở đầu + 2 ô ký tên ở cuối
-    // (ĐẠI DIỆN BÊN A bên trái, ĐẠI DIỆN BÊN B bên phải, mỗi ô chiếm một nửa chiều rộng — đúng mẫu) — KHÔNG đưa phần khung này vào nội dung tính hash, vì trạng thái ký
+    // (ĐẠI DIỆN BÊN A bên trái, ĐẠI DIỆN BÊN B bên phải, mỗi ô chiếm một nửa chiều rộng, nằm ngay sau Điều cuối cùng — cùng trang nếu còn đủ chỗ, không có khung khi chưa ký) — KHÔNG đưa phần khung này vào nội dung tính hash, vì trạng thái ký
     // thay đổi theo thời gian còn nội dung hợp đồng thì cố định từ lúc tạo. Dùng chung cho: xem trước (PartnerForm), popup "Xem toàn văn",
     // trang ký công khai và xuất PDF — để mọi nơi hiển thị đồng nhất.
     public static function renderFramed(string $bodyContent, Partner $partner, ?PartnerContractVersion $version): string
@@ -354,7 +354,7 @@ class PartnerContractRenderer
 
                 {$bodyContent}
 
-                <div style="page-break-before:always;"></div>
+                <div style="height:{$lh};line-height:{$lh};">&nbsp;</div>
                 <table class="hd-sign" style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:{$font};font-size:13pt;page-break-inside:avoid;">
                     <tr>
                         <td style="width:50%;height:133.6pt;vertical-align:top;text-align:center;padding:0 8pt 0 0;">{$platformBox}</td>
@@ -380,8 +380,8 @@ class PartnerContractRenderer
             HTML;
         }
 
-        // Chưa ký: ô trống có khung nét đứt (cùng kích thước ô đã ký) — vùng để đặt hình chữ ký số khi ký.
-        return $labelHtml . '<div style="border:1px dashed #9ca3af;min-height:100pt;"></div>';
+        // Chưa ký: vùng trống KHÔNG có khung (cùng chiều cao ô đã ký) — chỗ để đặt hình chữ ký số khi ký.
+        return $labelHtml . '<div style="min-height:100pt;"></div>';
     }
 
     // Dùng riêng cho phía Đối tác — xác nhận qua OTP, KHÔNG phải chữ ký số PKI nên không dùng wording "ĐÃ KÝ SỐ".
@@ -400,7 +400,7 @@ class PartnerContractRenderer
             HTML;
         }
 
-        // Chưa ký: ô trống có khung nét đứt (cùng kích thước ô đã ký) — vùng để đặt hình chữ ký số khi ký.
-        return $labelHtml . '<div style="border:1px dashed #9ca3af;min-height:100pt;"></div>';
+        // Chưa ký: vùng trống KHÔNG có khung (cùng chiều cao ô đã ký) — chỗ để đặt hình chữ ký số khi ký.
+        return $labelHtml . '<div style="min-height:100pt;"></div>';
     }
 }

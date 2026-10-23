@@ -111,7 +111,10 @@ class PriceBoardController extends Controller
             $query->where('is_active', $request->boolean('is_active'));
         }
 
-        $all = $query->orderByDesc('id')->get()
+        $boards = $query->orderByDesc('id')->get();
+        $this->pendingUpdates = app(\App\Services\ApprovalService::class)->pendingUpdateMap(\App\Models\ApprovalRequest::SUBJECT_PRICE_BOARD, $boards->pluck('id')->all());
+
+        $all = $boards
             ->map(fn (PriceBoard $b) => $this->presentBoard($b))
             ->when($request->filled('status'), fn ($c) => $c->where('status', $request->input('status')))
             ->values();
@@ -217,6 +220,10 @@ class PriceBoardController extends Controller
 
         if (! $board) {
             return response()->json(['message' => 'Không tìm thấy bảng giá.'], 404);
+        }
+
+        if (! $board->isApproved()) {
+            return response()->json(['message' => 'Bảng giá chưa được 365home duyệt nên chưa áp dụng được.'], 422);
         }
 
         $data = $request->validate([
@@ -590,6 +597,10 @@ class PriceBoardController extends Controller
 
         $saved = $this->v2->persist($spec, $board);
 
+        if (\App\Support\ApprovalContext::hasNotices()) {
+            $message = $board === null ? 'Đã tạo bảng giá, đang chờ 365home duyệt.' : 'Đã gửi bản sửa bảng giá cho 365home duyệt — bảng đang chạy giữ nguyên cho tới khi được duyệt.';
+        }
+
         return response()->json([
             'message' => $message,
             'data'    => $this->presentBoard($saved, true),
@@ -753,8 +764,15 @@ class PriceBoardController extends Controller
         };
     }
 
+    /** @var array<string, int> bảng giá (id) => id yêu cầu sửa đang chờ duyệt — nạp 1 lần ở index(), show() tự tra. */
+    private array $pendingUpdates = [];
+
     private function presentBoard(PriceBoard $board, bool $detail = false): array
     {
+        if ($detail && ! isset($this->pendingUpdates[(string) $board->id])) {
+            $this->pendingUpdates += app(\App\Services\ApprovalService::class)->pendingUpdateMap(\App\Models\ApprovalRequest::SUBJECT_PRICE_BOARD, [$board->id]);
+        }
+
         $branches = $board->relationLoaded('scopeBranches') ? $board->scopeBranches : $board->scopeBranches()->get();
 
         $out = [
@@ -779,6 +797,9 @@ class PriceBoardController extends Controller
             'days_of_week'     => array_values(array_map('intval', (array) $board->days_of_week)),
             'sheets_count'     => $board->sheets_count ?? $board->sheets()->count(),
             'rooms_count'      => $board->items_count ?? $board->items()->count(),
+            // Duyệt trước khi đăng: approved | pending (đăng mới, chờ 365home duyệt) | rejected. pending_update_id = id yêu cầu sửa đang chờ (bảng vẫn chạy bản cũ).
+            'approval_status'  => $board->approval_status ?? 'approved',
+            'pending_update_id' => $this->pendingUpdates[(string) $board->id] ?? null,
         ];
 
         if (! $detail) {

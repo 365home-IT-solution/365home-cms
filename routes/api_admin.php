@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
 use App\Http\Controllers\Api\Admin\CollectionAdminController;
 use App\Http\Controllers\Api\Admin\ReferralAdminController;
 use App\Http\Controllers\Api\Admin\GameTesterController;
+use App\Http\Controllers\Api\Admin\ApprovalController;
 use App\Http\Controllers\Api\Admin\CustomerCompanionController as AdminCustomerCompanionController;
 use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
@@ -1121,6 +1122,25 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/dev')->nam
     Route::post('orders', [GameTesterController::class, 'createOrder'])->name('orders.store');
     Route::post('orders/{id}/complete', [GameTesterController::class, 'completeOrder'])->whereNumber('id')->name('orders.complete');
     Route::post('orders/{id}/refund', [GameTesterController::class, 'refundOrder'])->whereNumber('id')->name('orders.refund');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Duyệt trước khi đăng (đối tác gửi 365home duyệt: bảng giá mới / sửa bảng giá, đăng phòng mới, sửa phòng) — xem ApprovalController, App\Services\ApprovalService
+| GET  /api/admin/approvals ?status=&kind=&partner_id=&search=&per_page= → danh sách (đối tác thấy của mình, Super Admin thấy tất cả)
+| GET  /api/admin/approvals/summary → số yêu cầu theo trạng thái
+| GET  /api/admin/approvals/{id} → chi tiết + thay đổi cũ → mới
+| POST /api/admin/approvals/{id}/approve (Super Admin; note?) · /reject (Super Admin; reason) · /cancel (rút lại) · /resubmit (gửi lại)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/approvals')->name('api.admin.approvals.')->group(function () {
+    Route::get('/', [ApprovalController::class, 'index'])->name('index');
+    Route::get('summary', [ApprovalController::class, 'summary'])->name('summary');
+    Route::get('{id}', [ApprovalController::class, 'show'])->whereNumber('id')->name('show');
+    Route::post('{id}/approve', [ApprovalController::class, 'approve'])->whereNumber('id')->name('approve');
+    Route::post('{id}/reject', [ApprovalController::class, 'reject'])->whereNumber('id')->name('reject');
+    Route::post('{id}/cancel', [ApprovalController::class, 'cancel'])->whereNumber('id')->name('cancel');
+    Route::post('{id}/resubmit', [ApprovalController::class, 'resubmit'])->whereNumber('id')->name('resubmit');
 });
 
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name('api.admin.coupons.')->group(function () {

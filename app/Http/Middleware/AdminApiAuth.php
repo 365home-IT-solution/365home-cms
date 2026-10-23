@@ -30,6 +30,20 @@ class AdminApiAuth
             return $blocked;
         }
 
-        return $next($request);
+        \App\Support\ApprovalContext::reset();
+
+        $response = $next($request);
+
+        // Thao tác của đối tác cần 365home duyệt (bảng giá, phòng): thay đổi chưa có hiệu lực → trả kèm "approval" để app báo "đã gửi duyệt".
+        if (\App\Support\ApprovalContext::hasNotices() && $response instanceof \Illuminate\Http\JsonResponse) {
+            $data = $response->getData(true);
+
+            if (is_array($data)) {
+                $data['approval'] = ['submitted' => true, 'requests' => \App\Support\ApprovalContext::notices()];
+                $response->setData($data);
+            }
+        }
+
+        return $response;
     }
 }

@@ -29,6 +29,21 @@ class ProductTable extends Table
                     ->wrap()
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('approval_status')
+                    ->label('Duyệt')
+                    ->state(function (Product $record) {
+                        $label = ['approved' => 'Đã duyệt', 'pending' => 'Chờ duyệt', 'rejected' => 'Bị từ chối'][$record->approval_status ?? 'approved'] ?? $record->approval_status;
+
+                        return ($record->approval_status ?? 'approved') === 'approved' && app(\App\Services\ApprovalService::class)->hasPendingUpdate(\App\Models\ApprovalRequest::SUBJECT_PRODUCT, $record->id)
+                            ? $label . ' · có bản sửa chờ duyệt'
+                            : $label;
+                    })
+                    ->badge()
+                    ->color(fn (string $state) => match (true) {
+                        str_contains($state, 'Bị từ chối') => 'danger',
+                        str_contains($state, 'Chờ duyệt'), str_contains($state, 'chờ duyệt') => 'warning',
+                        default => 'success',
+                    }),
                 TextColumn::make('url')
                     ->label(__('product::product.table.label.url'))
                     ->getStateUsing(function (Product $record): string {

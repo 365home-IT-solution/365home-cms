@@ -122,6 +122,11 @@ class ProductController extends Controller
 
         $query = Product::query()->with(['categories:id,name,slug,parent_id', 'roomType:id,name']);
 
+        // approval_status = approved | pending (đăng mới, chờ 365home duyệt) | rejected
+        if ($request->filled('approval_status')) {
+            $query->where('approval_status', (string) $request->input('approval_status'));
+        }
+
         if (! $user->seesAllPartners()) {
             $query->where('partner_id', $user->partner_id);
 
@@ -550,6 +555,10 @@ class ProductController extends Controller
             'status' => 'required|boolean',
         ]);
 
+        if ($data['status'] && ($product->approval_status ?? 'approved') !== 'approved') {
+            return response()->json(['message' => 'Phòng chưa được 365home duyệt nên chưa bật được.'], 422);
+        }
+
         $product->update(['is_activated' => $data['status']]);
 
         return response()->json(['message' => 'Đã cập nhật trạng thái.']);
@@ -943,9 +952,17 @@ class ProductController extends Controller
             // target_id/dòng), liệt kê đủ toàn bộ room_ids đã áp dụng trong new_values.
             $anchor = Product::whereKey($foundIds[0])->first();
 
-            Product::whereIn('id', $foundIds)->update($update);
+            // Đối tác phải xin duyệt: cập nhật từng phòng bằng model để hook Product::updating giữ bản đang chạy và gom bản sửa vào
+            // yêu cầu "Sửa phòng" (query builder sẽ lách qua cổng duyệt). Super Admin / nhân viên 365home được miễn nên giữ đường hàng loạt.
+            $gated = app(\App\Services\ApprovalService::class)->guards();
 
-            if ($anchor) {
+            if ($gated) {
+                Product::whereIn('id', $foundIds)->get()->each(fn (Product $room) => $room->update($update));
+            } else {
+                Product::whereIn('id', $foundIds)->update($update);
+            }
+
+            if ($anchor && ! $gated) {
                 AuditLogger::log(
                     action: 'update',
                     module: 'Product',
@@ -960,7 +977,7 @@ class ProductController extends Controller
         }
 
         return response()->json([
-            'message' => 'Đã áp dụng.',
+            'message' => ! empty($foundIds) && app(\App\Services\ApprovalService::class)->guards() ? 'Đã gửi 365home duyệt — thay đổi sẽ có hiệu lực sau khi được duyệt.' : 'Đã áp dụng.',
             'updated' => $foundIds,
             'skipped' => $skipped,
         ]);
@@ -1243,6 +1260,8 @@ class ProductController extends Controller
                 ? ($product->price !== null ? (float) $product->price : null)
                 : $firstSlotPrice,
             'status'                 => $product->is_activated,
+            // Duyệt trước khi đăng: approved | pending (chờ 365home duyệt, chưa hiện cho khách) | rejected
+            'approval_status'        => $product->approval_status ?? 'approved',
             'occupancy_status'       => $occupancyStatus,
             'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],
             // room_clean: available (sạch, sẵn sàng đón khách) | cleaning (cần dọn) | maintenance
@@ -1392,6 +1411,9 @@ class ProductController extends Controller
             'id'                  => $product->id,
             'name'                => $product->name,
             'slug'                => $product->slug,
+            // Duyệt trước khi đăng. pending_update_id = id yêu cầu sửa phòng đang chờ duyệt (phòng vẫn hiện bản cũ); null nếu không có.
+            'approval_status'     => $product->approval_status ?? 'approved',
+            'pending_update_id'   => app(\App\Services\ApprovalService::class)->pendingUpdateMap(\App\Models\ApprovalRequest::SUBJECT_PRODUCT, [$product->id])[(string) $product->id] ?? null,
             'wifi'                => $product->wifi,
             'address'             => $product->address,
             'latitude'            => $product->latitude,

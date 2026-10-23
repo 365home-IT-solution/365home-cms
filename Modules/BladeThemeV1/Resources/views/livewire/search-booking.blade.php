@@ -38,12 +38,11 @@
         @elseif(! $isLoggedIn)
         <div class="max-w-md mx-auto bg-white rounded-2xl border border-gray-200 p-6 text-center space-y-4 shadow-sm">
             <p class="text-gray-700 font-medium">Bạn cần đăng nhập để tra cứu đơn đặt phòng.</p>
-            <button type="button"
-                @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))"
+            <a href="{{ route('login.page') }}?redirect=/ticket-booking"
                 class="inline-flex items-center justify-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm hover:shadow">
                 <i class="fa fa-sign-in"></i>
                 <span>Đăng nhập</span>
-            </button>
+            </a>
         </div>
         @else
         <div class="flex items-center mt-3 justify-center gap-6 text-xs text-gray-400">
