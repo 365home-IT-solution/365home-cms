@@ -16,9 +16,6 @@
                 <img src="{{ $room['image'] }}" alt="{{ $room['name'] }}" width="480" height="320" loading="lazy" decoding="async">
                 @endif
                 <span class="daily-card__badge">Theo ngày</span>
-                @if ($room['from_price'] < $room['base_price'] && $room['base_price'] > 0)
-                <span class="daily-card__sale">−{{ round(100 - $room['from_price'] * 100 / $room['base_price']) }}%</span>
-                @endif
             </div>
             <div class="daily-card__body">
                 <p class="daily-card__name">{{ $room['name'] }}</p>
@@ -36,7 +33,6 @@
                         <span class="daily-card__price">Liên hệ</span>
                         @endif
                     </div>
-                    <span class="daily-card__cta">Chọn ngày</span>
                 </div>
             </div>
         </a>
