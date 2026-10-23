@@ -134,8 +134,12 @@ if (typeof window.roomCardHtml === 'undefined') {
         const href = (roomTypeUrlSlug && room.branch && room.branch.slug && room.branch.province_slug)
             ? '/' + roomTypeUrlSlug + '/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
             : '/room/' + room.slug + '/';
+        // original_amount: giá gốc khi đang giảm (Flash Sale phòng theo ngày — HomeController::fetchRegionFlashSaleRooms()).
+        const oldPriceHtml = room.price && room.price.original_amount > room.price.amount
+            ? '<span style="color:#9ca3af; font-size:11px; text-decoration:line-through; margin-right:4px;">' + window.__homeVnd(room.price.original_amount) + '</span>'
+            : '';
         const priceHtml = room.price
-            ? '<span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
+            ? oldPriceHtml + '<span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
                 + '<span style="color:#9ca3af; font-size:11px;"> ' + (room.price.unit_label || '') + '</span>'
             : '<span style="font-weight:700;">Liên hệ</span>';
 
@@ -374,6 +378,16 @@ if (typeof window.homeSections === 'undefined') {
             bannerSection: initialBanner,
             loading: true,
             provinceName: localStorage.getItem('home_province_name') || '',
+            // Khu vực đang xem: khách đã chọn (localStorage) hoặc khu vực mặc định của Lịch đặt phòng.
+            provinceId: localStorage.getItem('home_province_id') || initialHome.booking?.active_province_id || null,
+            provinces: initialHome.booking?.provinces || [],
+
+            // Thẻ "Loại hình dịch vụ" luôn hiện đủ; bấm vào thì mở trang loại hình ĐÃ lọc theo khu vực
+            // đang xem (/{type}/{province_slug} — route product.search.type). Chưa biết khu vực → /{type}.
+            roomTypeHref(typePath) {
+                const province = this.provinces.find(p => String(p.id) === String(this.provinceId));
+                return province?.slug ? typePath + '/' + province.slug : typePath;
+            },
 
             init() {
                 // Banner + room types are already in the initial HTML. Keep the full home API off
@@ -396,6 +410,10 @@ if (typeof window.homeSections === 'undefined') {
                 window.addEventListener('auth-state-changed', () => this.load());
                 window.addEventListener('province-selected', (e) => {
                     this.provinceName = e.detail?.name || localStorage.getItem('home_province_name') || '';
+                    this.provinceId = String(e.detail?.id || localStorage.getItem('home_province_id') || this.provinceId || '') || null;
+                    if (e.detail?.id && e.detail?.slug && !this.provinces.some(p => String(p.id) === String(e.detail.id))) {
+                        this.provinces = this.provinces.concat([{ id: e.detail.id, slug: e.detail.slug }]);
+                    }
                     this.load();
                 });
             },
@@ -403,16 +421,19 @@ if (typeof window.homeSections === 'undefined') {
             load() {
                 this.loading = true;
                 const token = localStorage.getItem('auth_token');
-                const provinceId = localStorage.getItem('home_province_id');
+                const provinceId = this.provinceId;
                 const headers = { 'Accept': 'application/json' };
                 if (token) headers['Authorization'] = 'Bearer ' + token;
 
-                const url = '/api/v1/home' + (provinceId ? '?province_id=' + encodeURIComponent(provinceId) : '');
+                // group=branch: có khu vực thì server chỉ giữ banner của Trang App, danh sách phòng chia
+                // mỗi chi nhánh của khu vực 1 hàng (tiêu đề = tên chi nhánh) — xem HomeController::branchGroupedHome().
+                const url = '/api/v1/home?group=branch' + (provinceId ? '&province_id=' + encodeURIComponent(provinceId) : '');
 
                 window.__dedupeFetch(url, { headers })
                     .then(res => res.json())
                     .then(data => {
-                        const allowed = ['banner', 'promotion_list', 'suggestion_list', 'room_list'];
+                        // "Gợi ý cho bạn" (suggestion_list) không hiển thị trên web — chỉ app dùng.
+                        const allowed = ['banner', 'promotion_list', 'room_list'];
                         this.sections = (data?.home?.sections || [])
                             .filter(s => allowed.includes(s.type))
                             .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));

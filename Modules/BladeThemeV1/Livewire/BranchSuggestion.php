@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Livewire\Component;
 use Modules\BladeThemeV1\Support\BranchBookConfig;
+use Modules\Category\Entities\Category;
+use Modules\Product\App\Models\Product;
 
 /**
  * "Các chi nhánh tại {khu vực}" ở trang chủ — trước đây lấy dữ liệu qua API /api/v1/home dùng
@@ -50,6 +52,9 @@ class BranchSuggestion extends Component
             ->whereHas('category', fn ($q) => $q->where('status', true))
             ->with('category')
             ->get()
+            // Chi nhánh chưa có phòng nào đang mở bán thì không hiện (cùng điều kiện với các hàng phòng
+            // theo chi nhánh ở trang chủ — HomeController::fetchBranchRows()).
+            ->filter(fn ($branch) => $this->branchHasRooms((int) $branch->category->id))
             ->sortBy(fn ($branch) => $branch->category->sort_order)
             ->values()
             ->map(function ($branch) {
@@ -76,6 +81,17 @@ class BranchSuggestion extends Component
 
         $this->provinceName = $this->provinceName ?: $province->name;
         $this->provinceSlug = $province->slug;
+    }
+
+    private function branchHasRooms(int $branchCategoryId): bool
+    {
+        $filterIds = Category::where('parent_id', $branchCategoryId)->pluck('id')->push($branchCategoryId)->all();
+
+        return Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->activeBranch()
+            ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $filterIds))
+            ->exists();
     }
 
     // Khối này liệt kê chi nhánh CẢ TỈNH (mọi loại hình trộn chung, xem loadBranches() ở trên) nên

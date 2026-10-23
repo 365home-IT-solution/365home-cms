@@ -655,7 +655,7 @@
                                              THÁNG, xem App\Http\Controllers\Minihouse\Public\StorefrontController)
                                              thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
                                              $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
-                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;">
+                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;" @if ($typeUrlSlug && ($type['slug'] ?? '') !== 'mini_house') :href="roomTypeHref(@js('/'.$typeUrlSlug))" @endif>
                                             <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
                                             <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
@@ -694,7 +694,7 @@
                                      (thẻ đã to hơn — xem .roomtype-card). --}}
                                 <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
-                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
+                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? roomTypeHref('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
                                             <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
                                             <span class="roomtype-card-label" x-text="type.name"></span>
                                         </a>
@@ -843,51 +843,6 @@
                         <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
                             <template x-for="room in section.rooms" :key="'promo-' + room.id">
                                 <div x-html="roomCardHtml(room)"></div>
-                            </template>
-                        </div>
-                    </div>
-                </section>
-            </template>
-
-            {{-- ============== SUGGESTION LIST ============== --}}
-            {{-- "Gợi ý cho bạn" theo chi nhánh (suggestion_type === 'branch') được render RIÊNG ở
-                 component Livewire BranchSuggestion (@livewire('bladethemev1::branch-suggestion')
-                 phía trên — query thẳng DB, không qua API /api/v1/home) — nên loại trừ ở đây để
-                 tránh hiện lặp lại 2 lần (API /api/v1/home vẫn trả về cả block branch này trong
-                 `sections`, chỉ là không dùng nó để render nữa). Loại "theo phòng"
-                 (suggestion_type === 'room') không bị ảnh hưởng, vẫn hiện bình thường ở đúng vị trí
-                 cũ trong vòng lặp sections (vẫn lấy từ API như cũ). --}}
-            <template x-if="section.type === 'suggestion_list' && section.suggestion_type !== 'branch' && section.items && section.items.length">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" aria-label="Xem tất cả" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                    </button>
-                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
-                            <template x-for="item in section.items" :key="'sugg-' + (item.id ?? item.slug)">
-                                <div x-html="section.suggestion_type === 'branch' ? branchCardHtml(item) : roomCardHtml(item)"></div>
                             </template>
                         </div>
                     </div>

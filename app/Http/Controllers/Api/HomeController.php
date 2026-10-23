@@ -31,6 +31,12 @@ class HomeController extends Controller
             ? (int) $request->query('tab')
             : null;
 
+        // Web trang chủ (?group=branch): KHÔNG theo cấu hình Trang App (trừ banner) — phòng chia mỗi chi
+        // nhánh của khu vực 1 hàng + Flash Sale tự động. App mobile không gửi cờ này → luồng cũ bên dưới.
+        if ($request->query('group') === 'branch' && $tabRoomTypeId === null) {
+            return $this->branchGroupedHome($request);
+        }
+
         $tabPage = $this->resolveTabPage($tabRoomTypeId);
         $page    = $tabPage ?? AppPage::where('slug', 'home')->where('is_active', true)->first();
 
@@ -110,6 +116,260 @@ class HomeController extends Controller
                 'sections'   => $sections,
             ],
         ]);
+    }
+
+    // ─── Web: chia phòng theo chi nhánh của khu vực ─────────────────────────
+    // Trang chủ web KHÔNG theo cấu hình Trang App nữa — chỉ lấy banner của trang "home" (nếu có). Còn
+    // lại sinh tự động theo khu vực: Flash Sale + mỗi chi nhánh đang bật 1 khối room_list (tiêu đề = tên
+    // chi nhánh, cùng shape room_list để web render bằng template sẵn có; chi nhánh không có phòng thì
+    // bỏ hàng). Chưa có khu vực → khu vực mặc định của Lịch đặt phòng (HomeDefaultBranch).
+    private function branchGroupedHome(Request $request): JsonResponse
+    {
+        $province = $this->resolveProvince($request) ?? $this->defaultHomeProvince();
+
+        $authUser      = auth('sanctum')->user();
+        $wishlistedIds = $authUser
+            ? $authUser->wishlists()->pluck('product_id')->toArray()
+            : null;
+
+        $page    = AppPage::where('slug', 'home')->where('is_active', true)->first();
+        $banners = collect($page?->content ?? [])
+            ->filter(fn ($block) => ($block['type'] ?? '') === 'banner')
+            ->values()
+            ->map(fn ($block, $index) => $this->buildBanner($block['data'] ?? [], $index));
+
+        $flashSale = $province ? $this->buildRegionFlashSale($province, $wishlistedIds) : null;
+
+        $sections = $banners
+            ->concat(empty($flashSale['rooms']) ? [] : [$flashSale])
+            ->concat($province ? $this->getBranchRows($province, $wishlistedIds) : [])
+            ->values()
+            ->map(function ($section, $i) {
+                $section['sort_order'] = $i + 1;
+                $section['id']         = $i + 1;
+
+                return $section;
+            });
+
+        return response()->json([
+            'home' => [
+                'page'        => 'home',
+                'province_id' => $province?->id,
+                'room_types'  => RoomType::where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
+                    ->toArray(),
+                'sections'    => $sections,
+            ],
+        ]);
+    }
+
+    private function defaultHomeProvince(): ?Province
+    {
+        $id = Cache::remember('home:default_province:' . self::roomCacheVersion(), now()->addMinutes(5), function () {
+            $default = \App\Support\HomeDefaultBranch::resolve(app(\App\Services\AvailableProvinceService::class)->get());
+
+            return $default['province']?->id;
+        });
+
+        return $id ? Province::find($id) : null;
+    }
+
+    // Flash Sale web — luôn có, tự lấy phòng của khu vực đang có giảm giá: phòng khung giờ có khuyến
+    // mãi đang chạy trên khung giờ; phòng theo ngày có giá đêm rẻ nhất 30 ngày tới thấp hơn giá gốc.
+    private function buildRegionFlashSale(Province $province, ?array $wishlistedIds): array
+    {
+        $rooms = Cache::remember(
+            'home:flash_sale:' . self::roomCacheVersion() . ':' . $province->id,
+            now()->addMinutes(5),
+            fn () => $this->fetchRegionFlashSaleRooms($province)
+        );
+
+        if ($wishlistedIds !== null) {
+            foreach ($rooms as &$room) {
+                $room['wishlist_status'] = \in_array($room['id'], $wishlistedIds);
+            }
+            unset($room);
+        }
+
+        return [
+            'type'           => 'promotion_list',
+            'icon_url'       => null,
+            'icon_thumbnail' => null,
+            'title'          => 'Flash Sale',
+            'view_all_url'   => '/s/' . $province->slug,
+            'rooms'          => $rooms,
+        ];
+    }
+
+    private function fetchRegionFlashSaleRooms(Province $province): array
+    {
+        $branchIds = $province->branches()->where('status', true)->pluck('categorie_id');
+        if ($branchIds->isEmpty()) {
+            return [];
+        }
+
+        $filterIds    = $branchIds->merge(Category::whereIn('parent_id', $branchIds)->pluck('id'))->unique()->values()->all();
+        $branchLookup = $this->globalBranchLookup();
+        $now          = now();
+
+        $regionRooms = fn () => Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->activeBranch()
+            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+
+        // Khuyến mãi giảm giá đang chạy (bỏ phụ thu increase_*).
+        $activeDiscount = fn ($q) => $q->where('is_active', true)
+            ->whereNotIn('type', ['increase_percentage', 'increase_fixed'])
+            ->where(fn ($q2) => $q2->whereNull('start_at')->orWhere('start_at', '<=', $now))
+            ->where(fn ($q2) => $q2->whereNull('end_at')->orWhere('end_at', '>=', $now));
+
+        $hourly = $regionRooms()
+            ->where('styles', 1)
+            ->whereHas('roomTimeSlots', fn ($q) => $q
+                ->whereHas('timeSlot', fn ($t) => $t->where(fn ($w) => $w->whereNull('type')->orWhere('type', '!=', 'date')))
+                ->whereHas('promotions', $activeDiscount))
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
+            ->get()
+            ->map(fn ($room) => $this->mapRoom($room, null) + ['_room' => $room]);
+
+        // Cùng cách tính "từ ...đ/đêm" với card phòng theo ngày (Modules\BladeThemeV1\Livewire\Book::buildDailyCards()).
+        $calculator = app(\App\Services\PromotionCalculator::class);
+        $resolver   = app(\App\Services\PriceBoards\StayPriceResolver::class);
+
+        $daily = $regionRooms()
+            ->where('styles', 2)
+            ->with([
+                'media',
+                'categories',
+                'roomType',
+                'roomTimeSlots' => fn ($q) => $q->whereHas('timeSlot', fn ($q2) => $q2->where('type', 'date')
+                    ->whereBetween('label', [$now->format('Y-m-d'), $now->copy()->addDays(29)->format('Y-m-d')])),
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->get()
+            ->map(function (Product $room) use ($calculator, $resolver) {
+                $base  = (float) $room->price;
+                $slots = $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
+                $min   = null;
+
+                for ($day = now()->startOfDay(), $i = 0; $i < 30; $i++, $day->addDay()) {
+                    $date  = $day->format('Y-m-d');
+                    $rts   = $slots->get($date);
+                    $price = $rts?->price !== null ? (float) $rts->price : $resolver->nightPrice($room, $date, $base);
+                    $final = $calculator->calculateForDate($rts, $price, $date)['final_price'];
+                    $min   = $min === null ? $final : min($min, $final);
+                }
+
+                if ($base <= 0 || $min === null || $min >= $base) {
+                    return null;
+                }
+
+                $card = $this->mapRoom($room, null);
+                $card['price'] = [
+                    'amount'          => (float) $min,
+                    'original_amount' => $base,
+                    'unit_label'      => '/ đêm',
+                ];
+
+                return $card + ['_room' => $room];
+            })
+            ->filter();
+
+        return $hourly->concat($daily)
+            ->map(function (array $card) use ($branchLookup) {
+                $card['branch'] = $this->resolveBranch($card['_room'], $branchLookup['cats'], $branchLookup['childMap']);
+                unset($card['_room']);
+
+                return $card;
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function getBranchRows(Province $province, ?array $wishlistedIds): array
+    {
+        $cacheKey = 'home:branch_rows:' . self::roomCacheVersion() . ':' . $province->id;
+
+        $rows = Cache::remember($cacheKey, now()->addMinutes(5), fn () => $this->fetchBranchRows($province));
+
+        if ($wishlistedIds !== null) {
+            foreach ($rows as &$row) {
+                foreach ($row['rooms'] as &$room) {
+                    $room['wishlist_status'] = \in_array($room['id'], $wishlistedIds);
+                }
+                unset($room);
+            }
+            unset($row);
+        }
+
+        return $rows;
+    }
+
+    private function fetchBranchRows(Province $province): array
+    {
+        $branches = $province->branches()
+            ->where('status', true)
+            ->with('category')
+            ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->sortBy(fn ($branch) => $branch->category->sort_order)
+            ->values();
+
+        if ($branches->isEmpty()) {
+            return [];
+        }
+
+        $branchLookup = $this->globalBranchLookup();
+        $rows = [];
+
+        foreach ($branches as $branch) {
+            $category  = $branch->category;
+            $filterIds = Category::where('parent_id', $category->id)->pluck('id')->push($category->id)->unique()->values()->all();
+
+            $query = Product::where('is_activated', true)
+                ->where('is_in_stock', true)
+                ->activeBranch();
+            $this->whereInBranches($query, $filterIds);
+
+            // Cùng thứ tự với khối "Theo khu vực": đánh giá cao + nhiều đơn (đã thanh toán/đặt cọc) lên trước.
+            $rooms = $query
+                ->withCount(['orderItems as bookings_count' => function ($q) {
+                    $q->whereHas('order', fn ($oq) => $oq->whereIn('status', ['paid', 'deposit']));
+                }])
+                ->orderByDesc('rating_score')
+                ->orderByDesc('bookings_count')
+                ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
+                ->get();
+
+            if ($rooms->isEmpty()) {
+                continue;
+            }
+
+            $rows[] = [
+                'type'         => 'room_list',
+                'title'        => 'Phòng tại chi nhánh ' . trim((string) $category->name),
+                'subtitle'     => null,
+                'view_all_url' => '/s/' . $category->slug,
+                'show_arrow'   => true,
+                'layout'       => 'horizontal_scroll',
+                'display_mode' => 'by_branch',
+                'content_type' => 'rooms',
+                'branch'       => ['id' => $category->id, 'name' => $category->name, 'slug' => $category->slug],
+                'rooms'        => $rooms
+                    ->map(function ($room) use ($branchLookup) {
+                        $card = $this->mapRoom($room, null);
+                        $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+
+                        return $card;
+                    })
+                    ->values()
+                    ->toArray(),
+            ];
+        }
+
+        return $rows;
     }
 
     // ─── Tab MiniHouse ───────────────────────────────────────────────────────
