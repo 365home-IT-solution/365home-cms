@@ -42,8 +42,8 @@
         <p class="text-gray-500 text-sm mb-8 max-w-xs leading-relaxed">
             Đăng nhập để xem thông tin tài khoản và lịch sử đặt phòng của bạn.
         </p>
-        <button
-            @click="openModal()"
+        <a
+            href="{{ route('login.page') }}?redirect=/tai-khoan"
             class="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold shadow-sm transition-opacity hover:opacity-85"
             style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
         >
@@ -51,7 +51,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
             </svg>
             Đăng nhập ngay
-        </button>
+        </a>
     </div>
 
     {{-- ── LOGGED IN ── --}}

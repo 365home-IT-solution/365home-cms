@@ -35,6 +35,11 @@ class EditProduct extends EditRecord
     // hề thấy được thay đổi này (đã xác nhận qua thực tế: bỏ 1 tiện ích không để lại log nào — cùng
     // lỗi với RoomAmenityAssign). beforeSave() chạy TRƯỚC bước sync đó nên chụp lại state cũ ở đây,
     // afterSave() so sánh với state mới rồi ghi log thủ công.
+    protected function getSavedNotification(): ?\Filament\Notifications\Notification
+    {
+        return \App\Support\ApprovalContext::hasNotices() ? null : parent::getSavedNotification();
+    }
+
     protected function beforeSave(): void
     {
         if ($error = $this->priceSourceError($this->record)) {

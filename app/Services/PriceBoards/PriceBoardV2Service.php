@@ -687,6 +687,18 @@ class PriceBoardV2Service
      */
     public function persist(array $spec, ?PriceBoard $existing, ?array $templateAttrs = null): PriceBoard
     {
+        // Duyệt trước khi đăng (App\Services\ApprovalService): đối tác thường sửa bảng giá ĐÃ duyệt → bản sửa vào hàng chờ, bảng đang chạy giữ nguyên.
+        // Tạo mới / sửa bảng chưa duyệt vẫn lưu như thường nhưng ở trạng thái chờ duyệt (không bật được) — xem phần cuối hàm.
+        $gate    = app(\App\Services\ApprovalService::class);
+        $guarded = $templateAttrs === null && $gate->guards();
+        $actor   = auth()->user();
+
+        if ($guarded && $existing && $existing->isApproved()) {
+            $gate->submitBoardUpdate($existing, $spec, $actor);
+
+            return $existing->fresh(['sheets.slots', 'sheets.products', 'scopeBranches', 'declaredRooms']);
+        }
+
         $previousProducts = $existing ? $existing->items()->pluck('product_id')->all() : [];
 
         $board = DB::transaction(function () use ($spec, $existing, $templateAttrs) {
@@ -739,6 +751,15 @@ class PriceBoardV2Service
         });
 
         $this->rematerialize($board, null, $previousProducts);
+
+        if ($guarded) {
+            // Bảng mới (pending) hoặc bảng bị từ chối được sửa lại → gửi / gửi lại duyệt. Bảng được tạo ở trạng thái bật thì chỉ bật sau khi duyệt.
+            if ($board->approval_status === 'rejected') {
+                $board->forceFill(['approval_status' => 'pending'])->save();
+            }
+
+            $gate->submitBoardCreate($board, (bool) ($spec['is_active'] ?? false), $actor);
+        }
 
         return $board->fresh(['sheets.slots', 'sheets.products', 'scopeBranches', 'declaredRooms']);
     }

@@ -65,6 +65,12 @@ class PartnerSampleDataGenerator
      */
     public function generate(string $partnerId, int $branchId, array $counts): array
     {
+        // Dữ liệu mẫu do hệ thống sinh ra → không qua duyệt (phòng mẫu vẫn tạo ở trạng thái tắt như cũ).
+        return \App\Support\ApprovalContext::bypass(fn () => $this->doGenerate($partnerId, $branchId, $counts));
+    }
+
+    private function doGenerate(string $partnerId, int $branchId, array $counts): array
+    {
         $branch = Category::withoutGlobalScopes()
             ->whereKey($branchId)
             ->whereNull('parent_id')

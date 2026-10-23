@@ -89,11 +89,29 @@ class PriceBoardTable
                         default        => 'danger',
                     }),
 
+                TextColumn::make('approval_status')
+                    ->label('Duyệt')
+                    ->state(function (PriceBoard $record) {
+                        $label = ['approved' => 'Đã duyệt', 'pending' => 'Chờ duyệt', 'rejected' => 'Bị từ chối'][$record->approval_status ?? 'approved'] ?? $record->approval_status;
+
+                        return $record->isApproved() && app(\App\Services\ApprovalService::class)->hasPendingUpdate(\App\Models\ApprovalRequest::SUBJECT_PRICE_BOARD, $record->id)
+                            ? $label . ' · có bản sửa chờ duyệt'
+                            : $label;
+                    })
+                    ->badge()
+                    ->color(fn (string $state) => match (true) {
+                        str_contains($state, 'Bị từ chối') => 'danger',
+                        str_contains($state, 'Chờ duyệt'), str_contains($state, 'chờ duyệt') => 'warning',
+                        default => 'success',
+                    }),
+
                 ToggleColumn::make('is_active')
                     ->label('Kích hoạt')
                     // Ghi giá thật xuống hệ thống ngay khi bật/tắt — cần đúng quyền update, không chỉ
                     // quyền xem danh sách (view_any).
-                    ->disabled(fn (PriceBoard $record) => $record->is_template || ! PriceBoardResource::canEdit($record))
+                    // Đối tác thường bật/tắt bảng cũng là đổi giá đang bán → phải sửa trong form và gửi 365home duyệt; bảng chưa duyệt không bật được.
+                    ->disabled(fn (PriceBoard $record) => $record->is_template || ! PriceBoardResource::canEdit($record)
+                        || ! $record->isApproved() || app(\App\Services\ApprovalService::class)->requiresApproval(auth()->user()))
                     ->afterStateUpdated(function (PriceBoard $record) {
                         $service = app(PriceBoardSyncService::class);
 
@@ -136,6 +154,8 @@ class PriceBoardTable
                         PriceBoard::SCOPE_PARTNER  => 'Toàn đối tác',
                     ]),
                 \Filament\Tables\Filters\TernaryFilter::make('is_active')->label('Kích hoạt'),
+                \Filament\Tables\Filters\SelectFilter::make('approval_status')->label('Duyệt')
+                    ->options(['approved' => 'Đã duyệt', 'pending' => 'Chờ duyệt', 'rejected' => 'Bị từ chối']),
             ])
             ->headerActions([
                 // Tạo bảng thật từ bảng giá dựng sẵn (copy một lần, mặc định TẮT).

@@ -673,6 +673,12 @@ class PriceBoardSyncService
      *  (bảng đặt tên đang áp, hoặc "Bảng giá mặc định" khi khôi phục giá gốc). */
     private function applyFieldsAndSlotsToProduct(Product $product, array $fields, \Illuminate\Support\Collection $timeSlots, ?int $syncedFromBoardId, int $logBoardId): void
     {
+        // Ghi giá của bảng đã được duyệt xuống phòng là việc của hệ thống, không phải đối tác tự sửa giá → không bị chặn duyệt (App\Services\ApprovalService).
+        \App\Support\ApprovalContext::bypass(fn () => $this->doApplyFieldsAndSlotsToProduct($product, $fields, $timeSlots, $syncedFromBoardId, $logBoardId));
+    }
+
+    private function doApplyFieldsAndSlotsToProduct(Product $product, array $fields, \Illuminate\Support\Collection $timeSlots, ?int $syncedFromBoardId, int $logBoardId): void
+    {
         $before = $this->snapshotPricing($product);
 
         $product->update($fields);

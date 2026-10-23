@@ -84,6 +84,9 @@ class Product extends Model implements HasMedia, Resourceable
         'badge',
     ];
 
+    /** Lúc đối tác đăng phòng mới: đối tác muốn phòng bật hay tắt (áp sau khi duyệt) — không phải cột DB, chỉ mang từ creating sang created. */
+    public ?bool $approvalRequestedActive = null;
+
     protected $casts = [
         'price'        => 'decimal:2',
         'discount'     => 'decimal:2',
@@ -182,6 +185,54 @@ class Product extends Model implements HasMedia, Resourceable
         // Phòng MiniHouse (Room) không bị ảnh hưởng vì Room ghi đè booted() (xem ghi chú phía trên).
         static::addGlobalScope('has_branch', function (Builder $query) {
             $query->whereHas('categories');
+        });
+
+        // ── Duyệt trước khi đăng (App\Services\ApprovalService) ───────────────────────────────────────────────
+        // Đối tác đăng phòng MỚI → pending: phòng không hiện cho khách, không đặt được (mọi nơi đều đọc is_activated) cho tới khi 365home duyệt.
+        static::creating(function (Product $product) {
+            if (app(\App\Services\ApprovalService::class)->guards()) {
+                $product->approvalRequestedActive = $product->is_activated === null ? true : (bool) $product->is_activated;
+                $product->setAttribute('approval_status', 'pending');
+                $product->setAttribute('is_activated', false);
+            }
+        });
+
+        static::created(function (Product $product) {
+            if (($product->approval_status ?? 'approved') === 'pending' && app(\App\Services\ApprovalService::class)->guards()) {
+                app(\App\Services\ApprovalService::class)->submitRoomCreate($product, $product->approvalRequestedActive ?? true, auth()->user());
+            }
+        });
+
+        // Phòng chưa được duyệt (pending / rejected) không bao giờ bật được, dù bật bằng đường nào (API, Filament, nhập liệu...).
+        static::saving(function (Product $product) {
+            if (($product->approval_status ?? 'approved') !== 'approved' && $product->is_activated) {
+                $product->setAttribute('is_activated', false);
+            }
+        });
+
+        // Đối tác sửa nội dung / giá của phòng ĐÃ duyệt: giữ nguyên bản đang chạy, bản sửa vào yêu cầu "Sửa phòng" chờ duyệt (các cột khác — bật/tắt, vệ sinh, khoá... — lưu như thường).
+        static::updating(function (Product $product) {
+            $gate = app(\App\Services\ApprovalService::class);
+
+            if (($product->approval_status ?? 'approved') !== 'approved' || ! $gate->guards()) {
+                return;
+            }
+
+            $guarded = array_keys(\App\Services\ApprovalService::PRODUCT_CONTENT_FIELDS + \App\Services\ApprovalService::PRODUCT_PRICE_FIELDS);
+            $changes = [];
+
+            foreach (array_keys($product->getDirty()) as $field) {
+                if (! in_array($field, $guarded, true)) {
+                    continue;
+                }
+
+                $changes[$field] = ['old' => $product->getOriginal($field), 'new' => $product->getAttribute($field)];
+                $product->setAttribute($field, $product->getOriginal($field));
+            }
+
+            if ($changes) {
+                $gate->mergeRoomChanges($product, $changes, [], auth()->user());
+            }
         });
 
         // Đối tác Homestay thêm/mở bán phòng → mức ký quỹ gợi ý có thể tăng: báo đối tác nạp thêm (không khoá bán ngay) — xem EscrowService::syncMinWithRooms().

@@ -41,6 +41,7 @@ class RoomPriceBoardPicker
             ->where('partner_id', $partnerId)
             ->where('is_default', false)
             ->where('is_template', false)
+            ->where('approval_status', 'approved') // bảng chưa được 365home duyệt không dùng làm nguồn giá cho phòng
             ->with(['sheets.slots.timeslot', 'scopeBranches'])
             ->find($id);
     }
@@ -57,6 +58,7 @@ class RoomPriceBoardPicker
             ->where('partner_id', $partnerId)
             ->where('is_default', false)
             ->where('is_template', false)
+            ->where('approval_status', 'approved')
             ->with(['sheets.slots.timeslot', 'scopeBranches'])
             ->orderByDesc('is_active')
             ->orderByDesc('id')
@@ -145,6 +147,12 @@ class RoomPriceBoardPicker
      * Ghi giá gốc từ bộ giá xuống phòng rồi gắn phòng vào bảng. Gọi error() trước.
      */
     public function apply(PriceBoard $board, PriceBoardSheet $sheet, Product $room): void
+    {
+        // Chọn bảng ĐÃ DUYỆT làm nguồn giá cho phòng: ghi giá của bảng xuống phòng là việc của hệ thống → không bị chặn duyệt.
+        \App\Support\ApprovalContext::bypass(fn () => $this->doApply($board, $sheet, $room));
+    }
+
+    private function doApply(PriceBoard $board, PriceBoardSheet $sheet, Product $room): void
     {
         $before = $this->sync->snapshotPricing($room);
 

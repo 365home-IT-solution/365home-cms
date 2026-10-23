@@ -36,6 +36,7 @@ return [
 
     'Quản lý API' => [
         'Nội dung app' => ['APP', 'POPUP'],
+        'Game App' => ['Mini game', 'Thẻ cào — Giải thưởng', 'Thẻ cào — Lịch sử trúng', 'Mảnh ghép — Chiến dịch', 'Giới thiệu bạn bè'],
     ],
 
     // Bảng RIÊNG từng panel — ưu tiên hơn bảng chung ở trên (xem topbar/index.blade.php). Panel

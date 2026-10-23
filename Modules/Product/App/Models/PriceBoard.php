@@ -59,6 +59,28 @@ class PriceBoard extends Model
         'adjustment_value' => 'decimal:2',
     ];
 
+    // Duyệt trước khi đăng (App\Services\ApprovalService): đối tác tạo bảng giá MỚI → pending; bảng chưa được duyệt (pending / rejected) không bao giờ bật được.
+    protected static function booted(): void
+    {
+        static::creating(function (PriceBoard $board) {
+            if (app(\App\Services\ApprovalService::class)->guards()) {
+                $board->setAttribute('approval_status', 'pending');
+                $board->setAttribute('is_active', false); // creating chạy SAU saving nên phải tắt luôn ở đây
+            }
+        });
+
+        static::saving(function (PriceBoard $board) {
+            if (($board->approval_status ?? 'approved') !== 'approved' && $board->is_active) {
+                $board->setAttribute('is_active', false);
+            }
+        });
+    }
+
+    public function isApproved(): bool
+    {
+        return ($this->approval_status ?? 'approved') === 'approved';
+    }
+
     public function sheets()
     {
         return $this->hasMany(PriceBoardSheet::class)->orderBy('sort_order')->orderBy('id');
