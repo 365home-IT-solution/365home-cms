@@ -172,7 +172,11 @@ class AppPageForm
                                 ->live()
                                 ->afterStateUpdated(fn (callable $set) => $set('product_ids', []))
                                 ->placeholder('Tất cả chi nhánh...')
-                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
+                                // Theo khu vực: chỉ lấy các chi nhánh đã chọn NẰM TRONG khu vực đang chọn
+                                // (khu vực không có chi nhánh nào trong số đó → ẩn section).
+                                ->helperText(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'
+                                    ? 'Theo khu vực: chỉ hiển thị phòng/chi nhánh của các chi nhánh đã chọn thuộc khu vực đang chọn. Để trống = tất cả chi nhánh của khu vực.'
+                                    : null),
 
                             Select::make('product_ids')
                                 ->label('Chọn phòng')

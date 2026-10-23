@@ -1,8 +1,5 @@
 // Card phòng theo ngày ở bảng đặt phòng trang chủ — xem livewire/book/_daily-cards.blade.php.
 .daily-rooms { margin-top: 24px; }
-.daily-rooms__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.daily-rooms__title { font-size: 18px; font-weight: 700; color: #111827; margin: 0; }
-.daily-rooms__hint { font-size: 13px; color: #6b7280; }
 .daily-rooms__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 @media (max-width: 639px) {
     // Mobile: trượt ngang 1 hàng, card ~80% màn hình để thấy card kế tiếp.

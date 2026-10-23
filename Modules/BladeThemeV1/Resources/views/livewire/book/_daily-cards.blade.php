@@ -3,11 +3,7 @@
      Dữ liệu: Book::buildDailyCards(). Ảnh có width/height + aspect-ratio cố định để không giật layout. --}}
 @php $dailyRooms = $category['daily'] ?? []; @endphp
 @if (! empty($dailyRooms))
-<section class="daily-rooms" aria-labelledby="daily-rooms-{{ $category['id'] }}">
-    <div class="daily-rooms__head">
-        <h3 id="daily-rooms-{{ $category['id'] }}" class="daily-rooms__title">Phòng theo ngày</h3>
-        <span class="daily-rooms__hint">Nhận {{ $dailyRooms[0]['checkin'] }} · trả {{ $dailyRooms[0]['checkout'] }} hôm sau</span>
-    </div>
+<section class="daily-rooms" aria-label="Phòng theo ngày">
     <div class="daily-rooms__grid">
         @foreach ($dailyRooms as $room)
         <a href="{{ $room['url'] }}" class="daily-card" wire:key="daily-{{ $room['id'] }}">

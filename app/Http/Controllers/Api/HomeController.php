@@ -288,7 +288,7 @@ class HomeController extends Controller
 
         $items = match (true) {
             $contentType === 'rooms'       => $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province),
-            $displayMode === 'by_region'   => $this->getRegionBranches($province),
+            $displayMode === 'by_region'   => $this->getRegionBranches($province, (array) ($data['branch_ids'] ?? [])),
             default                        => $this->getFixedBranches($data),
         };
 
@@ -314,15 +314,19 @@ class HomeController extends Controller
 
     // Danh sách chi nhánh của khu vực — dùng khi display_mode=by_region &&
     // region_content_type=branches. Shape khớp với SearchController::branches() để app tái dùng
-    // component card chi nhánh đã có.
-    private function getRegionBranches(?Province $province): array
+    // component card chi nhánh đã có. $branchIds (category id) khác rỗng = chỉ các chi nhánh admin đã
+    // chọn thuộc khu vực này.
+    private function getRegionBranches(?Province $province, array $branchIds = []): array
     {
         if ($province === null) {
             return [];
         }
 
+        $branchIds = array_values(array_filter($branchIds));
+
         return $province->branches()
             ->where('status', true)
+            ->when(! empty($branchIds), fn ($q) => $q->whereIn('categorie_id', $branchIds))
             ->with('category')
             ->get()
             ->filter(fn ($branch) => $branch->category && $branch->category->status)
@@ -377,11 +381,25 @@ class HomeController extends Controller
     // thay vì luôn trỏ về trang tìm kiếm chung chung không có bộ lọc.
     private function buildViewAllUrl(array $data, string $displayMode, ?Province $province): ?string
     {
+        $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
+
         if ($displayMode === 'by_region') {
-            return $province ? '/s/' . $province->slug : null;
+            if ($province === null) {
+                return null;
+            }
+
+            // Đã chọn chi nhánh: "Xem tất cả" chỉ gồm các chi nhánh đó thuộc khu vực đang chọn.
+            $branchIds = empty($branchIds) ? [] : $province->branches()
+                ->where('status', true)
+                ->whereIn('categorie_id', $branchIds)
+                ->pluck('categorie_id')
+                ->all();
+
+            if (empty($branchIds)) {
+                return '/s/' . $province->slug;
+            }
         }
 
-        $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
         if (empty($branchIds)) {
             return null;
         }
