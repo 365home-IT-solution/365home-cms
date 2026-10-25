@@ -6,12 +6,15 @@ namespace App\Filament\Pages;
 
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Services\ChatAccessScope;
 use App\Services\ChatRealtimeService;
 use App\Services\NotificationFcmService;
 use Carbon\Carbon;
 use Filament\Pages\Page;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Modules\Payment\Entities\Order;
 
@@ -24,12 +27,16 @@ class CustomerChat extends Page
     protected static ?string $title            = 'Tin nhắn khách hàng';
     protected static ?int    $navigationSort   = 98;
 
+    // Locked: chỉ đổi qua selectConversation()/selectOrder() (có kiểm tra phạm vi) — client không tự $set sang
+    // hội thoại / đơn của đối tác khác rồi đọc qua checkNewMessages().
+    #[Locked]
     public ?string $selectedId           = null;
     public ?array  $selectedConversation = null;
     public array   $conversations        = [];
     public array   $messages             = [];
     public array   $customerOrders       = [];
     public int     $generalUnread        = 0;
+    #[Locked]
     public ?string $selectedOrderId      = null;
     public ?array  $selectedOrderInfo    = null;
     public string  $draft                = '';
@@ -47,16 +54,43 @@ class CustomerChat extends Page
         $this->loadConversations();
     }
 
+    /**
+     * Phân quyền theo đối tác: cùng phạm vi với API admin (App\Services\ChatAccessScope) — super_admin thấy hết,
+     * tài khoản đối tác chỉ thấy hội thoại / tin nhắn / đơn của đối tác mình (thu hẹp theo chi nhánh được gán).
+     * Trước đây trang này không lọc gì: đối tác thấy tin nhắn của mọi đối tác, mọi chi nhánh.
+     */
+    private function scope(): ChatAccessScope
+    {
+        return app(ChatAccessScope::class);
+    }
+
+    private function scopedOrders(): ?Builder
+    {
+        return $this->scope()->orders(Auth::user());
+    }
+
+    private function findConversation(string $id, array $with = []): ?ChatConversation
+    {
+        return $this->scope()->findConversation(Auth::user(), $id, $with);
+    }
+
     public function loadConversations(): void
     {
-        $this->conversations = ChatConversation::with('customer:id,fullname,phone')
+        $orders = $this->scopedOrders();
+        $convs  = $this->scope()
+            ->constrainConversations(ChatConversation::with('customer:id,fullname,phone'), $orders)
             ->orderByDesc('last_message_at')
-            ->get()
+            ->get();
+
+        // Tài khoản bị giới hạn: số chưa đọc + đoạn xem trước chỉ tính tin trong phạm vi (không lộ tin về đơn đối tác khác).
+        $summaries = $this->scope()->summaries($convs->pluck('id')->all(), $orders);
+
+        $this->conversations = $convs
             ->map(fn ($c) => [
                 'id'       => $c->id,
-                'unread'   => $c->admin_unread,
-                'preview'  => $c->last_message_preview,
-                'at'       => $c->last_message_at?->diffForHumans(),
+                'unread'   => $summaries[$c->id]['unread'] ?? $c->admin_unread,
+                'preview'  => array_key_exists($c->id, $summaries) ? $summaries[$c->id]['preview'] : $c->last_message_preview,
+                'at'       => (array_key_exists($c->id, $summaries) ? $summaries[$c->id]['at'] : $c->last_message_at)?->diffForHumans(),
                 'customer' => [
                     'id'       => $c->customer?->id,
                     'fullname' => $c->customer?->fullname ?? 'Khách',
@@ -83,8 +117,10 @@ class CustomerChat extends Page
         $this->selectedOrderId   = '__general__';
         $this->selectedOrderInfo = null;
 
-        $conv = ChatConversation::with(['customer:id,fullname,phone'])->find($id);
+        $conv = $this->findConversation($id, ['customer:id,fullname,phone']);
         if (! $conv) {
+            $this->selectedId = null;
+            $this->selectedOrderId = null;
             return;
         }
 
@@ -101,15 +137,8 @@ class CustomerChat extends Page
         // Tính unread per order TRƯỚC khi mark as read để hiển thị badge sidebar
         $this->loadCustomerOrders($conv->customer?->id, $conv->id);
 
-        if ($conv->admin_unread > 0) {
-            $conv->admin_unread = 0;
-            $conv->save();
-
-            ChatMessage::where('conversation_id', $id)
-                ->where('sender_type', 'customer')
-                ->whereNull('read_at')
-                ->update(['read_at' => Carbon::now()]);
-
+        // Chỉ đánh dấu đã đọc tin trong phạm vi — tin về đơn của đối tác khác vẫn chưa đọc với họ.
+        if ($this->scope()->markRead($conv, $this->scopedOrders())) {
             app(ChatRealtimeService::class)->broadcastRead($id, 'admin');
         }
 
@@ -136,6 +165,22 @@ class CustomerChat extends Page
             return;
         }
 
+        $conv = $this->findConversation($this->selectedId);
+        if (! $conv) {
+            return;
+        }
+
+        if ($orderId !== '__general__') {
+            // Khung chat của đơn: đơn phải của đúng khách này VÀ trong phạm vi đối tác/chi nhánh được xem.
+            $order = Order::with(['items.product', 'services'])
+                ->where('customer_id', $conv->customer_id)
+                ->find($orderId);
+
+            if (! $this->scope()->orderInScope($this->scopedOrders(), $order)) {
+                return;
+            }
+        }
+
         $this->selectedOrderId   = $orderId;
         $this->selectedOrderInfo = null;
 
@@ -146,19 +191,7 @@ class CustomerChat extends Page
                 ->get()
                 ->map(fn ($m) => $this->formatMsg($m))
                 ->toArray();
-
-            ChatMessage::where('conversation_id', $this->selectedId)
-                ->whereNull('order_id')
-                ->where('sender_type', 'customer')
-                ->whereNull('read_at')
-                ->update(['read_at' => Carbon::now()]);
         } else {
-            $order = Order::with(['items.product', 'services'])->find($orderId);
-            if (! $order) {
-                $this->messages = [];
-                return;
-            }
-
             $this->selectedOrderInfo = $this->buildOrderInfo($order);
 
             $this->messages = ChatMessage::where('conversation_id', $this->selectedId)
@@ -167,13 +200,9 @@ class CustomerChat extends Page
                 ->get()
                 ->map(fn ($m) => $this->formatMsg($m))
                 ->toArray();
-
-            ChatMessage::where('conversation_id', $this->selectedId)
-                ->where('order_id', $orderId)
-                ->where('sender_type', 'customer')
-                ->whereNull('read_at')
-                ->update(['read_at' => Carbon::now()]);
         }
+
+        $this->scope()->markRead($conv, $this->scopedOrders(), $orderId);
 
         if ($this->selectedConversation) {
             $this->loadCustomerOrders(
@@ -192,7 +221,7 @@ class CustomerChat extends Page
             return;
         }
 
-        $conv = ChatConversation::with('customer')->find($this->selectedId);
+        $conv = $this->findConversation($this->selectedId, ['customer']);
         if (! $conv) {
             return;
         }
@@ -320,6 +349,11 @@ class CustomerChat extends Page
             return;
         }
 
+        $conv = $this->findConversation($this->selectedId);
+        if (! $conv) {
+            return;
+        }
+
         $lastId = ! empty($this->messages)
             ? $this->messages[array_key_last($this->messages)]['id']
             : null;
@@ -347,27 +381,8 @@ class CustomerChat extends Page
             }
             $this->dispatch('scrollToBottom');
 
-            // Admin đang xem → mark read ngay
-            $markQuery = ChatMessage::where('conversation_id', $this->selectedId)
-                ->where('sender_type', 'customer')
-                ->whereNull('read_at');
-
-            if ($this->selectedOrderId === '__general__') {
-                $markQuery->whereNull('order_id');
-            } else {
-                $markQuery->where('order_id', $this->selectedOrderId);
-            }
-            $markQuery->update(['read_at' => Carbon::now()]);
-
-            // Reset admin_unread trên conversation nếu không còn tin chưa đọc nào
-            $remainingUnread = ChatMessage::where('conversation_id', $this->selectedId)
-                ->where('sender_type', 'customer')
-                ->whereNull('read_at')
-                ->count();
-            if ($remainingUnread === 0) {
-                ChatConversation::where('id', $this->selectedId)
-                    ->update(['admin_unread' => 0]);
-            }
+            // Admin đang xem → mark read ngay (admin_unread tự tính lại theo số tin còn chưa đọc)
+            $this->scope()->markRead($conv, $this->scopedOrders(), $this->selectedOrderId);
 
             $this->loadConversations();
 
@@ -423,7 +438,10 @@ class CustomerChat extends Page
                 });
         }
 
+        $orders = $this->scopedOrders();
+
         $this->customerOrders = Order::where('customer_id', $customerId)
+            ->when($orders !== null, fn ($q) => $q->whereIn('id', (clone $orders)->select('id')))
             ->with(['items.product'])
             ->orderByDesc('created_at')
             ->get()

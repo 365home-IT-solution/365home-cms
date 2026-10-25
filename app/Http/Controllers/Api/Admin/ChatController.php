@@ -8,6 +8,7 @@ use App\Support\PartnerLabel;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\User;
+use App\Services\ChatAccessScope;
 use App\Services\ChatRealtimeService;
 use App\Services\NotificationFcmService;
 use Carbon\Carbon;
@@ -21,7 +22,10 @@ use Modules\Payment\Entities\Order;
 
 class ChatController extends Controller
 {
-    public function __construct(private ChatRealtimeService $realtime) {}
+    public function __construct(
+        private ChatRealtimeService $realtime,
+        private ChatAccessScope $scope,
+    ) {}
 
     /**
      * GET /api/admin/chat
@@ -73,13 +77,10 @@ class ChatController extends Controller
     }
 
     /**
-     * Tính danh sách category_id cuối cùng dùng để lọc index() — null nghĩa là "không lọc gì cả"
-     * (khác [] = "lọc về không có gì"). Xem docblock index() để biết ngữ nghĩa 'categories' và
-     * phạm vi quyền theo chi nhánh.
-     *
-     * @return array<int>|null
+     * Phạm vi ĐƠN admin được xem, dùng làm gốc phân quyền chat (null = không giới hạn) — xem
+     * App\Services\ChatAccessScope (dùng chung với trang CMS "Tin nhắn"). ?categories= (slug) lọc thêm.
      */
-    private function resolveCategoryFilter(Request $request): ?array
+    private function scopedOrders(Request $request): ?Builder
     {
         $requested = null;
 
@@ -93,76 +94,12 @@ class ChatController extends Controller
             $requested = Category::whereIn('slug', $slugs)->pluck('id')->all();
         }
 
-        /** @var \App\Models\User $user */
-        $user = $request->user();
-
-        if ($user->seesAllPartners()) {
-            return $requested;
-        }
-
-        // [] = admin không bị gán quyền chi nhánh cụ thể → không giới hạn (giống quy ước dùng ở
-        // CouponResource::getEloquentQuery()/MembershipTierResource...).
-        $allowed = $user->allowedCategoryIds();
-
-        if ($requested !== null) {
-            return empty($allowed) ? $requested : array_values(array_intersect($requested, $allowed));
-        }
-
-        return empty($allowed) ? null : $allowed;
+        return $this->scope->orders($request->user(), $requested);
     }
 
-    /**
-     * Phạm vi ĐƠN admin được xem, dùng làm gốc phân quyền chat: super_admin không lọc gì (null, trừ
-     * khi tự lọc thêm ?categories=); user khác chỉ đơn của đúng đối tác mình (Order không có global
-     * scope partner ngoài Filament panel nên phải lọc tường minh — trước đây thiếu, chủ đối tác thấy
-     * hội thoại của MỌI đối tác), thu hẹp thêm theo chi nhánh (resolveCategoryFilter()).
-     */
-    private function scopedOrders(Request $request): ?Builder
-    {
-        /** @var User $user */
-        $user        = $request->user();
-        $categoryIds = $this->resolveCategoryFilter($request);
-
-        if ($user->seesAllPartners() && $categoryIds === null) {
-            return null;
-        }
-
-        $query = Order::query();
-
-        if (! $user->seesAllPartners()) {
-            empty($user->partner_id)
-                ? $query->whereRaw('1 = 0')
-                : $query->where('partner_id', $user->partner_id);
-        }
-
-        if ($categoryIds !== null) {
-            // [] = phạm vi quyền/lọc thu hẹp về rỗng → không thấy gì, KHÁC null (không giới hạn).
-            $query->whereIn('category_id', $categoryIds ?: [-1]);
-        }
-
-        return $query;
-    }
-
-    /**
-     * Hội thoại admin được xem: có ít nhất 1 khung chat của ĐƠN trong phạm vi, HOẶC có tin hỗ trợ
-     * chung (order_id null) của khách hàng từng đặt đơn trong phạm vi — khung hỗ trợ chung không gắn
-     * đơn nào nên chỉ xác định được "khách của ai" qua lịch sử đặt phòng.
-     */
     private function constrainConversations(Builder $query, ?Builder $orders): void
     {
-        if ($orders === null) {
-            return;
-        }
-
-        $orderIds    = (clone $orders)->select('id');
-        $customerIds = (clone $orders)->whereNotNull('customer_id')->select('customer_id');
-
-        $query->where(function (Builder $q) use ($orderIds, $customerIds) {
-            $q->whereHas('messages', fn ($m) => $m->whereIn('order_id', $orderIds))
-                ->orWhere(fn (Builder $q2) => $q2
-                    ->whereIn('customer_id', $customerIds)
-                    ->whereHas('messages', fn ($m) => $m->whereNull('order_id')));
-        });
+        $this->scope->constrainConversations($query, $orders);
     }
 
     // Tìm 1 hội thoại theo id NHƯNG chỉ trong phạm vi admin được xem — ngoài phạm vi trả null (404),
@@ -175,10 +112,9 @@ class ChatController extends Controller
         return $query->find($id);
     }
 
-    // Đơn có nằm trong phạm vi admin được xem không (null = không giới hạn).
     private function orderInScope(?Builder $orders, ?Order $order): bool
     {
-        return $order !== null && ($orders === null || (clone $orders)->whereKey($order->id)->exists());
+        return $this->scope->orderInScope($orders, $order);
     }
 
     /**
