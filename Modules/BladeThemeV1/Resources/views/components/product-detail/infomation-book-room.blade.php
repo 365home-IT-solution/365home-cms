@@ -318,7 +318,7 @@
         <!-- CCCD -->
         <div>
             <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">Xác thực danh tính</p>
-            <p class="text-[11px] text-[#717171] mt-0.5 mb-3">Bắt buộc để hoàn tất nhận phòng</p>
+            <p class="text-[11px] text-[#717171] mt-0.5 mb-3">Bắt buộc để hoàn tất nhận phòng{{ $cccdTwoSides ? ' — cơ sở này yêu cầu đủ 2 mặt CCCD' : '' }}</p>
 
             @if ($authHasCccd && !($cccdScanStatus['main'] ?? null))
                 {{-- Auth user đã có CCCD hợp lệ trong hồ sơ → dùng lại (không hiển thị thông tin CCCD) --}}
@@ -353,6 +353,19 @@
                 @endif
             @endif
 
+            {{-- Đối tác bật CCCD 2 mặt (partners.cccd_two_sides): thêm ảnh mặt còn lại — không quét QR, chỉ lưu ảnh.
+                 Ẩn khi đang dùng lại CCCD hồ sơ đã có sẵn ảnh mặt đó, xem ProductDetail::needsMainCccdBack(). --}}
+            @if ($this->needsMainCccdBack())
+                <div class="mt-3">
+                    @include('bladethemev1::components.product-detail.cccd-qr-upload', [
+                        'field' => 'cccd_back_image',
+                        'scan' => null,
+                        'label' => 'Ảnh CCCD — mặt còn lại',
+                        'qr' => false,
+                    ])
+                </div>
+            @endif
+
             <p class="text-[11px] text-[#717171] mt-2">* Thông tin CCCD được lưu trữ và bảo mật để khai báo lưu trú,
                 xóa sau khi check-out.</p>
         </div>
@@ -378,6 +391,16 @@
                             'scan' => $cccdScanStatus['extra.' . $companionIdx] ?? null,
                             'label' => 'Ảnh CCCD — mặt có mã QR',
                         ])
+                        @if ($cccdTwoSides)
+                            <div class="mt-2">
+                                @include('bladethemev1::components.product-detail.cccd-qr-upload', [
+                                    'field' => 'cccdBackImageExtra.' . $companionIdx,
+                                    'scan' => null,
+                                    'label' => 'Ảnh CCCD — mặt còn lại',
+                                    'qr' => false,
+                                ])
+                            </div>
+                        @endif
                     </div>
                 @endfor
 

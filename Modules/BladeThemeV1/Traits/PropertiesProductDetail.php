@@ -33,6 +33,12 @@ trait PropertiesProductDetail
     // khách #2, index 1 = khách #3...). Chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
     // (xem ProductDetail::hasOvernightSlotSelected()), số lượng = $guests - 1.
     public array $cccdQrImageExtra = [];
+    // Đối tác sở hữu phòng được Super Admin bật "CCCD 2 mặt" (partners.cccd_two_sides) → mỗi khách phải tải thêm ảnh
+    // MẶT CÒN LẠI (không quét QR, chỉ lưu ảnh — vào cột cccd_back của đơn / order_guest_cccds).
+    #[Locked]
+    public bool $cccdTwoSides = false;
+    public $cccd_back_image = '';
+    public array $cccdBackImageExtra = [];
     // Trạng thái quét QR theo slot ('main', 'extra.0'...): ['ok' => bool, 'error' => ?string].
     // KHÔNG chứa thông tin cá nhân — dữ liệu CCCD nằm (mã hoá) trong session phía server và chỉ
     // được ghi vào đơn lúc tạo đơn.
@@ -64,6 +70,9 @@ trait PropertiesProductDetail
     // Hồ sơ có cccd_data hợp lệ → dùng lại, khách không phải tải CCCD.
     #[Locked]
     public bool    $authHasCccd   = false;
+    // Hồ sơ đã có sẵn ảnh mặt còn lại (cccd_back / cccd_front) → dùng lại hồ sơ không phải tải thêm khi bật CCCD 2 mặt.
+    #[Locked]
+    public bool    $authHasCccdBack = false;
 
     // Lỗi phát sinh trong confirmBooking() (CCCD không hợp lệ, chưa đủ tuổi, v.v.) — hiển thị
     // ngay trong modal xác nhận đặt phòng thay vì toast 'notify' (bị che khuất sau modal do

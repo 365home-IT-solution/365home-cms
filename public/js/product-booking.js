@@ -95,7 +95,7 @@ function processAndUpload(input, field, opts = {}) {
                         progressBar.style.width = event.detail.progress + "%";
                         // Upload xong → server quét QR CCCD ngay trong request hoàn tất (vài giây)
                         if (event.detail.progress >= 100) {
-                            statusText.innerText = "Đang quét mã QR...";
+                            statusText.innerText = opts.qr === false ? "Đang xử lý..." : "Đang quét mã QR...";
                         }
                     }
                 );

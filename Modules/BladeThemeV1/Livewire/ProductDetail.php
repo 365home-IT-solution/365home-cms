@@ -145,6 +145,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $this->productTags = $this->fetchProductTags($this->product->id);
             $this->roomTimeSlots = $this->fetchRoomTimeSlots($this->product->id);
             $this->product = $this->product->load('categories');
+            $this->cccdTwoSides = filled($this->product->partner_id)
+                && (bool) \App\Models\Partner::withoutGlobalScopes()->whereKey($this->product->partner_id)->value('cccd_two_sides');
             $this->initializeProductData();
 
             if (Session::has('booking_data')) {
@@ -232,6 +234,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->isAuthUser   = false;
                 $this->authUserId   = null;
                 $this->authHasCccd   = false;
+                $this->authHasCccdBack = false;
                 $this->myCoupons     = [];
             }
             return;
@@ -263,6 +266,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             // cấu trúc) — hồ sơ chỉ có ảnh mà không có dữ liệu thì khách vẫn phải tải ảnh QR.
             $profileCccd = $this->authProfileCccdData();
             $this->authHasCccd   = (bool) $profileCccd;
+            $this->authHasCccdBack = filled($customer->cccd_back) || filled($customer->cccd_front);
 
             $this->loadMyCoupons($customer);
         } catch (\Throwable $e) {
@@ -982,6 +986,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         // Cắt bớt CCCD người đi cùng dư ra khi giảm số khách (giữ đúng thứ tự index 0..N-1).
         $companionCount = max(0, (int) $this->guests - 1);
         $this->cccdQrImageExtra = array_slice($this->cccdQrImageExtra, 0, $companionCount, true);
+        $this->cccdBackImageExtra = array_slice($this->cccdBackImageExtra, 0, $companionCount, true);
         $this->pruneCccdExtraScans($companionCount);
 
         if ($this->bookingStyle == 2) {
@@ -1113,6 +1118,21 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
      * hiển thị/bắt buộc upload CCCD người đi cùng (cccdQrImageExtra) hay không. Đồng
      * bộ với OrderForm.php phía admin (requiresSecondGuestCccd() coi style=2 luôn qua đêm).
      */
+    /**
+     * CCCD 2 mặt (partners.cccd_two_sides): người đặt phải tải ảnh mặt còn lại, TRỪ khi đang dùng lại CCCD trong hồ
+     * sơ (không tải ảnh QR mới) và hồ sơ đã có sẵn ảnh mặt đó — ảnh hồ sơ được snapshot vào đơn như ảnh QR.
+     */
+    public function needsMainCccdBack(): bool
+    {
+        if (! $this->cccdTwoSides) {
+            return false;
+        }
+
+        $usingProfile = $this->authHasCccd && ! $this->cccd_qr_image;
+
+        return ! ($usingProfile && $this->authHasCccdBack);
+    }
+
     public function hasOvernightSlotSelected(): bool
     {
         if ((int) ($this->bookingStyle ?? 1) === 2) {
@@ -1141,6 +1161,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if (!$this->authHasCccd) {
             $requiredFields[] = 'cccd_qr_image';
         }
+        if ($this->needsMainCccdBack()) {
+            $requiredFields[] = 'cccd_back_image';
+        }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
         $hasDateRange     = $this->bookingStyle == 2 && !empty($this->startTime) && !empty($this->endTime);
@@ -1152,7 +1175,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($hasAllFields && $this->hasOvernightSlotSelected()) {
             $companionCount = max(0, (int) $this->guests - 1);
             for ($i = 0; $i < $companionCount; $i++) {
-                if (empty($this->cccdQrImageExtra[$i] ?? null)) {
+                if (empty($this->cccdQrImageExtra[$i] ?? null)
+                    || ($this->cccdTwoSides && empty($this->cccdBackImageExtra[$i] ?? null))) {
                     $hasAllFields = false;
                     break;
                 }
@@ -1374,6 +1398,14 @@ public function confirmBooking()
             return;
         }
 
+        $backImageError = fn ($file) => !$file instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile
+            ? 'missing'
+            : app(\App\Services\CccdIntakeService::class)->imageError($file);
+        if ($this->needsMainCccdBack() && ($error = $backImageError($this->cccd_back_image))) {
+            $this->bookingConfirmError = $error === 'missing' ? 'Vui lòng tải thêm ảnh mặt còn lại của CCCD.' : $error;
+            return;
+        }
+
         // CCCD người đi cùng (khung giờ qua đêm) — mỗi khách từ #2 trở đi 1 ảnh QR đã quét
         // (index 0 = khách #2...). Qua đêm nên người đi cùng phải đủ 16 tuổi.
         $companionCccdList = [];
@@ -1402,10 +1434,19 @@ public function confirmBooking()
             }
             $seenPeople["extra.{$i}"] = $data;
 
+            if ($this->cccdTwoSides && ($error = $backImageError($this->cccdBackImageExtra[$i] ?? null))) {
+                $this->bookingConfirmError = $error === 'missing'
+                    ? "Vui lòng tải thêm ảnh mặt còn lại của CCCD người đi cùng thứ {$guestNumber}."
+                    : $error;
+                return;
+            }
+
             $companionCccdList[] = [
                 'guest_index' => $guestNumber,
                 'file'        => $this->cccdQrImageExtra[$i],
+                'back_file'   => $this->cccdTwoSides ? $this->cccdBackImageExtra[$i] : null,
                 'qr_image'    => null,
+                'back_image'  => null,
                 'data'        => $data,
             ];
         }
@@ -1418,9 +1459,16 @@ public function confirmBooking()
             $cccdImages  = $intake->snapshotImages($profileImages);
             $storedPaths = array_merge($storedPaths, array_values(array_filter($cccdImages)));
         }
+        // CCCD 2 mặt: ảnh mặt còn lại vừa tải → cột cccd_back (thay ảnh mặt sau snapshot từ hồ sơ nếu có).
+        if ($this->cccdTwoSides && $this->cccd_back_image instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile) {
+            $cccdImages['cccd_back'] = $storedPaths[] = $intake->storeQrImage($this->cccd_back_image);
+        }
         foreach ($companionCccdList as &$companion) {
             $companion['qr_image'] = $storedPaths[] = $intake->storeQrImage($companion['file']);
-            unset($companion['file']);
+            if ($companion['back_file']) {
+                $companion['back_image'] = $storedPaths[] = $intake->storeQrImage($companion['back_file']);
+            }
+            unset($companion['file'], $companion['back_file']);
         }
         unset($companion);
 
@@ -1589,6 +1637,7 @@ public function confirmBooking()
                 $order->guestCccds()->create([
                     'guest_index' => $companion['guest_index'],
                     'cccd_qr_image' => $companion['qr_image'],
+                    'cccd_back'     => $companion['back_image'],
                     'cccd_data'     => $companion['data'],
                 ]);
             }

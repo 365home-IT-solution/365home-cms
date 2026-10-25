@@ -1,13 +1,15 @@
 {{-- 1 ô tải ảnh CCCD mặt có mã QR. Ảnh được quét ngay khi upload xong (xem HandlesCccdQrScan) —
      chỉ báo hợp lệ (viền xanh + dấu tích) hoặc lỗi, KHÔNG hiển thị thông tin đọc được.
      Tham số: $field (property Livewire, vd 'cccd_qr_image' / 'cccdQrImageExtra.0'), $scan (mục trong
-     $cccdScanStatus hoặc null), $label. --}}
+     $cccdScanStatus hoặc null), $label, $qr (mặc định true; false = ô ảnh mặt còn lại của CCCD 2 mặt —
+     không quét QR, chỉ lưu ảnh, $scan luôn null). --}}
+@php $qr = $qr ?? true; @endphp
 <div class="space-y-2">
     <label
         class="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all overflow-hidden min-h-[9rem] py-5 group
         {{ $errors->has($field) ? 'border-red-600' : (($scan['ok'] ?? false) ? 'border-green-400 bg-green-50' : 'border-[#DDDDDD] hover:border-[#B0B0B0] bg-[#FAFAFA] hover:bg-[#F7F7F7]') }}">
         <input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only"
-            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
+            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92, qr: {{ $qr ? 'true' : 'false' }}})" />
         <div wire:ignore class="contents">
             <div id="loading-{{ $field }}" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20">
                 <div class="flex flex-col items-center justify-center h-full">
@@ -47,7 +49,7 @@
             </div>
             <div class="text-center mt-2">
                 <p class="text-xs font-semibold text-[#222222]">{{ $label }}</p>
-                <p class="text-[11px] text-[#717171] mt-0.5">Chụp thẳng, đủ sáng, mã QR rõ nét — không chụp lại màn hình</p>
+                <p class="text-[11px] text-[#717171] mt-0.5">{{ $qr ? 'Chụp thẳng, đủ sáng, mã QR rõ nét — không chụp lại màn hình' : 'Chụp thẳng, đủ sáng, rõ chữ — không chụp lại màn hình' }}</p>
             </div>
         </div>
     </label>
@@ -56,13 +58,13 @@
     <label
         class="md:hidden flex items-center justify-center gap-2 w-full rounded-xl border border-[#222222] bg-white py-2.5 text-sm font-semibold text-[#222222] cursor-pointer active:bg-[#F7F7F7]">
         <input type="file" accept="image/*" capture="environment" class="sr-only"
-            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
+            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92, qr: {{ $qr ? 'true' : 'false' }}})" />
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
             <circle cx="12" cy="13" r="4" />
         </svg>
-        Chụp ảnh CCCD
+        {{ $qr ? 'Chụp ảnh CCCD' : 'Chụp mặt còn lại' }}
     </label>
 
     @error($field)

@@ -20,12 +20,20 @@ trait ValidationRulesTrait
             'acceptRefundPolicy' => 'accepted',
         ];
 
+        // Đối tác bật CCCD 2 mặt: thêm ảnh mặt còn lại — chỉ được bỏ qua khi dùng lại CCCD hồ sơ đã có sẵn ảnh mặt đó.
+        if (! empty($this->cccdTwoSides)) {
+            $rules['cccd_back_image'] = ($this->needsMainCccdBack() ? 'required' : 'nullable') . '|image|mimes:jpg,jpeg,png,webp|max:5120';
+        }
+
         // CCCD người đi cùng — 1 ảnh mặt có mã QR bắt buộc cho mỗi khách từ #2 trở đi khi có
-        // khung giờ qua đêm được chọn (số lượng = guests - 1).
+        // khung giờ qua đêm được chọn (số lượng = guests - 1); CCCD 2 mặt thì thêm ảnh mặt còn lại.
         if ($hasOvernight) {
             $companionCount = max(0, (int) $this->guests - 1);
             for ($i = 0; $i < $companionCount; $i++) {
                 $rules["cccdQrImageExtra.$i"] = 'required|image|mimes:jpg,jpeg,png,webp|max:5120';
+                if (! empty($this->cccdTwoSides)) {
+                    $rules["cccdBackImageExtra.$i"] = 'required|image|mimes:jpg,jpeg,png,webp|max:5120';
+                }
             }
         }
 
@@ -50,6 +58,14 @@ trait ValidationRulesTrait
             'cccdQrImageExtra.*.image' => 'File CCCD người đi cùng không phải ảnh hợp lệ.',
             'cccdQrImageExtra.*.mimes' => 'Ảnh CCCD người đi cùng chỉ chấp nhận định dạng JPG, PNG, WEBP.',
             'cccdQrImageExtra.*.max' => 'Ảnh CCCD người đi cùng không được vượt quá 5MB.',
+            'cccd_back_image.required' => 'Vui lòng tải thêm ảnh mặt còn lại của CCCD.',
+            'cccd_back_image.image' => 'File CCCD không phải ảnh hợp lệ.',
+            'cccd_back_image.mimes' => 'Ảnh CCCD chỉ chấp nhận định dạng JPG, PNG, WEBP.',
+            'cccd_back_image.max' => 'Ảnh CCCD không được vượt quá 5MB.',
+            'cccdBackImageExtra.*.required' => 'Vui lòng tải thêm ảnh mặt còn lại của CCCD người đi cùng.',
+            'cccdBackImageExtra.*.image' => 'File CCCD người đi cùng không phải ảnh hợp lệ.',
+            'cccdBackImageExtra.*.mimes' => 'Ảnh CCCD người đi cùng chỉ chấp nhận định dạng JPG, PNG, WEBP.',
+            'cccdBackImageExtra.*.max' => 'Ảnh CCCD người đi cùng không được vượt quá 5MB.',
             'accept1.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',
             'accept2.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',
             'acceptRefundPolicy.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',

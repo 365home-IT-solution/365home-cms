@@ -131,6 +131,23 @@ class BranchServiceSync
         return array_values($roots);
     }
 
+    /**
+     * Dịch vụ (đang bật) dùng được cho các phòng $roomIds — đọc thẳng theo chi nhánh (nguồn gốc thật),
+     * không qua room_additional_service_assigns, để danh sách luôn đúng chi nhánh kể cả khi bảng dẫn
+     * xuất chưa kịp đồng bộ lại. Bỏ scope đối tác: nơi gọi tự kiểm tra quyền trên đơn/phòng.
+     */
+    public function activeServicesQueryForRooms(array $roomIds)
+    {
+        $branchIds = [];
+        foreach (array_filter(array_map('strval', $roomIds)) as $roomId) {
+            $branchIds = array_merge($branchIds, $this->rootBranchIdsForRoomId($roomId));
+        }
+
+        return \Modules\BladeThemeV1\App\Models\AdditionService::withoutGlobalScope('partner')
+            ->where('additional_services.is_active', true)
+            ->whereIn('additional_services.id', $this->serviceIdsForBranches(array_unique($branchIds)));
+    }
+
     private function serviceIdsForBranches(array $branchIds): array
     {
         if (! $branchIds) {

@@ -93,6 +93,13 @@ class EventServiceProvider extends ServiceProvider
         Event::observe(EventObserver::class);
         AskUser::observe(AskUserObserver::class);
         AppPage::observe(AppPageObserver::class);
+
+        // Đối tác tạo phòng / chi nhánh / dịch vụ đi kèm → báo Super Admin, xem App\Services\PartnerCatalogNotifier.
+        $this->app->singleton(\App\Services\PartnerCatalogNotifier::class);
+        $notifyCatalog = fn ($model) => app(\App\Services\PartnerCatalogNotifier::class)->created($model);
+        Product::created($notifyCatalog);
+        Category::created($notifyCatalog);
+        \Modules\BladeThemeV1\App\Models\AdditionService::created($notifyCatalog);
     }
 
     /**

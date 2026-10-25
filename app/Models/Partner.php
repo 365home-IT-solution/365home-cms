@@ -88,6 +88,11 @@ class Partner extends Model implements HasMedia
         'cancellation_policy',
     ];
 
+    // Cờ chỉ dùng cho trang đặt phòng trên website — không bao giờ xuất ra JSON/API.
+    protected $hidden = [
+        'cccd_two_sides',
+    ];
+
     protected $casts = [
         'status' => 'boolean',
         'is_platform_partner' => 'boolean',
@@ -112,6 +117,8 @@ class Partner extends Model implements HasMedia
         'escrow_terminated_at' => 'datetime',
         // Super Admin bật thì chủ đối tác được tự nhập kênh PayOS (không nằm trong $fillable — xem PartnerPayOsChannelService).
         'payos_self_setup_enabled' => 'boolean',
+        // Super Admin bật thì đặt phòng trên web phải tải CCCD 2 mặt (không nằm trong $fillable — chỉ bật/tắt ở danh sách Đối tác).
+        'cccd_two_sides' => 'boolean',
     ];
 
     public function registerMediaCollections(): void

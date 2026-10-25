@@ -12,30 +12,33 @@ declare(strict_types=1);
 // Khớp theo navigationLabel (chuỗi hiển thị) của từng mục — không khớp được thì mục đó rơi vào
 // cột "khác" ở cuối, không bị mất khỏi menu.
 return [
+    // Thứ tự khoá = thứ tự cột. "Quản lý" có 8 tiêu đề → dropdown 4 cột × 2 hàng (xem topbar/index.blade.php):
+    // hàng 1 là 4 cột dài, hàng 2 là 4 cột ngắn, để dropdown không cao quá màn hình.
     'Quản lý' => [
-        'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Loại hình phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố'],
-        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Bảng giá mẫu', 'Khuyến mãi & Giảm giá', 'Chiến dịch đồng tài trợ'],
-        'Nội dung & Marketing' => ['Bài viết', 'Danh mục bài viết'],
-        'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng'],
+        'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Loại hình phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố', 'Kiểm tra dọn phòng', 'Dữ liệu mẫu'],
+        'Đối tác & Báo cáo' => ['Đối tác', 'Duyệt thay đổi', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Thống kê hoa hồng', 'Đơn bị giữ khoản bù', 'Yêu cầu hoàn tiền', 'Tài khoản ngân hàng', 'Thống kê lương'],
+        'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng', 'Đánh giá phòng', 'Khai báo lưu trú', 'Chặn SĐT đặt phòng'],
         'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
-        'Thông báo' => ['Gửi thông báo đến khách'],
-        'Đối tác & Báo cáo' => ['Đối tác', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Yêu cầu hoàn tiền', 'Thống kê lương'],
+        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Bảng giá mẫu', 'Khuyến mãi & Giảm giá', 'Chiến dịch đồng tài trợ'],
+        'Nội dung & Thông báo' => ['Bài viết', 'Danh mục bài viết', 'Gửi thông báo đến khách'],
+        'Điều khoản' => ['Điều khoản Homestay', 'Lịch sử đồng ý Homestay'],
+        'Camera & Hệ thống' => ['Camera', 'Xem camera', 'Lỗi app'],
     ],
 
     'Cấu hình web' => [
         'Cấu hình chung' => ['Chung', 'Ẩn chi nhánh', 'Thông tin công ty'],
-        'Pass cổng' => ['Khóa thủ công', 'Pass Cổng'],
+        'Pass cổng' => ['Khóa thủ công', 'Pass Cổng', 'Khóa cổng'],
         'Giao diện website' => ['Menu', 'Trang', 'Thư viện', 'Banner'],
-        'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'Tài khoản TTLock', 'Email'],
+        'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'PayOS theo chi nhánh', 'PayOS theo đối tác', 'Ký quỹ', 'Chữ ký số', 'Tài khoản TTLock', 'Camera', 'Email'],
     ],
 
     'Phân quyền' => [
-        'Vai trò & Phân quyền' => ['Vai trò', 'Phân quyền Chi nhánh'],
+        'Vai trò & Phân quyền' => ['Vai trò', 'Phân quyền Chi nhánh', 'Phân quyền dữ liệu'],
         'Thành viên nội bộ' => ['Thành viên', 'Lịch sử thao tác'],
     ],
 
     'Quản lý API' => [
-        'Nội dung app' => ['APP', 'POPUP'],
+        'Nội dung app' => ['APP', 'POPUP', 'Thông báo vào app', 'Thông tin TTLock'],
         'Game App' => ['Mini game', 'Thẻ cào — Giải thưởng', 'Thẻ cào — Lịch sử trúng', 'Mảnh ghép — Chiến dịch', 'Giới thiệu bạn bè'],
     ],
 

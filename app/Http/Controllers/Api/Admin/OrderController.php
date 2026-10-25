@@ -1176,6 +1176,19 @@ class OrderController extends Controller
                 'quantity'     => $s->quantity,
                 'subtotal'     => (int) $s->subtotal,
             ])->values(),
+            // Dịch vụ CÓ THỂ thêm vào đơn — chỉ dịch vụ (đang bật) của phòng trong đơn, tức của đúng chi nhánh
+            // đơn đặt, không phải mọi dịch vụ của đối tác/hệ thống. Khớp danh sách update() chấp nhận ở
+            // services[].service_id; cùng nguồn GET /api/admin/services?order_code=.
+            'available_services' => app(\App\Services\BranchServiceSync::class)
+                ->activeServicesQueryForRooms($order->items->pluck('product_id')->all())
+                ->orderBy('name')
+                ->get()
+                ->map(fn ($s) => [
+                    'id'        => $s->id,
+                    'name'      => $s->name,
+                    'price'     => (int) $s->price,
+                    'image_url' => app(\App\Services\DefaultCatalogImage::class)->serviceUrl($s->image),
+                ])->values(),
             // Khách chính — ảnh CCCD đã lưu (dù không gửi gì trong request này vẫn xem lại được,
             // khác update() vốn phải gửi kèm cccd_front/back mới thì mới nhận lại URL trong response).
             'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,

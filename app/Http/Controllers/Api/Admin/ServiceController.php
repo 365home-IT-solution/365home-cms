@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\BladeThemeV1\App\Models\AdditionService;
 use Modules\Category\Entities\Category;
+use Modules\Payment\Entities\Order;
 
 /**
  * Dịch vụ đi kèm (bảng additional_services) — CRUD, gắn theo CHI NHÁNH chứ không theo từng phòng:
@@ -37,12 +38,28 @@ class ServiceController extends Controller
      *  - search    : lọc theo tên dịch vụ
      *  - branch_id : chỉ dịch vụ áp dụng cho chi nhánh này
      *  - room_id   : chỉ dịch vụ phòng này đang có (= dịch vụ của chi nhánh phòng thuộc về)
+     *  - order_code: chỉ dịch vụ thêm được vào đơn này (= dịch vụ của phòng trong đơn, tức chi nhánh
+     *                đơn đặt) — dùng ở màn chi tiết đơn, khớp đúng danh sách PUT /api/admin/orders/{order_code}
+     *                chấp nhận ở services[].service_id.
      */
     public function index(Request $request): JsonResponse
     {
         /** @var User $user */
         $user  = $request->user();
         $query = $this->visibleQuery($user)->with('branches:id,name,slug');
+
+        if ($request->filled('order_code')) {
+            $order = Order::query()->with('items:id,order_id,product_id')->where('order_code', (string) $request->string('order_code'))->first();
+
+            if (! $order || (! $user->isSuperAdmin() && $order->partner_id !== $user->partner_id)) {
+                return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+            }
+
+            $serviceIds = app(BranchServiceSync::class)
+                ->activeServicesQueryForRooms($order->items->pluck('product_id')->all())
+                ->pluck('additional_services.id');
+            $query->whereIn('additional_services.id', $serviceIds);
+        }
 
         if (! $request->boolean('all')) {
             $query->where('is_active', $request->has('is_active') ? $request->boolean('is_active') : true);

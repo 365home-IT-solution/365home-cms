@@ -114,10 +114,10 @@
                                     $subGroups = array_filter($subGroups);
                                 }
 
-                                // Tối đa 3 CỘT — nhiều tiêu đề hơn thì CSS Grid tự xuống hàng (grid-
-                                // template-columns cố định 3, không phải đếm bao nhiêu tiêu đề rồi
-                                // nới rộng thêm), tránh dropdown bị kéo quá rộng phải cuộn ngang.
-                                $megaMenuCols = $subGroups ? min(count($subGroups), 3) : 1;
+                                // Tối đa 3 CỘT — nhiều tiêu đề hơn thì CSS Grid tự xuống hàng, tránh dropdown
+                                // bị kéo quá rộng phải cuộn ngang. Riêng nhóm rất nhiều tiêu đề (≥ 7, VD "Quản
+                                // lý") dùng 4 cột để bớt 1 hàng — 3 cột thì dropdown cao quá màn hình.
+                                $megaMenuCols = $subGroups ? (count($subGroups) >= 7 ? 4 : min(count($subGroups), 3)) : 1;
 
                                 if (! $subGroups) {
                                     $flatCount    = count($group->getItems());
@@ -129,16 +129,19 @@
                                 }
 
                                 $megaMenuWidth = match ($megaMenuCols) {
+                                    4 => '5xl',
                                     3 => '3xl',
                                     2 => 'lg',
                                     default => null,
                                 };
                             @endphp
 
+                            {{-- max-height: dropdown cao hơn màn hình thì cuộn bên trong (trước đây bị cắt, không cuộn được tới các mục cuối). --}}
                             <x-filament::dropdown
                                 placement="bottom-start"
                                 teleport
                                 :width="$megaMenuWidth"
+                                max-height="calc(100vh - 6rem)"
                                 :attributes="\Filament\Support\prepare_inherited_attributes($group->getExtraTopbarAttributeBag())"
                             >
                                 <x-slot name="trigger">

@@ -7,6 +7,9 @@ namespace App\Filament\Resources\PartnerResource\Tables;
 use App\Models\Partner;
 use App\Models\PartnerSubscription;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
+use Filament\Tables\Actions\BulkAction;
+use Illuminate\Database\Eloquent\Collection;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
@@ -86,6 +89,12 @@ class PartnerTable
                     ->tooltip('Tắt để doanh thu, đơn và phòng của đối tác này không cộng vào số liệu tổng hợp của Super Admin.')
                     ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false),
 
+                // Bật: khách đặt phòng của đối tác này trên web phải tải CCCD 2 mặt (mặt có mã QR + mặt còn lại), thay vì 1 mặt.
+                ToggleColumn::make('cccd_two_sides')
+                    ->label('CCCD 2 mặt')
+                    ->tooltip('Bật để khách đặt phòng của đối tác này trên website phải tải cả 2 mặt CCCD (mặt có mã QR + mặt còn lại).')
+                    ->visible(fn () => Filament::getCurrentPanel()?->getId() !== 'minihouse-admin' && (auth()->user()?->isSuperAdmin() ?? false)),
+
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->date('d/m/Y')
@@ -131,6 +140,34 @@ class PartnerTable
                         $action->cancel();
                     }
                 }),
+            ])
+            // Bật/tắt CCCD 2 mặt cho nhiều đối tác cùng lúc (tick chọn ở danh sách).
+            ->bulkActions([
+                self::cccdTwoSidesBulkAction(true),
+                self::cccdTwoSidesBulkAction(false),
             ]);
+    }
+
+    private static function cccdTwoSidesBulkAction(bool $enabled): BulkAction
+    {
+        return BulkAction::make($enabled ? 'enableCccdTwoSides' : 'disableCccdTwoSides')
+            ->label($enabled ? 'Bật CCCD 2 mặt' : 'Tắt CCCD 2 mặt')
+            ->icon($enabled ? 'heroicon-o-identification' : 'heroicon-o-minus-circle')
+            ->color($enabled ? 'primary' : 'gray')
+            ->visible(fn () => Filament::getCurrentPanel()?->getId() !== 'minihouse-admin' && (auth()->user()?->isSuperAdmin() ?? false))
+            ->requiresConfirmation()
+            ->modalDescription($enabled
+                ? 'Khách đặt phòng của các đối tác đã chọn trên website sẽ phải tải cả 2 mặt CCCD.'
+                : 'Khách đặt phòng của các đối tác đã chọn trên website chỉ cần tải 1 mặt CCCD có mã QR.')
+            ->deselectRecordsAfterCompletion()
+            ->action(function (Collection $records) use ($enabled): void {
+                // forceFill + save từng bản ghi (không update hàng loạt) để LogsAuditTrail vẫn ghi lịch sử thay đổi.
+                $records->each(fn (Partner $partner) => $partner->forceFill(['cccd_two_sides' => $enabled])->save());
+
+                Notification::make()
+                    ->title(($enabled ? 'Đã bật' : 'Đã tắt') . ' CCCD 2 mặt cho ' . $records->count() . ' đối tác')
+                    ->success()
+                    ->send();
+            });
     }
 }

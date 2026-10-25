@@ -571,8 +571,19 @@ class OrderForm
                                                                                         ->filter()
                                                                                         ->all();
 
-                                                                                    return \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1)
+                                                                                    // Chỉ dịch vụ của phòng đang chọn (= dịch vụ chi nhánh đơn đặt) — trước đây
+                                                                                    // liệt kê mọi dịch vụ của mọi chi nhánh. Chưa chọn phòng thì chưa có gì để chọn.
+                                                                                    $productId = $get('product_id');
+                                                                                    if (blank($productId)) {
+                                                                                        return [];
+                                                                                    }
+
+                                                                                    // Không lọc theo đối tác: nhân viên đối tác nền tảng đặt hộ phòng của đối tác
+                                                                                    // khác (xem 'product_id' ở trên) vẫn phải thấy dịch vụ của phòng đó.
+                                                                                    return app(\App\Services\BranchServiceSync::class)
+                                                                                        ->activeServicesQueryForRooms([$productId])
                                                                                         ->whereNotIn('id', $selectedIds)
+                                                                                        ->orderBy('name')
                                                                                         ->pluck('name', 'id');
                                                                                 })
                                                                                 ->placeholder('Chọn dịch vụ...')
@@ -582,7 +593,7 @@ class OrderForm
                                                                                         return;
                                                                                     }
 
-                                                                                    $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
+                                                                                    $service = \Modules\BladeThemeV1\App\Models\AdditionService::withoutGlobalScope('partner')->find($state);
 
                                                                                     if (! $service) {
                                                                                         return;
