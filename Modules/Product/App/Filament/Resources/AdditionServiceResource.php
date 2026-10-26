@@ -87,8 +87,14 @@ class AdditionServiceResource extends Resource
             // chi nhánh đó (App\Services\BranchServiceSync, gọi ở Create/EditAdditionService).
             Select::make('branches')
                 ->label('Chi nhánh áp dụng')
-                ->relationship('branches', 'name', modifyQueryUsing: function ($query) {
+                ->relationship('branches', 'name', modifyQueryUsing: function ($query, ?AdditionService $record) {
                     $query->whereNull('categories.parent_id')->where('categories.category_type', 'product');
+
+                    // Dịch vụ đã có chủ → chỉ chi nhánh của đúng đối tác đó (kể cả super admin), tránh
+                    // gắn dịch vụ đối tác A vào chi nhánh đối tác B.
+                    if ($record?->partner_id) {
+                        return $query->where('categories.partner_id', $record->partner_id);
+                    }
 
                     $user = auth()->user();
 
@@ -100,6 +106,18 @@ class AdditionServiceResource extends Resource
                 ->preload()
                 ->searchable()
                 ->required()
+                ->rules([
+                    fn () => function (string $attribute, $value, \Closure $fail) {
+                        $partnerCount = \Modules\Category\Entities\Category::withoutGlobalScopes()
+                            ->whereIn('id', (array) $value)
+                            ->distinct()
+                            ->count('partner_id');
+
+                        if ($partnerCount > 1) {
+                            $fail('Các chi nhánh đã chọn phải cùng thuộc 1 đối tác.');
+                        }
+                    },
+                ])
                 ->helperText('Mọi phòng thuộc chi nhánh đã chọn sẽ có dịch vụ này.')
                 ->columnSpanFull(),
 

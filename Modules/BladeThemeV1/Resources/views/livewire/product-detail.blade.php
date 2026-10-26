@@ -106,7 +106,9 @@
                         // Product::registerMediaConversions(). Ảnh chưa sinh conversion thì dùng ảnh gốc.
                         $pdConv = fn ($m, $c) => $m->hasGeneratedConversion($c) ? $m->getUrl($c) : $m->getUrl();
                         $pdCover = $product->getFirstMedia('Ảnh bìa');
-                        $pdFallbackImg = 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=900&q=80';
+                        // Phòng chưa có ảnh bìa: khung xám trung tính (không dùng ảnh phòng mẫu — khách
+                        // tưởng là ảnh thật của phòng).
+                        $pdFallbackImg = 'data:image/svg+xml,' . rawurlencode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600"><rect width="900" height="600" fill="#F1F2F4"/><g fill="none" stroke="#B8BDC6" stroke-width="12" stroke-linejoin="round"><rect x="360" y="230" width="180" height="140" rx="14"/><path d="M372 352l52-56 40 40 26-24 38 40"/></g><circle cx="490" cy="270" r="14" fill="#B8BDC6"/></svg>');
                         $mainImg = $pdCover ? $pdConv($pdCover, 'full') : $pdFallbackImg;
                         $mainTile = $pdCover ? $pdConv($pdCover, 'wide') : $pdFallbackImg;
                         $galleryImgs = $mediaSecond ?? collect([]);

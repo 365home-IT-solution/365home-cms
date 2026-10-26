@@ -154,10 +154,16 @@ class BranchServiceSync
             return [];
         }
 
+        // Chỉ dịch vụ CÙNG đối tác với chi nhánh — liên kết chéo đối tác (dữ liệu cũ, hoặc super admin
+        // chọn nhầm chi nhánh của đối tác khác) không được lan sang phòng, nếu không khách đặt phòng
+        // đối tác này thấy dịch vụ của đối tác khác.
         return DB::table('additional_service_branches')
-            ->whereIn('category_id', $branchIds)
+            ->join('additional_services', 'additional_services.id', '=', 'additional_service_branches.additional_service_id')
+            ->join('categories', 'categories.id', '=', 'additional_service_branches.category_id')
+            ->whereIn('additional_service_branches.category_id', $branchIds)
+            ->whereColumn('additional_services.partner_id', 'categories.partner_id')
             ->distinct()
-            ->pluck('additional_service_id')
+            ->pluck('additional_service_branches.additional_service_id')
             ->map(fn ($id) => (int) $id)
             ->all();
     }
