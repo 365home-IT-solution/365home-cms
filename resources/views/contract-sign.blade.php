@@ -84,8 +84,8 @@
         .btn-print { width: auto; padding: 8px 16px; background: #fff; color: var(--brand); border: 1px solid var(--line); }
         @media (max-width: 640px) { .hd { font-size: 11.5pt !important; } .hd p[style*="font-size:18pt"] { font-size: 15pt !important; } }
 
-        /* In: đúng khổ mẫu — A4, lề trái 3cm / phải 1,5cm / trên-dưới 2cm; chỉ in toàn văn hợp đồng. */
-        @page { size: A4; margin: 2cm 1.5cm 2cm 3cm; @bottom-right { content: counter(page); font-family: Calibri, Carlito, Arial, sans-serif; font-size: 11pt; } } /* số trang góc phải dưới như mẫu Word */
+        /* In: đúng khổ mẫu — A4, lề trái 3cm / phải 1,5cm (mẫu VT+ĐL: 1,25cm) / trên-dưới 2cm; chỉ in toàn văn hợp đồng. */
+        @page { size: A4; margin: 2cm {{ str_contains((string) $version->content, 'hd-vtdl') ? '1.25cm' : '1.5cm' }} 2cm 3cm; @bottom-right { content: counter(page); font-family: Calibri, Carlito, Arial, sans-serif; font-size: 11pt; } } /* số trang góc phải dưới như mẫu Word */
         @media print {
             body { background: #fff; padding: 0; }
             .topbar, .head, .jump, .side, .alert, .hash { display: none !important; }

@@ -102,9 +102,13 @@ class PartnerContractRenderer
         // Mục liệt kê có chấm tròn (•): chấm ở lề 18pt, chữ ở 36pt như mẫu.
         $bullet = fn (string $text) => '<p style="margin:0 0 6pt 36pt;page-break-inside:avoid;text-indent:-18pt;line-height:' . $lh . ';"><span style="font-size:14.5pt;position:relative;top:2pt;">&bull;</span><span style="display:inline-block;width:13pt;"></span>' . $text . '</p>';
 
+        // Mẫu VT+ĐL ("HỢP ĐỒNG HILL TOP CHILL_VT+ĐL.docx"): dòng ngày tháng thụt trái 270,1pt (không căn phải) và lề phải 1,25cm — class hd-vtdl để
+        // ContractPdfRenderer và CSS in ở trang ký chọn đúng lề. Hợp đồng đã lưu trước đó không có class này nên giữ nguyên khổ cũ.
+        $vtdl = $partner->contractTemplate() !== Partner::TEMPLATE_CT;
+
         $html = [];
-        $html[] = '<div class="hd" style="font-family:' . self::FONT . ';font-size:13pt;line-height:' . $lh . ';text-align:justify;color:#000;">';
-        $html[] = $p($dateLine, 'text-align:right;font-style:italic;');
+        $html[] = '<div class="hd' . ($vtdl ? ' hd-vtdl' : '') . '" style="font-family:' . self::FONT . ';font-size:13pt;line-height:' . $lh . ';text-align:justify;color:#000;">';
+        $html[] = $p($dateLine, $vtdl ? 'padding-left:270.1pt;text-align:left;font-style:italic;' : 'text-align:right;font-style:italic;');
         $html[] = '<p style="margin:0 0 6pt;padding-top:5.9pt;padding-left:0.95pt;text-indent:36pt;text-align:center;font-size:18pt;font-weight:700;line-height:' . self::LH18 . ';">HỢP ĐỒNG HỢP TÁC KINH DOANH</p>';
         $html[] = '<p style="margin:0 0 6pt;padding-top:10.2pt;padding-left:0.95pt;text-indent:36pt;text-align:center;font-weight:700;line-height:' . $lh . ';">Số: ' . $dots($partner->contract_code, 20) . '</p>';
         foreach ([
@@ -133,7 +137,7 @@ class PartnerContractRenderer
 
         // THÂN HỢP ĐỒNG: chép NGUYÊN VĂN từ hai mẫu chuẩn của chủ nền tảng (xem App\Support\PartnerContractTemplateText) — mẫu CT cho cơ sở trong Thành phố
         // Cần Thơ, mẫu VT+ĐL cho cơ sở ngoài Cần Thơ. Hệ thống chỉ điền các chỗ trống (tỷ lệ, tiền bảo đảm, mức khấu trừ, mức phạt, thời hạn); không thêm bớt chữ.
-        $template = $partner->contractTemplate() === Partner::TEMPLATE_CT ? PartnerContractTemplateText::CT : PartnerContractTemplateText::VT_DL;
+        $template = $vtdl ? PartnerContractTemplateText::VT_DL : PartnerContractTemplateText::CT;
         $fill = [
             '{PCT_A}' => $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateA) . '% (' . VietnameseNumber::percentWords($rateA) . ')',
             '{PCT_B}' => $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateB) . '% (' . VietnameseNumber::percentWords($rateB) . ')',

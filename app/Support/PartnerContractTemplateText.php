@@ -6,7 +6,7 @@ namespace App\Support;
 
 // NỘI DUNG HAI MẪU HỢP ĐỒNG CHUẨN CỦA NỀN TẢNG — chép NGUYÊN VĂN từ hai tệp mẫu do chủ nền tảng cung cấp:
 //   CT     = "HỢP ĐỒNG  HOME -CT (1).doc"   (đối tác TRONG Thành phố Cần Thơ)
-//   VT_DL  = "HỢP ĐỒNG 365HOME_VT+ĐL (1).docx" (đối tác NGOÀI Cần Thơ)
+//   VT_DL  = "HỢP ĐỒNG HILL TOP CHILL_VT+ĐL.docx" (đối tác NGOÀI Cần Thơ)
 // Không sửa chữ ở đây: mọi thay đổi văn bản hợp đồng phải đi từ mẫu của chủ nền tảng. tests/Feature/ContractTemplatesMatchSourceTest so từng dòng với bản gốc.
 // Từng phần tử: [loại, nội dung]; loại: h = tiêu đề Điều, p = đoạn, b = mục gạch đầu dòng (dấu * trong mẫu). Phần trong {...} là chỗ điền của hệ thống:
 //   {PCT_A} {PCT_B} tỷ lệ 20%/80% (đổi theo hồ sơ đối tác) · {RATE_A} tỷ lệ Bên A · {DEPOSIT} tiền bảo đảm · {VIOLATION} mức khấu trừ/lần ·
@@ -97,15 +97,16 @@ final class PartnerContractTemplateText
         ["p", "1.1. Hai bên hợp tác khai thác, vận hành và kinh doanh dịch vụ lưu trú tại cơ sở của Bên B nhằm tối ưu công suất phòng, tăng doanh thu và phát triển thương hiệu."],
         ["p", "1.2. Việc hợp tác được thực hiện trên nguyên tắc tự nguyện, minh bạch, bình đẳng và cùng có lợi, không làm ảnh hưởng đến uy tín và hoạt động kinh doanh của mỗi bên."],
         ["h", "ĐIỀU 2. PHẠM VI VÀ NỘI DUNG HỢP TÁC"],
-        ["p", "2.1. Bên A trực tiếp khai thác và bán phòng trên các nền tảng của 365 Home, bao gồm: xây dựng giá bán, quản lý kênh phân phối, triển khai marketing, quản lý đặt phòng và chăm sóc khách hàng."],
-        ["p", "2.2. Bên A được quyền sử dụng hình ảnh, video và thông tin cơ sở lưu trú của Bên B sau khi bên B đã kiểm duyệt để phục vụ hoạt động quảng bá và kinh doanh trong thời gian hợp tác. Bên B không được yêu cầu Bên A cung cấp, bàn giao hoặc chuyển giao các file hình ảnh, video và sản phẩm marketing do Bên A thực hiện hoặc sản xuất, trừ khi được Bên A chấp thuận bằng văn bản."],
-        ["p", "2.3. Bên B cung cấp cơ sở lưu trú đủ điều kiện kinh doanh, đảm bảo tiêu chuẩn vận hành và phối hợp xử lý các vấn đề liên quan trong quá trình hoạt động. Mọi thay đổi về giá và chiến lược kinh doanh phải được thống nhất giữa 02 Bên để đạt hiệu quả tốt nhất."],
+        ["p", "2.1. Bên A trực tiếp khai thác và bán phòng trên các nền tảng của 365 Home, bao gồm: quản lý kênh phân phối, triển khai marketing, quản lý đặt phòng."],
+        ["p", "2.2. Bên A được quyền sử dụng hình ảnh, video và thông tin cơ sở lưu trú của Bên B để phục vụ hoạt động quảng bá trên nền tảng 365home và kinh doanh trong thời gian hợp tác. Bên B không được yêu cầu Bên A cung cấp, bàn giao hoặc chuyển giao các file hình ảnh, video và sản phẩm marketing do Bên A thực hiện hoặc sản xuất, trừ khi được Bên A chấp thuận bằng văn bản."],
+        ["p", "2.3. Bên B cung cấp cơ sở lưu trú đủ điều kiện kinh doanh, đảm bảo tiêu chuẩn vận hành và phối hợp xử lý các vấn đề liên quan trong quá trình hoạt động."],
         ["h", "ĐIỀU 3. MÔ HÌNH VẬN HÀNH"],
         ["p", "3.1. Bên A thực hiện bán phòng và cung cấp các giải pháp vận hành trên nền tảng 365 Home nhằm tối ưu hiệu quả kinh doanh. Song song đó, Bên B vẫn khai thác và cho thuê phòng theo mô hình hiện có của cơ sở."],
         ["h", "ĐIỀU 4. DOANH THU, QUẢN LÝ DOANH THU VÀ THANH TOÁN"],
         ["p", "4.1. Doanh thu hợp tác là khoản thu từ hoạt động kinh doanh lưu trú tại cơ sở của Bên B thông qua hệ thống của Bên A."],
-        ["p", "4.2. Tỷ lệ phân chia doanh thu"],
-        ["p", "- Tiền khách hàng thanh toán được chuyển trực tiếp vào tài khoản của Bên B. Các booking phát sinh trên nền tảng 365Home được ghi nhận trên hệ thống của Bên A. Hai bên thực hiện đối soát doanh thu định kỳ 02 lần mỗi tháng; Bên A tổng hợp dữ liệu từ hệ thống và gửi bảng đối soát cho Bên B vào ngày 01 và ngày 15 hằng tháng, cụ thể:"],
+        ["p", "4.2. Tỷ lệ phân chia doanh thu:"],
+        ["p", "- Doanh thu từ các giao dịch đặt phòng được chuyển trực tiếp vào tài khoản Bên B và được cập nhật trên nền tảng 365Home để hai bên theo dõi, tra cứu và đối soát."],
+        ["p", "- Hai bên thực hiện đối soát doanh thu định kỳ 02 lần mỗi tháng; Bên A tổng hợp dữ liệu từ hệ thống và gửi bảng đối soát cho Bên B vào ngày 01 và ngày 15 hằng tháng, cụ thể:"],
         ["b", "Ngày 01: Đối soát doanh thu phát sinh từ ngày 15 đến hết ngày cuối cùng của tháng trước."],
         ["b", "Ngày 15: Đối soát doanh thu phát sinh từ ngày 01 đến hết ngày 14 của tháng hiện tại."],
         ["p", "- Tỷ lệ phân chia doanh thu như sau:"],
@@ -118,16 +119,13 @@ final class PartnerContractTemplateText
         ["p", "5.2. Các hành vi, vi phạm của Bên B gồm:"],
         ["p", "- Chậm thanh toán, cung cấp sai số liệu hoặc không thực hiện đúng nghĩa vụ thanh toán;"],
         ["p", "- Tự ý khai thác, chuyển hướng hoặc tiếp nhận khách thuộc hệ thống của Bên A;"],
-        ["p", "- Tự ý thay đổi giá phòng, tình trạng phòng hoặc thông tin trên các kênh của Bên A;"],
         ["p", "- Từ chối khách đã xác nhận đặt phòng hợp lệ hoặc gây gián đoạn hoạt động kinh doanh;"],
         ["p", "- Không cập nhật chính xác tình trạng phòng dẫn đến sai lệch hoặc vượt số lượng phòng;"],
-        ["p", "- Tự ý sử dụng dữ liệu, nguồn khách hoặc hệ thống hợp tác mà không có sự đồng ý của Bên A."],
-        ["p", "- Bên B có trách nhiệm phối hợp với Bên A trong việc tiếp nhận và phục vụ khách theo booking đã xác nhận trên hệ thống. Trường hợp Bên B vi phạm do lỗi của mình, gây ảnh hưởng đến việc nhận phòng hoặc trải nghiệm của khách, Bên B bị khấu trừ {VIOLATION}/lần vào phần doanh thu được hưởng. Khoản khấu trừ phải có căn cứ xác định và được ghi nhận trong báo cáo đối soát; không thay thế nghĩa vụ hoàn tiền cho khách hoặc bồi thường thiệt hại thực tế (nếu có) theo Hợp đồng và quy định pháp luật."],
+        ["p", "- Bên B có trách nhiệm phục vụ khách theo booking đã xác nhận. Trường hợp Bên B có lỗi dẫn đến phòng không đảm bảo vệ sinh (có phản hồi kèm hình ảnh/video), khách không nhận được phòng hoặc không có phương án xử lý kịp thời để khách nhận phòng, Bên B bị khấu trừ {VIOLATION}/lần vào doanh thu được hưởng. Việc khấu trừ phải có căn cứ xác nhận và được ghi nhận trong báo cáo đối soát. Khoản khấu trừ không thay thế nghĩa vụ hoàn tiền hoặc bồi thường thiệt hại thực tế (nếu có) theo Hợp đồng và quy định pháp luật."],
         ["p", "5.3. Các hành vi, vi phạm của Bên A gồm:"],
         ["p", "- Không minh bạch trong quản lý, đối soát hoặc báo cáo doanh thu;"],
         ["p", "- Vận hành không đảm bảo chất lượng dịch vụ, gây ảnh hưởng đến uy tín cơ sở lưu trú;"],
         ["p", "- Thực hiện sai quy trình dẫn đến khiếu nại nghiêm trọng từ khách hàng."],
-        ["p", "- Nếu lỗi bên A ảnh hưởng đến chất lượng phục vụ, ảnh hưởng đến uy tín và việc nhận phòng thì bị trừ 100.000 vi phạm."],
         ["p", "5.4. Bên vi phạm có trách nhiệm khắc phục hậu quả, điều chỉnh số liệu (nếu có) và bồi thường thiệt hại thực tế phát sinh. Hai bên cam kết không tự ý khai thác hoặc sử dụng dữ liệu khách hàng của nhau nếu chưa được đồng ý bằng văn bản."],
         ["h", "ĐIỀU 6. HOÀN TIỀN, KHIẾU NẠI VÀ XỬ LÝ SỰ CỐ"],
         ["p", "6.1. Trách nhiệm xử lý phát sinh:"],

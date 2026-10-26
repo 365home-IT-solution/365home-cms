@@ -42,7 +42,9 @@ class ContractPdfRenderer
 
         // Khổ in theo mẫu Word: A4, lề trái 3cm / phải 1,5cm / trên 2cm / dưới 2cm. Dompdf đặt chữ trong ô dòng cao hơn Word 5,7pt (cùng chiều cao dòng),
         // nên dịch cả vùng nội dung lên 5,7pt (lề trên 2cm - 5,7pt, lề dưới 2cm + 5,7pt) để mỗi dòng nằm ĐÚNG vị trí và mỗi trang chứa đúng số dòng như Word.
-        $css = '<style>@page{margin:51pt 42.52pt 93pt 85.04pt} body{font-family:"' . $family . '";font-size:13pt;margin:0} .hd-hint{display:none}</style>';
+        // Mẫu VT+ĐL (class hd-vtdl): lề phải 1,25cm (35,4pt) như file Word của mẫu này.
+        $right = str_contains($html, 'hd-vtdl') ? '35.4pt' : '42.52pt';
+        $css = '<style>@page{margin:51pt ' . $right . ' 93pt 85.04pt} body{font-family:"' . $family . '";font-size:13pt;margin:0} .hd-hint{display:none}</style>';
         // Dompdf nhân chiều cao dòng khai báo bằng pt lên ~1,2635 lần so với CSS chuẩn → chia lại để dòng cao đúng 22,4pt như Word.
         $html = preg_replace_callback('/line-height:\s*([0-9.]+)pt/', fn ($m) => 'line-height:' . round((float) $m[1] / self::LINE_HEIGHT_SCALE, 3) . 'pt', $html);
         $dompdf->loadHtml('<meta charset="utf-8">' . $css . $html);
