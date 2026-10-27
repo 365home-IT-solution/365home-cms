@@ -21,6 +21,7 @@ class ProductAction
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết')->modalWidth(MaxWidth::Full),
                 EditAction::make()->label('Cập nhật'),
+                CopyRoomAction::make(),
                 RoomCleaningAction::markForCleaning(),
                 DeleteAction::make('Xóa')
             ])
