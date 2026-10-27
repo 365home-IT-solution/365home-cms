@@ -291,6 +291,19 @@
             + '</div>';
     }
 
+    // Thứ tự phòng trong 1 chi nhánh: theo giờ → qua đêm → theo ngày, rồi theo tên kiểu "tự nhiên"
+    // (so số theo giá trị chứ không theo ký tự) — các phòng cùng loại đứng liền nhau và số phòng tăng
+    // dần: "Family Deluxe 201a, 301a, 401a…", "Triple Deluxe 201a, 301b, 303a…". API trả về theo
+    // ngày tạo mới nhất trước, nên phòng sao chép hàng loạt sẽ bị xáo trộn nếu giữ nguyên thứ tự đó.
+    var ROOM_STYLE_RANK = { theo_gio: 0, qua_dem: 1, theo_ngay: 2 };
+    var roomNameCollator = new Intl.Collator('vi', { numeric: true, sensitivity: 'base' });
+
+    function compareRooms(a, b) {
+        var ra = a.room_style in ROOM_STYLE_RANK ? ROOM_STYLE_RANK[a.room_style] : 3;
+        var rb = b.room_style in ROOM_STYLE_RANK ? ROOM_STYLE_RANK[b.room_style] : 3;
+        return ra - rb || roomNameCollator.compare(String(a.name || ''), String(b.name || ''));
+    }
+
     // Nhóm theo chi nhánh (room.branch.id) — phòng không có chi nhánh (tìm kiếm toàn quốc, không
     // xác định được tỉnh) gom vào 1 nhóm chung, hiển thị phẳng không có dòng tiêu đề. Trả về danh
     // sách phòng ĐÃ THEO ĐÚNG THỨ TỰ HIỂN THỊ TRÊN DOM (nhóm theo chi nhánh làm xáo trộn thứ tự
@@ -314,7 +327,11 @@
             branchGroups[key].rooms.push(room);
         });
 
-        var orderedGroups = branchOrder.map(function (key) { return branchGroups[key]; });
+        var orderedGroups = branchOrder.map(function (key) {
+            branchGroups[key].rooms.sort(compareRooms);
+            return branchGroups[key];
+        });
+        noBranchRooms.sort(compareRooms);
         var orderedRooms = orderedGroups.reduce(function (acc, group) { return acc.concat(group.rooms); }, []).concat(noBranchRooms);
 
         return { groups: orderedGroups, noBranchRooms: noBranchRooms, orderedRooms: orderedRooms };
