@@ -197,6 +197,9 @@ class PartnerController extends Controller
             // Hợp đồng đã ký thử nghiệm (Local) và nay đã có nhà cung cấp thật → có thể ký lại (POST .../contract/platform-resign).
             'can_platform_resign' => $version ? ($version->isPlatformSigned() && $version->platform_signing_provider === 'local' && ! app(ContractSigningManager::class)->isTestProvider()) : false,
             'platform_signed_method' => $version?->platform_sign_method,
+            // Hợp đồng giấy: admin xác nhận đã ký tay → có hiệu lực + tạo tài khoản (POST .../contract/confirm-hand-signed). true khi hợp đồng được xác nhận theo cách này.
+            'hand_signed' => $version?->platform_sign_method === 'manual',
+            'can_confirm_hand_signed' => $version ? (! $version->isFullySigned() && $partner->contract_status !== 'active' && $documents->isContractEligible($partner)) : false,
             'partner_sign_method' => $version?->partner_sign_method ?? ($version?->isPartnerConfirmed() ? 'otp' : null),
             // Đối tác ký tay (partner_sign_method = manual): các tệp scan/ảnh đã nộp — tải qua GET .../contract/partner-manual-files[?file={id}].
             'partner_manual_files' => app(\App\Services\PartnerContractCksService::class)->manualFiles($version),
@@ -435,6 +438,40 @@ class PartnerController extends Controller
             'is_fully_signed' => $version->isFullySigned(),
             'contract_status' => $partner->fresh()->contract_status,
         ]]);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/confirm-hand-signed (Super Admin) — HỢP ĐỒNG GIẤY: xác nhận hai bên ĐÃ KÝ TAY trên bản in. Coi như ký đủ:
+    // hợp đồng có hiệu lực, luồng tiền được kích hoạt và tài khoản chủ đối tác được tạo + gửi email đăng nhập ngay (không chờ Bên A ký số).
+    // Tất cả tuỳ chọn: signed_at (ngày ký trên bản giấy, mặc định hôm nay), signer_name (mặc định người đại diện), signed_files[] (scan/ảnh, tối đa 10).
+    public function confirmHandSigned(Request $request, Partner $partner, \App\Services\PartnerContractWorkflowService $workflow): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $data = $request->validate([
+            'signed_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'signer_name' => ['nullable', 'string', 'max:255'],
+            'signed_files' => ['nullable', 'array', 'max:10'],
+            'signed_files.*' => ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:20480'],
+        ], [
+            'signed_at.before_or_equal' => 'Ngày ký không được ở tương lai.',
+            'signed_files.max' => 'Tối đa 10 tệp.',
+            'signed_files.*.mimes' => 'Chỉ nhận PDF hoặc ảnh JPG, PNG, WEBP.',
+            'signed_files.*.max' => 'Mỗi tệp tối đa 20 MB.',
+        ], ['signer_name' => 'họ tên người ký', 'signed_at' => 'ngày ký']);
+
+        $result = $workflow->confirmHandSigned(
+            $partner, $request->user(),
+            filled($data['signed_at'] ?? null) ? \Illuminate\Support\Carbon::parse($data['signed_at']) : null,
+            $data['signer_name'] ?? null, $request->file('signed_files', []), (string) $request->ip(), (string) $request->userAgent(),
+        );
+
+        $account = $result['account'];
+
+        return response()->json(['message' => match (true) {
+            $account['created'] => 'Đã xác nhận hợp đồng ký tay, hợp đồng có hiệu lực và đã tạo tài khoản cho đối tác.',
+            $account['exists'] => 'Đã xác nhận hợp đồng ký tay, hợp đồng có hiệu lực. Đối tác đã có tài khoản từ trước.',
+            default => 'Đã xác nhận hợp đồng ký tay, hợp đồng có hiệu lực. Lưu ý tài khoản: ' . $account['reason'],
+        }, 'data' => $result]);
     }
 
     // GET /api/admin/partners/{partner}/contract/partner-manual-files[?file={id}] — tải hợp đồng đối tác KÝ TAY để đối chiếu:
