@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Config;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\BranchPayOsAccount;
 use Modules\Payment\Entities\Order;
+use Modules\Payment\Entities\PartnerBankChannel;
 use Modules\Payment\Entities\PartnerPayOsAccount;
 use PayOS\PayOS;
 use RuntimeException;
@@ -132,6 +133,25 @@ class PayOsAccountResolver
         }
 
         return $account;
+    }
+
+    /**
+     * Kênh chuyển khoản ngân hàng (VietQR + SePay) của đối tác — cùng cổng hợp đồng với partnerAccountFor(): chỉ dùng nhận tiền
+     * đặt phòng sau khi hợp đồng mới/phụ lục có hiệu lực, trước đó 365home thu hộ.
+     */
+    public static function bankChannelFor(?string $partnerId): ?PartnerBankChannel
+    {
+        if (! $partnerId) {
+            return null;
+        }
+
+        $channel = PartnerBankChannel::where('partner_id', $partnerId)->where('is_active', true)->first();
+
+        if (! $channel || ! \App\Models\Partner::withTrashed()->whereKey($partnerId)->whereNotNull('payment_flow_effective_at')->exists()) {
+            return null;
+        }
+
+        return $channel;
     }
 
     public static function forCategory(?int $categoryId, ?string $partnerId = null): ?PayOsGateway

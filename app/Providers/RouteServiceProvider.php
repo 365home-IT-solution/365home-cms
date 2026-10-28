@@ -44,7 +44,8 @@ class RouteServiceProvider extends ServiceProvider
             // trừ hẳn giới hạn cho 3 route này, cùng tiền lệ với "api/lock/callback" ở trên — an toàn
             // vì cả 3 controller đều tự xác thực chữ ký HMAC trước khi xử lý, không phụ thuộc rate
             // limit để chống spam.
-            if ($request->is('api/minihouse/webhook/*')) {
+            // Webhook SePay (api/webhook/sepay) cùng lý do — tự xác thực bằng khoá API.
+            if ($request->is('api/minihouse/webhook/*') || $request->is('api/webhook/*')) {
                 return Limit::none();
             }
 

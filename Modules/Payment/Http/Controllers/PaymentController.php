@@ -432,6 +432,66 @@ private function buildTelegramMessage(Order $order, string $status): string
     }
 
     // =========================================================
+    // CHUYỂN KHOẢN NGÂN HÀNG (VietQR + SePay)
+    // =========================================================
+
+    /**
+     * Ghi nhận tiền chuyển khoản vào tài khoản đối tác mà SePay đã báo về — đi qua ĐÚNG các nhánh xử lý của webhook PayOS (đổi
+     * trạng thái, Telegram, FCM, gán mã cổng) để 2 kênh không lệch nhau. Kiểm tra số tiền/trạng thái đơn do
+     * App\Services\Payment\SepayWebhookService làm trước khi gọi.
+     *
+     * @param  string  $appliedAs  BankTransaction::APPLIED_* — payment (cọc/thanh toán đủ) | remaining | extra_charge
+     */
+    public function applyBankTransfer(Order $order, string $appliedAs): bool
+    {
+        return match ($appliedAs) {
+            \Modules\Payment\Entities\BankTransaction::APPLIED_PAYMENT      => $this->handlePaidStatus($order, []),
+            \Modules\Payment\Entities\BankTransaction::APPLIED_REMAINING    => $this->handleRemainingPayment($order),
+            \Modules\Payment\Entities\BankTransaction::APPLIED_EXTRA_CHARGE => $this->handleExtraChargePayment($order, 'bank_transfer'),
+        };
+    }
+
+    private function handleExtraChargePayment(Order $order, string $method = 'payos'): bool
+    {
+        app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($order, $method);
+
+        // Notify khách real-time
+        try {
+            $amount = number_format((int) $order->extra_charge_amount, 0, ',', '.');
+            $title  = "Thanh toán khoản phát sinh thành công";
+            $body   = "Đơn #{$order->order_code}: {$amount}đ đã được xác nhận.";
+            $extra  = [
+                'order_code' => (string) $order->order_code,
+                'type'       => 'order_extra_charge_paid',
+            ];
+
+            $notifService = app(\App\Services\NotificationFcmService::class);
+
+            if (is_null($order->customer_id) && $order->device_token) {
+                $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_extra_charge_paid', $extra);
+            } elseif ($order->customer_id) {
+                $customer = $order->customer;
+                if ($customer) {
+                    $notifService->sendToCustomer($customer, $title, $body, 'order_extra_charge_paid', $extra);
+                }
+            }
+
+            app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                (string) $order->order_code,
+                ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => $method]],
+                $order->customer_id,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Extra charge notify failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage(),
+            ]);
+        }
+
+        return true;
+    }
+
+    // =========================================================
     // WEBHOOK PAYOS
     // =========================================================
 
@@ -553,40 +613,7 @@ private function buildTelegramMessage(Order $order, string $status): string
                         'order_id'   => $extraChargeOrder->id,
                     ]);
 
-                    app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($extraChargeOrder);
-
-                    // Notify khách real-time
-                    try {
-                        $amount = number_format((int) $extraChargeOrder->extra_charge_amount, 0, ',', '.');
-                        $title  = "Thanh toán khoản phát sinh thành công";
-                        $body   = "Đơn #{$extraChargeOrder->order_code}: {$amount}đ đã được xác nhận.";
-                        $extra  = [
-                            'order_code' => (string) $extraChargeOrder->order_code,
-                            'type'       => 'order_extra_charge_paid',
-                        ];
-
-                        $notifService = app(\App\Services\NotificationFcmService::class);
-
-                        if (is_null($extraChargeOrder->customer_id) && $extraChargeOrder->device_token) {
-                            $notifService->sendToGuestToken($extraChargeOrder->device_token, $title, $body, 'order_extra_charge_paid', $extra);
-                        } elseif ($extraChargeOrder->customer_id) {
-                            $customer = $extraChargeOrder->customer;
-                            if ($customer) {
-                                $notifService->sendToCustomer($customer, $title, $body, 'order_extra_charge_paid', $extra);
-                            }
-                        }
-
-                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
-                            (string) $extraChargeOrder->order_code,
-                            ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'payos']],
-                            $extraChargeOrder->customer_id,
-                        );
-                    } catch (\Throwable $e) {
-                        Log::warning('PayOS Webhook: Extra charge notify failed', [
-                            'order_id' => $extraChargeOrder->id,
-                            'error'    => $e->getMessage(),
-                        ]);
-                    }
+                    $this->handleExtraChargePayment($extraChargeOrder);
 
                     return response()->json(['error' => 0, 'message' => 'Extra charge processed']);
                 }
@@ -882,6 +909,11 @@ private function buildTelegramMessage(Order $order, string $status): string
                     'error'   => 1,
                     'message' => 'Đơn này không ở trạng thái chờ thanh toán còn lại.',
                 ], 422);
+            }
+
+            // Đối tác dùng kênh chuyển khoản (VietQR + SePay): chuyển sang trang chuyển khoản thay vì tạo link PayOS.
+            if (\App\Services\Payment\SepayWebhookService::transferInfo($order)) {
+                return response()->json(['error' => 0, 'checkoutUrl' => \App\Services\Payment\SepayWebhookService::pageUrl($order)]);
             }
 
             // Nếu đã tạo link rồi, trả luôn

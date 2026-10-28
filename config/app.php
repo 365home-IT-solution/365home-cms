@@ -63,6 +63,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Tên miền tin thêm ngoài APP_URL (xem App\Http\Middleware\TrustHosts) — cách nhau dấu phẩy.
+    'trusted_hosts' => env('TRUSTED_HOSTS'),
+
     'asset_url' => env('ASSET_URL'),
 
     /*

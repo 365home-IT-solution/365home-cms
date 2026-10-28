@@ -198,6 +198,11 @@ class Partner extends Model implements HasMedia
         return $this->hasOne(\Modules\Payment\Entities\PartnerPayOsAccount::class);
     }
 
+    public function bankChannel(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Payment\Entities\PartnerBankChannel::class);
+    }
+
     public function escrowEntries(): HasMany
     {
         return $this->hasMany(PartnerEscrowEntry::class)->latest('id');

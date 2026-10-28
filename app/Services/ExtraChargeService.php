@@ -341,20 +341,22 @@ class ExtraChargeService
     /**
      * Xử lý khi PayOS webhook báo extra charge đã thanh toán.
      */
-    public function handleExtraChargePaid(Order $order): void
+    public function handleExtraChargePaid(Order $order, string $method = 'payos'): void
     {
         $amount = (int) ($order->extra_charge_amount ?? 0);
 
         $order->update([
-            'extra_charge_payment_method' => 'payos',
+            'extra_charge_payment_method' => $method,
             'extra_charge_paid_at'        => now(),
             'extra_charge_expired_at'     => null,
             'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + $amount,
         ]);
 
-        Log::info('ExtraCharge: paid via PayOS', ['order_id' => $order->id]);
+        $via = $method === 'bank_transfer' ? 'chuyển khoản' : 'PayOS';
 
-        $this->notifyAdmin($order, 'Đã thanh toán phát sinh qua PayOS', $amount, 'heroicon-o-banknotes', 'success');
+        Log::info("ExtraCharge: paid via {$via}", ['order_id' => $order->id]);
+
+        $this->notifyAdmin($order, "Đã thanh toán phát sinh qua {$via}", $amount, 'heroicon-o-banknotes', 'success');
     }
 
     // ─── Xử lý đơn paid bị GIẢM giá (huỷ khung giờ/dịch vụ) ─────────────────

@@ -625,3 +625,15 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
     Route::post('unmark',  [MiniGameController::class, 'unmark'])->name('unmark');
 });
 
+
+/*
+|--------------------------------------------------------------------------
+| Chuyển khoản ngân hàng vào tài khoản đối tác (VietQR + SePay) — xem App\Services\Payment\SepayWebhookService
+| POST /api/webhook/sepay                        → SePay báo tiền vào (header "Authorization: Apikey <khoá>")
+| GET  /api/payment/bank-transfer/{order_code}  → (chủ đơn: token khách hoặc ?phone=) Thông tin chuyển khoản + qr_payload + page_url
+|                                                  (available=false → đối tác không dùng kênh này, dùng PayOS như cũ)
+|--------------------------------------------------------------------------
+*/
+Route::post('webhook/sepay', [\App\Http\Controllers\Api\SepayWebhookController::class, 'handle'])->name('api.webhook.sepay');
+Route::get('payment/bank-transfer/{order_code}', [\App\Http\Controllers\Api\SepayWebhookController::class, 'transferInfo'])
+    ->middleware('throttle:30,1')->name('api.payment.bank-transfer');

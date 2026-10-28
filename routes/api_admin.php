@@ -150,6 +150,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('partners/{partner}/payment-channel/branches/{category}', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'destroyBranch'])->whereNumber('category')->name('partners.payment-channel.branches.destroy');
     Route::post('partners/{partner}/payment-channel/otp', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'sendOtp'])->middleware('throttle:5,1')->name('partners.payment-channel.otp');
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
+    // Kênh chuyển khoản ngân hàng (VietQR + SePay) của đối tác — thay PayOS khi đối tác không đăng ký được PayOS.
+    Route::get('partners/{partner}/bank-channel', [\App\Http\Controllers\Api\Admin\PartnerBankChannelController::class, 'show'])->name('partners.bank-channel.show');
+    Route::post('partners/{partner}/bank-channel', [\App\Http\Controllers\Api\Admin\PartnerBankChannelController::class, 'store'])->name('partners.bank-channel.store');
+    Route::post('partners/{partner}/bank-channel/regenerate-key', [\App\Http\Controllers\Api\Admin\PartnerBankChannelController::class, 'regenerateKey'])->name('partners.bank-channel.regenerate-key');
+    Route::get('partners/{partner}/bank-transactions', [\App\Http\Controllers\Api\Admin\PartnerBankChannelController::class, 'transactions'])->name('partners.bank-transactions.index');
     // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
     Route::prefix('partners/{partner}/escrow')->name('partners.escrow.')->controller(\App\Http\Controllers\Api\Admin\PartnerEscrowController::class)->group(function () {
         Route::get('/', 'show')->name('show');

@@ -100,6 +100,12 @@ Route::get('/cancel', function (Request $request) {
     return view('payment::cancel', compact('order'));
 })->name('payment.cancel');
 
+// Trang chuyển khoản VietQR vào tài khoản đối tác (kênh SePay) — chỉ mở bằng link có chữ ký (SepayWebhookService::pageUrl()).
+Route::middleware(['signed:relative', 'throttle:60,1'])->controller(\Modules\Payment\Http\Controllers\BankTransferController::class)->group(function () {
+    Route::get('/chuyen-khoan/{code}', 'show')->name('payment.bank-transfer');
+    Route::get('/chuyen-khoan/{code}/trang-thai', 'status')->name('payment.bank-transfer.status');
+});
+
 Route::prefix('/order')->group(function () {
     Route::get('/{id}', [OrderController::class, 'getPaymentLinkInfoOfOrder']);
     Route::put('/{id}', [OrderController::class, 'cancelPaymentLinkOfOrder']);
