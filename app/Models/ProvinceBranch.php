@@ -18,6 +18,7 @@ class ProvinceBranch extends Model
         'province_id',
         'categorie_id',
         'ward_code',
+        'area_name',
         'status',
     ];
 
@@ -38,5 +39,22 @@ class ProvinceBranch extends Model
     public function ward(): BelongsTo
     {
         return $this->belongsTo(Ward::class, 'ward_code', 'code');
+    }
+
+    /**
+     * Khu vực hiển thị cho khách (VD "Đà Lạt"): ưu tiên area_name admin nhập; để trống thì lấy phần
+     * sau " - " của tên phường mới (VD "Phường Xuân Hương - Đà Lạt" → "Đà Lạt"); không có thì null.
+     */
+    public function areaName(): ?string
+    {
+        $area = trim((string) $this->area_name);
+
+        if ($area !== '') {
+            return $area;
+        }
+
+        $wardName = (string) $this->ward?->name;
+
+        return preg_match('/\s[-–]\s*(.+)$/u', $wardName, $m) ? trim($m[1]) : null;
     }
 }

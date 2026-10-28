@@ -25,6 +25,9 @@ class BranchSuggestion extends Component
     public string $provinceName = '';
     public string $provinceSlug = '';
     public array $branches = [];
+    // Chi nhánh chia theo khu vực trong tỉnh (VD "Đà Lạt", "Phan Thiết" cùng thuộc Tỉnh Lâm Đồng sau
+    // sáp nhập 2025) — mỗi nhóm 1 hàng riêng với tiêu đề "{khu vực}, {tỉnh}", xem groupByArea().
+    public array $groups = [];
 
     public function setProvince($id, $name = null): void
     {
@@ -35,22 +38,23 @@ class BranchSuggestion extends Component
 
     protected function loadBranches(): void
     {
+        $this->branches = [];
+        $this->groups = [];
+
         if (! $this->provinceId) {
-            $this->branches = [];
             return;
         }
 
         $province = Province::find($this->provinceId);
 
         if (! $province) {
-            $this->branches = [];
             return;
         }
 
         $this->branches = $province->branches()
             ->where('status', true)
             ->whereHas('category', fn ($q) => $q->where('status', true))
-            ->with('category')
+            ->with(['category', 'ward'])
             ->get()
             // Chi nhánh chưa có phòng nào đang mở bán thì không hiện (cùng điều kiện với các hàng phòng
             // theo chi nhánh ở trang chủ — HomeController::fetchBranchRows()).
@@ -65,6 +69,7 @@ class BranchSuggestion extends Component
                 $loc = BranchBookConfig::resolveTypeAndLocationForBranch($branch->category);
 
                 return [
+                    'area'          => $branch->areaName(),
                     'id'            => $branch->category->id,
                     'name'          => $branch->category->name,
                     'slug'          => $branch->category->slug,
@@ -81,6 +86,28 @@ class BranchSuggestion extends Component
 
         $this->provinceName = $this->provinceName ?: $province->name;
         $this->provinceSlug = $province->slug;
+        $this->groups = $this->groupByArea($this->branches);
+    }
+
+    /**
+     * Nhóm theo khu vực, giữ thứ tự sort_order (nhóm xếp theo chi nhánh đầu tiên của nhóm); chi
+     * nhánh chưa xác định được khu vực gom vào 1 nhóm cuối, tiêu đề chỉ có tên tỉnh như trước.
+     */
+    private function groupByArea(array $branches): array
+    {
+        $groups = collect($branches)
+            ->groupBy(fn (array $branch) => $branch['area'] ? mb_strtolower($branch['area']) : '')
+            ->sortBy(fn ($items, $key) => $key === '' ? 1 : 0, SORT_REGULAR)
+            ->map(fn ($items) => [
+                'area'     => $items->first()['area'],
+                'title'    => $items->first()['area']
+                    ? $items->first()['area'] . ', ' . $this->provinceName
+                    : $this->provinceName,
+                'branches' => $items->values()->all(),
+            ])
+            ->values();
+
+        return $groups->all();
     }
 
     private function branchHasRooms(int $branchCategoryId): bool

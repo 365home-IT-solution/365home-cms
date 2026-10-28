@@ -124,6 +124,7 @@ class ProvinceResource extends Resource
                     ->relationship('branches')
                     ->headers([
                         Header::make('ward_code')->label('Phường/Xã'),
+                        Header::make('area_name')->label('Khu vực hiển thị'),
                         Header::make('categorie_id')->label('Chi nhánh'),
                         Header::make('status')->label('Hiển thị')->width('120px'),
                     ])
@@ -137,6 +138,12 @@ class ProvinceResource extends Resource
                             ->searchable()
                             ->nullable()
                             ->placeholder('— Chưa chọn —'),
+
+                        TextInput::make('area_name')
+                            ->label('Khu vực hiển thị')
+                            ->maxLength(100)
+                            ->placeholder('VD: Đà Lạt, Phan Thiết')
+                            ->nullable(),
 
                         Select::make('categorie_id')
                             ->label('Chi nhánh')
