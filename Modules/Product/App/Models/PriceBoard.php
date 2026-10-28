@@ -166,6 +166,19 @@ class PriceBoard extends Model
     /** Giai đoạn 2 (priority + days_of_week + giá theo ngày ở) đang bật không. */
     public static function phase2Enabled(): bool
     {
+        // Công tắc ở CMS (Cấu hình web › Bảng giá) được ưu tiên hơn .env; chưa chỉnh (null) hoặc đọc lỗi (vd chưa chạy migration cài đặt) thì theo .env.
+        if (config('price_boards.cms_toggle', true)) {
+            try {
+                $setting = app(\App\Settings\PriceBoardSettings::class)->phase2;
+
+                if ($setting !== null) {
+                    return (bool) $setting;
+                }
+            } catch (\Throwable) {
+                // rơi về cấu hình .env
+            }
+        }
+
         return (bool) config('price_boards.phase2', false);
     }
 

@@ -125,7 +125,8 @@ class RoomController extends Controller
         // do BookingController/GuestBookingController tính lại lúc tạo đơn.
         $roomMeta = [
             'id'                     => $room->id,
-            'full_booking_discount'  => $this->parseDiscountRule($room->full_booking_discount),
+            'full_booking_discount'  => $this->parseDiscountRule($room->effective_full_booking_discount),
+            'full_day_price'         => $room->full_day_price !== null && (float) $room->full_day_price > 0 ? (int) $room->full_day_price : null,
             'bulk_discount_rules'    => $room->bulk_discount_rules ?? [],
             'total_slots'            => $templateSlots->count(),
         ];

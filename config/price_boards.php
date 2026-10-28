@@ -15,4 +15,7 @@ return [
     | CHỈ bật khi đã kiểm thử đặt phòng — đổi cờ này đổi cách tính tiền của mọi đơn MỚI (đơn cũ giữ giá).
     */
     'phase2' => (bool) env('PRICE_BOARDS_PHASE2', false),
+
+    // Cho phép công tắc ở CMS (Cấu hình web › Bảng giá) ghi đè 'phase2' ở trên. Tắt (false) = chỉ theo .env — dùng cho test.
+    'cms_toggle' => (bool) env('PRICE_BOARDS_CMS_TOGGLE', true),
 ];

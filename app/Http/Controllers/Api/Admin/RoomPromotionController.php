@@ -36,7 +36,7 @@ class RoomPromotionController extends Controller
         }
 
         $promotions = Promotion::whereHas('roomTimeSlots', fn ($q) => $q->where('room_id', $room->id))
-            ->with(['roomTimeSlots' => fn ($q) => $q->where('room_id', $room->id)])
+            ->with(['roomTimeSlots' => fn ($q) => $q->where('room_id', $room->id)->with('timeSlot')])
             ->get();
 
         $data = $promotions->flatMap(fn (Promotion $promotion) => $promotion->roomTimeSlots->map(
@@ -44,6 +44,10 @@ class RoomPromotionController extends Controller
                 'promotion_id'      => $promotion->id,
                 'promotion_name'    => $promotion->name,
                 'room_time_slot_id' => $rts->id,
+                'timeslot_id'       => $rts->timeslot_id,
+                'start_time'        => $rts->timeSlot ? substr((string) $rts->timeSlot->start_time, 0, 5) : null,
+                'end_time'          => $rts->timeSlot ? substr((string) $rts->timeSlot->end_time, 0, 5) : null,
+                'date'              => $rts->date?->format('Y-m-d'),
                 'min_quantity'      => $rts->pivot->min_quantity,
                 'custom_value'      => $rts->pivot->custom_value !== null ? (float) $rts->pivot->custom_value : null,
             ]
@@ -65,7 +69,7 @@ class RoomPromotionController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
-        if ($denied = $this->denyDailyRoomForPartner($request->user(), $room)) {
+        if ($denied = self::denyPromotionManagement($request->user())) {
             return $denied;
         }
 
@@ -81,6 +85,10 @@ class RoomPromotionController extends Controller
         $promotion = $this->visiblePromotion($user, $data['promotion_id']);
         if (! $promotion) {
             return response()->json(['message' => 'Không tìm thấy ưu đãi.'], 404);
+        }
+
+        if (! self::isUsable($promotion)) {
+            return response()->json(['message' => 'Ưu đãi đang tắt hoặc đã hết hạn nên không gắn được.'], 422);
         }
 
         $rts = RoomTimeSlot::where('id', $data['room_time_slot_id'])->where('room_id', $room->id)->first();
@@ -103,6 +111,92 @@ class RoomPromotionController extends Controller
     }
 
     /**
+     * POST /api/admin/rooms/{id}/promotions/bulk
+     * Gán / thay / gỡ NHIỀU ưu đãi cho NHIỀU khung giờ của phòng trong 1 lần (app: "áp khuyến mãi cho
+     * các khung đã chọn" hoặc "cho tất cả khung").
+     * Body: promotion_ids[] (bắt buộc), room_time_slot_ids[] (bỏ trống / all_slots=true = mọi khung
+     *       giờ gốc của phòng), mode = attach (mặc định, thêm vào) | replace (thay hẳn ưu đãi của các khung
+     *       đó bằng promotion_ids) | detach (gỡ promotion_ids khỏi các khung đó), min_quantity (mặc định 1).
+     * Chỉ phòng theo khung giờ (styles=1); phòng theo ngày dùng POST .../date-pricing/bulk.
+     */
+    public function bulk(Request $request, string $id): JsonResponse
+    {
+        $room = $this->visibleRoom($request->user(), $id);
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ($denied = self::denyPromotionManagement($request->user())) {
+            return $denied;
+        }
+
+        if ((int) ($room->styles ?? 1) !== 1) {
+            return response()->json(['message' => 'Phòng theo ngày dùng POST /api/admin/rooms/{id}/date-pricing/bulk (attach_promotions).'], 422);
+        }
+
+        $data = $request->validate([
+            'promotion_ids'       => 'required|array|min:1',
+            'promotion_ids.*'     => 'integer',
+            'room_time_slot_ids'  => 'nullable|array',
+            'room_time_slot_ids.*' => 'integer',
+            'all_slots'           => 'nullable|boolean',
+            'mode'                => 'nullable|in:attach,replace,detach',
+            'min_quantity'        => 'nullable|integer|min:1',
+        ]);
+
+        /** @var User $user */
+        $user = $request->user();
+        $promotionIds = array_values(array_unique(array_map('intval', $data['promotion_ids'])));
+        foreach ($promotionIds as $promotionId) {
+            $found = $this->visiblePromotion($user, $promotionId);
+            if (! $found) {
+                return response()->json(['message' => "Không tìm thấy ưu đãi #{$promotionId}."], 404);
+            }
+
+            // Gỡ thì cho cả ưu đãi đã tắt/hết hạn; gắn mới (attach/replace) chỉ nhận ưu đãi còn dùng được.
+            if (($data['mode'] ?? 'attach') !== 'detach' && ! self::isUsable($found)) {
+                return response()->json(['message' => "Ưu đãi #{$promotionId} đang tắt hoặc đã hết hạn nên không gắn được."], 422);
+            }
+        }
+
+        $slots = RoomTimeSlot::where('room_id', $room->id)->whereNull('date')
+            ->when(! ($data['all_slots'] ?? false) && ! empty($data['room_time_slot_ids']), fn ($q) => $q->whereIn('id', $data['room_time_slot_ids']))
+            ->get();
+
+        $requested = array_unique($data['room_time_slot_ids'] ?? []);
+        if (! ($data['all_slots'] ?? false) && $requested && $slots->count() !== count($requested)) {
+            return response()->json(['message' => 'Có room_time_slot_id không thuộc phòng này (hoặc không phải khung giờ gốc).'], 422);
+        }
+
+        if ($slots->isEmpty()) {
+            return response()->json(['message' => 'Phòng chưa có khung giờ nào.'], 422);
+        }
+
+        $mode  = $data['mode'] ?? 'attach';
+        $pivot = ['min_quantity' => $data['min_quantity'] ?? 1, 'custom_value' => null];
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($slots, $promotionIds, $mode, $pivot) {
+            foreach ($slots as $slot) {
+                match ($mode) {
+                    'detach'  => $slot->promotions()->detach($promotionIds),
+                    'replace' => $slot->promotions()->sync(array_fill_keys($promotionIds, $pivot)),
+                    default   => $slot->promotions()->syncWithoutDetaching(array_fill_keys($promotionIds, $pivot)),
+                };
+            }
+        });
+
+        return response()->json([
+            'message'      => match ($mode) {
+                'detach'  => 'Đã gỡ ưu đãi khỏi ' . $slots->count() . ' khung giờ.',
+                'replace' => 'Đã thay ưu đãi của ' . $slots->count() . ' khung giờ.',
+                default   => 'Đã gán ưu đãi cho ' . $slots->count() . ' khung giờ.',
+            },
+            'slots_count'  => $slots->count(),
+            'promotion_ids' => $promotionIds,
+        ]);
+    }
+
+    /**
      * DELETE /api/admin/rooms/{id}/promotions/{promotionId}?room_time_slot_id=
      */
     public function destroy(Request $request, string $id, string $promotionId): JsonResponse
@@ -112,7 +206,7 @@ class RoomPromotionController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
-        if ($denied = $this->denyDailyRoomForPartner($request->user(), $room)) {
+        if ($denied = self::denyPromotionManagement($request->user())) {
             return $denied;
         }
 
@@ -139,18 +233,26 @@ class RoomPromotionController extends Controller
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /** Phòng theo ngày (styles=2): KM gắn theo ngày chỉ super_admin được sửa — cùng quy ước với
-     *  DailyRoomPricingController::canEditDates(); đối tác chỉnh giá gốc + cấu hình chung. */
-    private function denyDailyRoomForPartner(User $user, Product $room): ?JsonResponse
+    /** Gắn/gỡ khuyến mãi (theo khung giờ lẫn theo ngày) CHỈ super_admin — cùng quy ước với CMS
+     *  (SettingBook bỏ qua khuyến mãi của đối tác) và DailyRoomPricingController::canEditDates().
+     *  Đối tác chỉnh giá gốc + cấu hình chung qua POST /api/admin/rooms/{id}/pricing. */
+    public static function denyPromotionManagement(User $user): ?JsonResponse
     {
-        if ((int) ($room->styles ?? 1) !== 2 || $user->isSuperAdmin()) {
+        if ($user->isSuperAdmin()) {
             return null;
         }
 
         return response()->json([
-            'message' => 'Chỉ super admin được chỉnh khuyến mãi theo ngày của phòng theo ngày. Đối tác chỉnh giá gốc, tiền cọc, giờ nhận/trả và số khách qua POST /api/admin/rooms/{id}/pricing.',
-            'error'   => 'date_pricing_forbidden',
+            'message' => 'Chỉ super admin được gắn hoặc gỡ khuyến mãi cho khung giờ / ngày của phòng. Đối tác chỉnh giá gốc, tiền cọc, giờ nhận/trả và số khách qua POST /api/admin/rooms/{id}/pricing.',
+            'error'   => 'promotion_forbidden',
         ], 403);
+    }
+
+    /** Ưu đãi đang bật và còn hạn (cùng điều kiện danh sách chọn ở CMS / DailyRoomPricingService::options). */
+    public static function isUsable(Promotion $promotion): bool
+    {
+        return (bool) $promotion->is_active
+            && ($promotion->end_at === null || $promotion->end_at->gte(now()->startOfDay()));
     }
 
     private function visibleRoom(User $user, string $id): ?Product

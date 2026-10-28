@@ -356,6 +356,7 @@ class SettingBook extends Page implements HasForms
                 'product_name'          => $product->name,
                 'price'                 => (float) $product->price,
                 'full_booking_discount' => $product->full_booking_discount,
+                'full_day_price'        => $product->full_day_price !== null ? (int) $product->full_day_price : null,
                 'bulk_discount_rules'   => $product->bulk_discount_rules ?? [],
                 'is_in_stock'           => (bool) $product->is_in_stock,
                 'default_checkin'       => $product->default_checkin ?? '14:00',
@@ -428,7 +429,9 @@ class SettingBook extends Page implements HasForms
                         ->default($product->name)
                         ->disabled()
                         ->dehydrated(false),
-                ]
+                ],
+                null,
+                withFullDayPrice: true,
             );
 
             return Tabs\Tab::make($product->name)
@@ -568,6 +571,8 @@ class SettingBook extends Page implements HasForms
                     ];
 
                     if ($productStyle === 1) {
+                        // Giá cả ngày (chỉ phòng theo khung giờ): bỏ trống / 0 = không dùng.
+                        $updateData['full_day_price'] = filled($roomData['full_day_price'] ?? null) && (float) $roomData['full_day_price'] > 0 ? (float) $roomData['full_day_price'] : null;
                         $updateData['room_config'] = [
                             'max_free_guests' => (int) ($roomData['room_config_max_free_guests'] ?? 2),
                             'extra_guest_fee' => (int) preg_replace('/[^0-9]/', '', (string) ($roomData['room_config_extra_guest_fee'] ?? '0')),

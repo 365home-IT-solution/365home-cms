@@ -338,7 +338,7 @@ public function getRooms($productIds)
                 ->join(',');
             
             // Chỉ thêm giá cả ngày nếu có full_booking_discount
-            $fullBookingDiscount = $product->full_booking_discount;
+            $fullBookingDiscount = $product->effective_full_booking_discount;
             if (!empty($fullBookingDiscount) && $product->time_price_pairs) {
                 // Tính tổng giá gốc của tất cả khung giờ
                 $totalOriginalPrice = $product->roomTimeSlots->sum('price');
@@ -350,7 +350,7 @@ public function getRooms($productIds)
                     // Giảm theo phần trăm
                     $percentValue = floatval(str_replace('%', '', $discountValue));
                     if ($percentValue > 0 && $percentValue < 100) {
-                        $fullDayPrice = $totalOriginalPrice * (1 - ($percentValue / 100));
+                        $fullDayPrice = $totalOriginalPrice - (int) ($totalOriginalPrice * ($percentValue / 100));
                     } else {
                         $fullDayPrice = $totalOriginalPrice;
                     }

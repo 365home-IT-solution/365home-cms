@@ -1519,7 +1519,7 @@ class GuestBookingController extends Controller
 
     private function checkFullDayBooking(array $slotSummary, Product $room): bool
     {
-        if (empty($room->full_booking_discount)) {
+        if (empty($room->effective_full_booking_discount)) {
             return false;
         }
 
@@ -1543,7 +1543,7 @@ class GuestBookingController extends Controller
 
     private function applyFullBookingDiscount(float $amount, Product $room): array
     {
-        $rule     = $room->full_booking_discount;
+        $rule     = $room->effective_full_booking_discount;
         $discount = (int) $this->parseDiscountRule($amount, $rule);
 
         return [$discount, [

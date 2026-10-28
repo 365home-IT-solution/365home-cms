@@ -3903,7 +3903,7 @@ class OrderForm
 
         // ── "Đặt full ngày" (full_booking_discount) — y hệt checkFullDayBooking() ───────────────
         $hasFullBooking = false;
-        if (filled($product->full_booking_discount)) {
+        if (filled($product->effective_full_booking_discount)) {
             $totalSlotsInRoom = self::getRoomTimeSlots($product->id)->count();
 
             if ($totalSlotsInRoom > 0) {
@@ -3917,7 +3917,7 @@ class OrderForm
         }
 
         if ($hasFullBooking) {
-            $discount = (int) self::parseDiscountValue($product->full_booking_discount, $basePrice);
+            $discount = (int) self::parseDiscountValue($product->effective_full_booking_discount, $basePrice);
 
             $result['total']           = max(0, $basePrice - $discount);
             $result['discount_type']   = 'full_booking';

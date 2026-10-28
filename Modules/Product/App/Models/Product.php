@@ -67,6 +67,7 @@ class Product extends Model implements HasMedia, Resourceable
         'map_url',
         'hotline',
         'full_booking_discount',
+        'full_day_price',
         'bulk_discount_rules',
         'styles',
         'nights',
@@ -89,6 +90,7 @@ class Product extends Model implements HasMedia, Resourceable
 
     protected $casts = [
         'price'        => 'decimal:2',
+        'full_day_price' => 'decimal:2',
         'discount'     => 'decimal:2',
         'vat'          => 'decimal:2',
         'weight'       => 'decimal:2',
@@ -250,6 +252,41 @@ class Product extends Model implements HasMedia, Resourceable
                 report($e);
             }
         });
+    }
+
+    /**
+     * "Giảm giá đặt trọn" HIỆU LỰC dùng để TÍNH TIỀN và hiển thị (chuỗi "10%" hoặc số tiền, như cột full_booking_discount).
+     *
+     * Phòng theo khung giờ có "Giá cả ngày" (full_day_price): khách chọn đủ mọi khung giờ trong ngày thì tính đúng giá đó và thay cho "Giảm giá đặt trọn". Giá đó được quy ra
+     * PHẦN TRĂM trên tổng giá các khung hiện tại (làm tròn lên ở 8 chữ số thập phân để không bao giờ thiếu 1đ), nên mọi nơi đã hiểu chuỗi "x%" (API, web, JS đặt phòng, form đơn)
+     * ra cùng một giá, và đổi giá khung thì giá cả ngày vẫn đúng, không bị cũ. Chưa đặt giá cả ngày, hoặc giá cả ngày không thấp hơn tổng các khung (không có gì để giảm), hoặc có khung
+     * chưa có giá: dùng đúng cột full_booking_discount như cũ khi chưa đặt giá cả ngày, ngược lại không giảm.
+     */
+    public function getEffectiveFullBookingDiscountAttribute(): ?string
+    {
+        $price = $this->full_day_price;
+
+        if ((int) ($this->styles ?? 1) !== 1 || $price === null || (float) $price <= 0) {
+            return $this->getRawOriginal('full_booking_discount') !== null ? $this->full_booking_discount : null;
+        }
+
+        $slots = $this->roomTimeSlots;
+        $base  = $slots->filter(fn ($s) => is_null($s->date));
+
+        if ($base->isEmpty() || $base->contains(fn ($s) => $s->price === null)) {
+            return null;
+        }
+
+        $sum = (float) $base->sum(fn ($s) => (float) $s->price);
+
+        if ($sum <= 0 || (float) $price >= $sum) {
+            return null;
+        }
+
+        // Làm tròn LÊN để phần giảm (int, cắt bỏ phần lẻ) không bao giờ thấp hơn giá trị đúng dù một đồng.
+        $percent = ceil((($sum - (float) $price) / $sum) * 100 * 1e8) / 1e8;
+
+        return rtrim(rtrim(number_format($percent, 8, '.', ''), '0'), '.') . '%';
     }
 
     public function roomType()

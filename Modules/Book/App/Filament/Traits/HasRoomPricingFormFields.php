@@ -40,7 +40,7 @@ trait HasRoomPricingFormFields
      *  cột "Khuyến mãi" (gắn khuyến mãi vào khung giờ chỉ dành cho super_admin; SettingBook::save()
      *  cũng bỏ qua promotions gửi lên từ đối tác).
      */
-    protected static function slotPricingSchema(string $prefix, bool $withPromotions, callable $promotionOptions, array $extraInfoFields = [], ?\Closure $baselinePriceResolver = null): array
+    protected static function slotPricingSchema(string $prefix, bool $withPromotions, callable $promotionOptions, array $extraInfoFields = [], ?\Closure $baselinePriceResolver = null, bool $withFullDayPrice = false): array
     {
         $schema = [
             Section::make('Thông tin Phòng')
@@ -52,6 +52,17 @@ trait HasRoomPricingFormFields
                         ->placeholder('VD: 10% hoặc 50000')
                         ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
                         ->maxLength(50),
+
+                    ...($withFullDayPrice ? [
+                        TextInput::make($prefix . 'full_day_price')
+                            ->label('Giá cả ngày')
+                            ->numeric()
+                            ->minValue(0)
+                            ->maxValue(999999999)
+                            ->suffix('đ')
+                            ->placeholder('VD: 600000')
+                            ->helperText('Khách chọn ĐỦ mọi khung giờ trong ngày thì tính đúng giá này (thay cho "Giảm giá khi đặt Full phòng" ở trên). Phải thấp hơn tổng giá các khung giờ, nếu không sẽ không có giảm. Bỏ trống = không dùng.'),
+                    ] : []),
 
                     TextInput::make($prefix . 'room_config_max_free_guests')
                         ->label('Số khách tối đa không phụ thu')

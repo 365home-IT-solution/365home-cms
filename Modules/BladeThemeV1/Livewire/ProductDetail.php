@@ -814,10 +814,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->promoDiscountAmount = $expectedTotal - $totalAfterPromo;
 
         // ========== XỬ LÝ FULL BOOKING ==========
-        if ($this->hasFullDayBooking && $this->product && $this->product->full_booking_discount) {
+        if ($this->hasFullDayBooking && $this->product && $this->product->effective_full_booking_discount) {
             $this->fullBookingDiscount = $this->calculateFullBookingDiscount(
                 $totalAfterPromo,
-                $this->product->full_booking_discount
+                $this->product->effective_full_booking_discount
             );
             $totalAfterPromo -= $this->fullBookingDiscount;
 
@@ -933,7 +933,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         // Chỉ kích hoạt full booking mode khi phòng có cấu hình giảm giá full
-        if (empty($this->product->full_booking_discount)) {
+        if (empty($this->product->effective_full_booking_discount)) {
             return false;
         }
 
@@ -968,7 +968,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         // Kiểm tra xem là % hay số tiền cố định
         if (str_contains($fullBookingDiscount, '%')) {
             $percentage = (float) str_replace('%', '', $fullBookingDiscount);
-            return $totalPrice * ($percentage / 100);
+            // Cắt phần thập phân như API ((int)) để khớp từng đồng
+            return (float) (int) ($totalPrice * ($percentage / 100));
         } else {
             return (float) str_replace(['.', ','], '', $fullBookingDiscount);
         }

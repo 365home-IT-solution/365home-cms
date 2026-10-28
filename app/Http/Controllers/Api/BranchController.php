@@ -145,7 +145,8 @@ class BranchController extends Controller
                 // checkFullBooking()/discountRate ở book.blade.php (Alpine), KHÔNG round-trip API
                 // mỗi lần khách tick chọn slot. Số tiền cuối cùng vẫn do BookingController/
                 // GuestBookingController tính lại từ DB lúc tạo đơn — field này chỉ để hiển thị.
-                'full_booking_discount' => $this->parseDiscountRule($room->full_booking_discount),
+                'full_booking_discount' => $this->parseDiscountRule($room->effective_full_booking_discount),
+                'full_day_price'        => $room->full_day_price !== null && (float) $room->full_day_price > 0 ? (int) $room->full_day_price : null,
                 'bulk_discount_rules'   => $room->bulk_discount_rules ?? [],
                 'time_slots' => $room->roomTimeSlots->map(fn ($rts) => [
                     'timeslot_id' => $rts->timeslot_id,

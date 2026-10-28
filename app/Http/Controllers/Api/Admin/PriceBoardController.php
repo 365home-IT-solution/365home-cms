@@ -706,6 +706,7 @@ class PriceBoardController extends Controller
             'sheets.*.deposit_min_nights'             => 'nullable|integer|min:1',
             'sheets.*.deposit_multi_night'            => 'nullable|integer|min:0|max:100',
             'sheets.*.full_booking_discount'          => 'nullable|string|max:50',
+            'sheets.*.full_day_price'                 => 'nullable|integer|min:0|max:999999999',
             'sheets.*.bulk_discount_rules'            => 'nullable|array',
             'sheets.*.bulk_discount_rules.*.slots'    => 'required|integer|min:1',
             'sheets.*.bulk_discount_rules.*.discount' => 'required|numeric|min:0|max:100',
@@ -835,6 +836,7 @@ class PriceBoardController extends Controller
                 ])->values(),
                 'rooms_count'  => (int) ($resolve['per_sheet'][$i] ?? 0),
                 'full_booking_discount' => $sheet->full_booking_discount,
+                'full_day_price'        => $sheet->full_day_price === null ? null : (int) $sheet->full_day_price,
                 'bulk_discount_rules'   => $sheet->bulk_discount_rules ?? [],
                 'room_config'           => $sheet->room_config,
                 'time_slots'   => $sheet->slots->map(fn ($s) => [
@@ -875,6 +877,7 @@ class PriceBoardController extends Controller
             'price'                 => $i->price === null ? null : (float) $i->price,
             'weekday_prices'        => $i->weekday_prices ?: null,
             'full_booking_discount' => $i->full_booking_discount,
+            'full_day_price'        => $i->full_day_price === null ? null : (int) $i->full_day_price,
             'bulk_discount_rules'   => $i->bulk_discount_rules ?? [],
             'room_config'           => $i->room_config,
             'default_checkin'       => $i->default_checkin,

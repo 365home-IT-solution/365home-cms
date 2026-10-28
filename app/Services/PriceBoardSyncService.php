@@ -313,7 +313,7 @@ class PriceBoardSyncService
 
         $item = PriceBoardItem::updateOrCreate(
             ['price_board_id' => $board->id, 'product_id' => $product->id],
-            $this->extractProductFields($product)
+            ['full_day_price' => $product->full_day_price !== null && (float) $product->full_day_price > 0 ? $product->full_day_price : 0] + $this->extractProductFields($product)
         );
 
         $item->timeSlots()->delete();
@@ -891,6 +891,7 @@ class PriceBoardSyncService
             'price'                 => $product->price,
             'price_unit'            => $product->price_unit,
             'full_booking_discount' => $product->full_booking_discount,
+            'full_day_price'        => $product->full_day_price,
             'bulk_discount_rules'   => $product->bulk_discount_rules,
             'room_config'           => $product->room_config,
             'deposit_1_night'       => $product->deposit_1_night,
@@ -902,6 +903,18 @@ class PriceBoardSyncService
     }
 
     private function itemToProductFields(PriceBoardItem $item): array
+    {
+        $fields = $this->itemToProductFieldsBase($item);
+
+        // Giá cả ngày: item có số (0 = không dùng) thì ghi xuống phòng; null = chưa biết → KHÔNG đụng giá hiện tại của phòng.
+        if ($item->full_day_price !== null) {
+            $fields['full_day_price'] = (float) $item->full_day_price > 0 ? $item->full_day_price : null;
+        }
+
+        return $fields;
+    }
+
+    private function itemToProductFieldsBase(PriceBoardItem $item): array
     {
         return [
             'price'                 => $item->price,

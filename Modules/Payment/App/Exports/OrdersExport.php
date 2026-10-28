@@ -349,7 +349,7 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
         }
 
         // --- Full day: kiểm tra full_booking_discount ---
-        $fullBookingDiscount = $firstProduct?->full_booking_discount ?? null;
+        $fullBookingDiscount = $firstProduct?->effective_full_booking_discount ?? null;
         $discountRate        = 0;
 
         if (!empty($fullBookingDiscount)) {

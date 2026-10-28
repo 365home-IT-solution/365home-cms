@@ -304,7 +304,7 @@
                                                         is_activated: {{ $room->is_activated ? 'true' : 'false' }},
                                                         overNight: {{ $roomTimeSlot->over_night ?? 0 }},
                                                         totalSlotsInRoom: {{ $room->roomTimeSlots->count() }},
-                                                        fullBookingDiscountValue: '{{ $room->full_booking_discount }}',
+                                                        fullBookingDiscountValue: '{{ $room->effective_full_booking_discount }}',
                                                         bulkDiscountRules: {{ json_encode($room->bulk_discount_rules ?? []) }},
                                                         discountPromotions: {{ json_encode($discountPromotionsData) }},
                                                         increasePromotions: {{ json_encode($increasePromotionsData) }}
