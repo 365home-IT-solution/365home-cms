@@ -291,8 +291,9 @@ class PriceBoardV2Service
             'sort_order'    => (int) ($raw['sort_order'] ?? $index),
             'product_ids'   => array_values(array_unique(array_map('strval', $pick('product_ids', [])))),
             'time_slots'    => $slots,
-            // Có giá theo thứ thì price = giá thấp nhất trong tuần ("giá từ" của phòng); không thì giữ một giá cho mọi ngày.
-            'price'         => $weekday ? min($weekday) : $pick('price'),
+            // Giai đoạn 2 BẬT và có giá theo thứ: price = giá thấp nhất trong tuần ("giá từ" của phòng).
+            // Giai đoạn 2 TẮT: giá theo thứ chỉ được giữ lại (chưa có tác dụng), price là một giá cho mọi ngày do người dùng nhập — không bị đè.
+            'price'         => ($weekday && PriceBoard::phase2Enabled()) ? min($weekday) : $pick('price'),
             'weekday_prices' => $weekday,
             'default_checkin'  => $pick('default_checkin'),
             'default_checkout' => $pick('default_checkout'),

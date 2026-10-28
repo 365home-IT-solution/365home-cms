@@ -304,7 +304,10 @@ class PriceBoardSheetsForm
                     ->columnSpanFull(),
                 TextInput::make('price')->label('Giá một đêm')->numeric()->minValue(0)->suffix('₫')
                     ->required(fn (Get $get) => $get('price_mode') !== 'weekday')
-                    ->visible(fn (Get $get) => $get('price_mode') !== 'weekday'),
+                    ->visible(fn (Get $get) => $get('price_mode') !== 'weekday')
+                    ->helperText(fn (Get $get) => ! PriceBoard::phase2Enabled() && array_filter(array_map(fn ($day) => $get('weekday_price_' . $day), range(1, 7)))
+                        ? 'Bộ giá này đã có giá theo từng thứ nhưng giai đoạn 2 đang tắt: giá theo thứ tạm chưa có tác dụng, mọi đêm tính theo giá này. Bật lại giai đoạn 2 (PRICE_BOARDS_PHASE2) để dùng lại giá theo thứ.'
+                        : null),
                 \Filament\Forms\Components\Grid::make(4)->schema(array_map(
                     fn (int $day, string $label) => TextInput::make('weekday_price_' . $day)->label($label)->numeric()->integer()->minValue(0)->maxValue(\App\Services\PriceBoards\PriceBoardV2Service::MAX_WEEKDAY_PRICE)->suffix('₫')->required(),
                     array_keys(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS),
