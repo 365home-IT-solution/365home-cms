@@ -20,7 +20,7 @@ class DailyRoomCalendar
 
     /**
      * @param  array<int, array{start: string, end: string}>|null  $bookedRanges  truyền sẵn khi đã gom 1 query cho nhiều phòng (bookedRangesFor())
-     * @return array{pricePerNight: int, bookedRanges: array, adminBlockedRanges: array, datePrices: array, dayPrices: array, promoDiscounts: array, promoLabels: array, surchargeData: array}
+     * @return array{pricePerNight: int, bookedRanges: array, adminBlockedRanges: array, datePrices: array, stayPrices: array, dayPrices: array, promoDiscounts: array, promoLabels: array, surchargeData: array}
      */
     public static function data(Product $product, ?array $bookedRanges = null): array
     {
@@ -79,6 +79,28 @@ class DailyRoomCalendar
             }
         }
 
+        // Giá theo thứ của bảng giá (giai đoạn 2): chỉ những ngày KHÔNG có giá ngày đặc biệt và khác giá gốc.
+        $stayPrices = [];
+
+        if (\Modules\Product\App\Models\PriceBoard::phase2Enabled()) {
+            $resolver = app(\App\Services\PriceBoards\StayPriceResolver::class);
+            $base     = (float) ($product->price ?? 0);
+
+            for ($day = now()->startOfDay(), $i = 0; $i < 400; $i++, $day->addDay()) {
+                $iso = $day->format('Y-m-d');
+
+                if (isset($datePrices[$iso])) {
+                    continue;
+                }
+
+                $price = (int) round($resolver->nightPrice($product, $iso, $base));
+
+                if ($price !== (int) $base) {
+                    $stayPrices[$iso] = $price;
+                }
+            }
+        }
+
         return [
             'pricePerNight'      => (int) ($product->price ?? 0),
             'bookedRanges'       => $bookedRanges ?? (self::bookedRangesFor([$product->id])[$product->id] ?? []),
@@ -87,6 +109,7 @@ class DailyRoomCalendar
                 fn ($r) => ! empty($r['start']) && ! empty($r['end']),
             )),
             'datePrices'         => $datePrices,
+            'stayPrices'         => $stayPrices,
             'dayPrices'          => $dayPrices,
             'promoDiscounts'     => $promoDiscounts,
             'promoLabels'        => $promoLabels,

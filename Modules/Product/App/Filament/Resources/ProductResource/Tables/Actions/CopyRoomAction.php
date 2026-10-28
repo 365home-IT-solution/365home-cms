@@ -38,7 +38,7 @@ class CopyRoomAction
                     ->live(debounce: 400),
                 TextInput::make('start_number')
                     ->label('Bắt đầu đánh số từ')
-                    ->numeric()->integer()->minValue(0)
+                    ->numeric()->integer()->minValue(0)->maxValue(999999)
                     ->placeholder((string) self::autoStartNumber($record))
                     ->helperText('Để trống để tự lấy số kế tiếp chưa có phòng nào dùng.')
                     ->live(debounce: 400),

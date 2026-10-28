@@ -516,6 +516,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 }
             }
 
+            $stayPrices = app(\App\Services\PriceBoards\StayPriceResolver::class);
+
             $result = [];
             $nowDt = now();
             for ($day = $checkin->copy(); $day->lt($checkout); $day->addDay()) {
@@ -534,9 +536,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                     continue;
                 }
 
+                // Ngày đặc biệt có giá luôn thắng; không thì giá theo thứ của bảng giá (giai đoạn 2) hoặc giá gốc — cùng bộ tính với API / app.
                 $nightBase = $slot->price !== null
                     ? (float) $slot->price
-                    : (float) ($dayPrices[$day->dayOfWeek] ?? $effectiveBase);
+                    : $stayPrices->nightPrice($this->product, $iso, $effectiveBase);
 
                 $nightAfterPromo = $nightBase;
                 foreach ($slot->promotions as $promo) {
@@ -1042,6 +1045,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         $calculator  = app(PromotionCalculator::class);
+        $stayPrices  = app(\App\Services\PriceBoards\StayPriceResolver::class);
         $basePrice   = (float) ($this->product->price ?? 0);
         // Không trừ products.discount — cùng công thức với API (BuildsRoomBooking / DailyRoomController).
         $effectiveBase = $basePrice;
@@ -1056,12 +1060,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $iso = $current->format('Y-m-d');
             $rts = $slotsByDate[$iso] ?? null;
 
-            $nightBase = $effectiveBase;
-            if ($rts && $rts->price !== null) {
-                $nightBase = (float) $rts->price;
-            } elseif (isset($dayPrices[$current->dayOfWeek])) {
-                $nightBase = (float) $dayPrices[$current->dayOfWeek];
-            }
+            // Ngày đặc biệt có giá luôn thắng; không thì giá theo thứ của bảng giá (giai đoạn 2) hoặc giá gốc — cùng bộ tính với API / app.
+            $nightBase = ($rts && $rts->price !== null)
+                ? (float) $rts->price
+                : $stayPrices->nightPrice($this->product, $iso, $effectiveBase);
 
             $promos = $calculator->calculateForDate($rts, $nightBase, $iso);
 

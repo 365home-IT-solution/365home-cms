@@ -881,6 +881,9 @@ class PartnerController extends Controller
 
         return [
             'legal_name' => [$sometimes, 'string', 'max:255'],
+            // Hai ô nhập tay để tra cứu ở danh sách; manual_contract_no KHÔNG phải contract_code (mã hợp đồng do hệ thống cấp).
+            'common_name' => ['nullable', 'string', 'max:255'],
+            'manual_contract_no' => ['nullable', 'string', 'max:100'],
             'tax_code' => ['nullable', 'string', 'regex:/^(\d{10}(-?\d{3})?|\d{12})$/'],
             'phone' => ['nullable', 'string', 'max:30', $vnPhone], 'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'], 'province_code' => ['nullable', 'integer', 'exists:provinces,code'], 'representative_name' => [$sometimes, 'string', 'max:255'],
@@ -914,7 +917,7 @@ class PartnerController extends Controller
     {
         $sub = $partner->subscription()->with('plan:id,code,name')->first();
 
-        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate', 'count_in_platform_stats', 'province_code']), 'province_name' => $partner->province_code !== null ? \App\Models\Province::query()->where('code', $partner->province_code)->value('name') : null, 'fee_free_until' => $partner->fee_free_until?->toIso8601String(), 'fee_free_active' => $partner->isInFeeFreePeriod(), 'verification' => $documents->readiness($partner)];
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'common_name', 'manual_contract_no', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate', 'count_in_platform_stats', 'province_code']), 'province_name' => $partner->province_code !== null ? \App\Models\Province::query()->where('code', $partner->province_code)->value('name') : null, 'fee_free_until' => $partner->fee_free_until?->toIso8601String(), 'fee_free_active' => $partner->isInFeeFreePeriod(), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string

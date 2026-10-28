@@ -292,7 +292,26 @@ class PriceBoardSheetsForm
 
             // ── Theo ngày ───────────────────────────────────────────────────
             Group::make([
-                TextInput::make('price')->label('Giá một đêm')->numeric()->minValue(0)->suffix('₫')->required(),
+                // Cách nhập giá: một giá cho mọi ngày, hoặc giá riêng cho từng thứ (cần bật giai đoạn 2 của bảng giá).
+                Select::make('price_mode')
+                    ->label('Cách nhập giá')
+                    ->options(['single' => 'Một giá cho mọi ngày', 'weekday' => 'Giá theo từng thứ trong tuần'])
+                    ->default('single')
+                    ->selectablePlaceholder(false)
+                    ->live()
+                    ->visible(fn () => PriceBoard::phase2Enabled())
+                    ->helperText('Ngày đặc biệt đã đặt giá riêng ở lịch phòng luôn được ưu tiên hơn giá theo thứ.')
+                    ->columnSpanFull(),
+                TextInput::make('price')->label('Giá một đêm')->numeric()->minValue(0)->suffix('₫')
+                    ->required(fn (Get $get) => $get('price_mode') !== 'weekday')
+                    ->visible(fn (Get $get) => $get('price_mode') !== 'weekday'),
+                \Filament\Forms\Components\Grid::make(4)->schema(array_map(
+                    fn (int $day, string $label) => TextInput::make('weekday_price_' . $day)->label($label)->numeric()->integer()->minValue(0)->maxValue(\App\Services\PriceBoards\PriceBoardV2Service::MAX_WEEKDAY_PRICE)->suffix('₫')->required(),
+                    array_keys(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS),
+                    array_values(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS),
+                ))
+                    ->columnSpanFull()
+                    ->visible(fn (Get $get) => PriceBoard::phase2Enabled() && $get('price_mode') === 'weekday'),
                 TimePicker::make('default_checkin')->label('Giờ nhận')->seconds(false)->default('14:00'),
                 TimePicker::make('default_checkout')->label('Giờ trả')->seconds(false)->default('12:00'),
                 TextInput::make('deposit_min_nights')->label('Cọc từ số đêm')->numeric()->integer()->minValue(1),
@@ -374,8 +393,24 @@ class PriceBoardSheetsForm
                     'adjustment_timeslot_ids' => array_values(array_map('intval', $sheet['adjustment_timeslot_ids'] ?? [])),
                 ];
             } elseif ((int) ($row['room_style'] ?? 0) === 2) {
+                // Giá theo thứ: 7 ô weekday_price_1…7 (1 = Thứ 2 … 7 = Chủ nhật). Chọn "một giá" thì gửi null để xoá giá theo thứ cũ.
+                $weekday = null;
+
+                if (PriceBoard::phase2Enabled() && ($sheet['price_mode'] ?? 'single') === 'weekday') {
+                    $weekday = [];
+
+                    foreach (array_keys(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS) as $day) {
+                        $weekday[$day] = filled($sheet['weekday_price_' . $day] ?? null) ? (int) $sheet['weekday_price_' . $day] : null;
+                    }
+                }
+
+                // Giai đoạn 2 tắt: form không có ô giá theo thứ nên KHÔNG gửi trường này (giữ nguyên giá theo thứ đã lưu, không xoá nhầm).
+                if (PriceBoard::phase2Enabled()) {
+                    $row['weekday_prices'] = $weekday;
+                }
+
                 $row += [
-                    'price'               => filled($sheet['price'] ?? null) ? (float) $sheet['price'] : null,
+                    'price'               => $weekday === null && filled($sheet['price'] ?? null) ? (float) $sheet['price'] : null,
                     'default_checkin'     => $sheet['default_checkin'] ?? null,
                     'default_checkout'    => $sheet['default_checkout'] ?? null,
                     'deposit_min_nights'  => filled($sheet['deposit_min_nights'] ?? null) ? (int) $sheet['deposit_min_nights'] : null,
@@ -454,6 +489,9 @@ class PriceBoardSheetsForm
                 'room_config_max_free_guests' => in_array('room_config', $s['fields_set'], true) ? ($s['room_config']['max_free_guests'] ?? null) : null,
                 'room_config_extra_guest_fee' => in_array('room_config', $s['fields_set'], true) ? ($s['room_config']['extra_guest_fee'] ?? null) : null,
                 'price'               => $s['price'],
+                'price_mode'          => PriceBoard::phase2Enabled() && ! empty($s['weekday_prices']) ? 'weekday' : 'single',
+                ...collect(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS)
+                    ->mapWithKeys(fn ($label, $day) => ['weekday_price_' . $day => $s['weekday_prices'][$day] ?? null])->all(),
                 'default_checkin'     => $s['default_checkin'],
                 'default_checkout'    => $s['default_checkout'],
                 'deposit_min_nights'  => $s['deposit_min_nights'],

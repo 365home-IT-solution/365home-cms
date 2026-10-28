@@ -29,6 +29,8 @@ class Partner extends Model implements HasMedia
     protected $fillable = [
         // Cơ bản
         'name',
+        'common_name',        // tên thường gọi — nhập tay, để tra cứu ở danh sách
+        'manual_contract_no', // số hợp đồng nhập tay — KHÔNG liên quan contract_code (mã do hệ thống cấp)
         'partner_type',
         'tax_code',
         'phone',

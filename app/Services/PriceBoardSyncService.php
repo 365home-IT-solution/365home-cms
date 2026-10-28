@@ -365,20 +365,37 @@ class PriceBoardSyncService
      */
     public function winningItem(string $productId, Carbon $date): ?PriceBoardItem
     {
+        return $this->pickWinningItem($this->candidateItems($productId), $date);
+    }
+
+    /**
+     * Mọi item của phòng nằm trong bảng đặt tên đang bật (bất kể ngày) — nạp 1 lần rồi dùng pickWinningItem() cho nhiều ngày.
+     *
+     * @return \Illuminate\Support\Collection<int, PriceBoardItem>
+     */
+    public function candidateItems(string $productId): \Illuminate\Support\Collection
+    {
+        return PriceBoardItem::where('product_id', $productId)
+            ->whereHas('priceBoard', fn ($q) => $q->where('is_active', true)->where('is_default', false)->where('is_template', false))
+            ->with(['timeSlots', 'priceBoard', 'sheet'])
+            ->get();
+    }
+
+    /** Bảng thắng vào ngày $date trong số $candidates: đúng khoảng ngày, đúng thứ (giai đoạn 2), rồi priority → phạm vi hẹp hơn → bắt đầu muộn hơn → id lớn hơn. */
+    public function pickWinningItem(\Illuminate\Support\Collection $candidates, Carbon $date): ?PriceBoardItem
+    {
         $date  = $date->copy()->startOfDay();
         $phase = PriceBoard::phase2Enabled();
 
-        return PriceBoardItem::where('product_id', $productId)
-            ->whereHas('priceBoard', function ($q) use ($date) {
-                $q->where('is_active', true)
-                    ->where('is_default', false)
-                    ->where('is_template', false)
-                    ->where(fn ($q2) => $q2->whereNull('start_date')->orWhereDate('start_date', '<=', $date))
-                    ->where(fn ($q2) => $q2->whereNull('end_date')->orWhereDate('end_date', '>=', $date));
+        return $candidates
+            ->filter(function (PriceBoardItem $i) use ($date, $phase) {
+                $board = $i->priceBoard;
+
+                return $board
+                    && (! $board->start_date || Carbon::parse($board->start_date)->startOfDay()->lte($date))
+                    && (! $board->end_date || Carbon::parse($board->end_date)->startOfDay()->gte($date))
+                    && (! $phase || $board->coversWeekday($date));
             })
-            ->with(['timeSlots', 'priceBoard', 'sheet'])
-            ->get()
-            ->filter(fn (PriceBoardItem $i) => $i->priceBoard && (! $phase || $i->priceBoard->coversWeekday($date)))
             ->sortByDesc(fn (PriceBoardItem $i) => sprintf(
                 '%03d-%d-%s-%010d',
                 $phase ? (int) $i->priceBoard->priority : 0,

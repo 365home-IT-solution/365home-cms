@@ -5,6 +5,7 @@
     $adminBlockedRanges = $adminBlockedRanges ?? [];
     $datePrices         = $datePrices         ?? [];
     $dayPrices          = $dayPrices          ?? [];
+    $stayPrices         = $stayPrices         ?? [];
     $promoDiscounts     = $promoDiscounts     ?? [];
     $promoLabels        = $promoLabels        ?? [];
     $surchargeData      = $surchargeData      ?? [];
@@ -25,6 +26,7 @@ function dateRangePicker(pricePerNight) {
         adminBlockedRanges: @json($adminBlockedRanges),
         datePrices: @json($datePrices),
         dayPrices: @json($dayPrices),
+        stayPrices: @json($stayPrices),
         promoDiscounts: @json($promoDiscounts),
         promoLabels: @json($promoLabels),
         surchargeData: @json($surchargeData),
@@ -216,6 +218,8 @@ function dateRangePicker(pricePerNight) {
             if (Object.prototype.hasOwnProperty.call(this.datePrices, isoStr) && this.datePrices[isoStr] !== null) {
                 return this.datePrices[isoStr];
             }
+            // Giá theo thứ của bảng giá (server đã tính theo từng ngày); ngày đặc biệt ở trên luôn thắng.
+            if (Object.prototype.hasOwnProperty.call(this.stayPrices, isoStr)) return this.stayPrices[isoStr];
             var dow = new Date(isoStr + 'T00:00:00').getDay();
             if (this.dayPrices[dow] !== undefined && this.dayPrices[dow] > 0) return this.dayPrices[dow];
             // Không trừ products.discount — khớp giá server tính khi đặt (ProductDetail / API).
@@ -225,6 +229,7 @@ function dateRangePicker(pricePerNight) {
             if (Object.prototype.hasOwnProperty.call(this.datePrices, isoStr) && this.datePrices[isoStr] !== null) {
                 return 'override';
             }
+            if (Object.prototype.hasOwnProperty.call(this.stayPrices, isoStr)) return 'weekday';
             var dow = new Date(isoStr + 'T00:00:00').getDay();
             if (this.dayPrices[dow] !== undefined && this.dayPrices[dow] > 0) return 'weekday';
             return 'base';

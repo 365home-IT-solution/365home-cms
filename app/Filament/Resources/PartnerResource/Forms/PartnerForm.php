@@ -314,6 +314,17 @@ class PartnerForm
                                 ->required()
                                 ->maxLength(255),
 
+                            Forms\Components\TextInput::make('common_name')
+                                ->label('Tên thường gọi')
+                                ->placeholder('Vd: RinBon Home')
+                                ->helperText('Nhập tay, hiện ở cột "Tên thường gọi" của danh sách đối tác.')
+                                ->maxLength(255),
+
+                            Forms\Components\TextInput::make('manual_contract_no')
+                                ->label('Số hợp đồng (nhập tay)')
+                                ->helperText('Nhập tay để tra cứu ở danh sách đối tác. Không liên quan đến mã hợp đồng do hệ thống cấp ở tab Hợp đồng.')
+                                ->maxLength(100),
+
                             Forms\Components\TextInput::make('tax_code')
                                 ->label('Mã số thuế')
                                 ->maxLength(14)

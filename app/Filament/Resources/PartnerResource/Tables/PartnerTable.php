@@ -44,6 +44,19 @@ class PartnerTable
                     ->searchable()
                     ->sortable(),
 
+                // Hai ô nhập tay ở form đối tác (tab Doanh nghiệp), không lấy từ hợp đồng.
+                TextColumn::make('common_name')
+                    ->label('Tên thường gọi')
+                    ->placeholder('—')
+                    ->searchable()
+                    ->sortable(),
+
+                TextColumn::make('manual_contract_no')
+                    ->label('Số hợp đồng')
+                    ->placeholder('—')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('id')
                     ->label('Mã đối tác')
                     ->formatStateUsing(fn (string $state): string => 'PART-' . strtoupper(substr($state, 0, 6)))

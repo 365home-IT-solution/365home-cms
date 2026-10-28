@@ -241,46 +241,55 @@ class RoomCopyService
     private function copyRoomImages(Product $source, Product $copy): void
     {
         foreach (DB::table('room_images')->where('room_id', $source->getKey())->orderBy('id')->get() as $row) {
-            $disk  = Storage::disk($row->disk ?: 'public');
-            $paths = json_decode((string) $row->path, true);
-
-            if (! is_array($paths)) {
-                continue;
+            try {
+                $this->copyRoomImageRow($row, $copy);
+            } catch (\Throwable $e) {
+                report($e); // ví dụ đầy ổ đĩa giữa chừng: phòng vẫn được tạo, ảnh lỗi bị bỏ qua và ghi log
             }
-
-            $copyFile = function (mixed $path) use ($disk): ?string {
-                if (! is_string($path) || ! $disk->exists($path) || $disk->size($path) === 0) {
-                    return null;
-                }
-
-                $ext    = pathinfo($path, PATHINFO_EXTENSION);
-                $target = trim(dirname($path), './') . '/' . Str::ulid() . ($ext !== '' ? '.' . $ext : '');
-                $target = ltrim($target, '/');
-
-                return $disk->copy($path, $target) ? $target : null;
-            };
-
-            $newPaths = [];
-
-            foreach ($paths as $entry) {
-                if (is_array($entry)) {
-                    $entry['images'] = array_values(array_filter(array_map($copyFile, (array) ($entry['images'] ?? []))));
-                    $newPaths[]      = $entry;
-                } elseif ($new = $copyFile($entry)) {
-                    $newPaths[] = $new;
-                }
-            }
-
-            $data = (array) $row;
-            unset($data['id']);
-
-            DB::table('room_images')->insert(array_merge($data, [
-                'room_id'    => $copy->getKey(),
-                'path'       => json_encode($newPaths, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]));
         }
+    }
+
+    private function copyRoomImageRow(object $row, Product $copy): void
+    {
+        $disk  = Storage::disk($row->disk ?: 'public');
+        $paths = json_decode((string) $row->path, true);
+
+        if (! is_array($paths)) {
+            return;
+        }
+
+        $copyFile = function (mixed $path) use ($disk): ?string {
+            if (! is_string($path) || ! $disk->exists($path) || $disk->size($path) === 0) {
+                return null;
+            }
+
+            $ext    = pathinfo($path, PATHINFO_EXTENSION);
+            $target = trim(dirname($path), './') . '/' . Str::ulid() . ($ext !== '' ? '.' . $ext : '');
+            $target = ltrim($target, '/');
+
+            return $disk->copy($path, $target) ? $target : null;
+        };
+
+        $newPaths = [];
+
+        foreach ($paths as $entry) {
+            if (is_array($entry)) {
+                $entry['images'] = array_values(array_filter(array_map($copyFile, (array) ($entry['images'] ?? []))));
+                $newPaths[]      = $entry;
+            } elseif ($new = $copyFile($entry)) {
+                $newPaths[] = $new;
+            }
+        }
+
+        $data = (array) $row;
+        unset($data['id']);
+
+        DB::table('room_images')->insert(array_merge($data, [
+            'room_id'    => $copy->getKey(),
+            'path'       => json_encode($newPaths, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
     }
 
     /** @return array{0: string, 1: int, 2: int} [phần tên trước số, số cuối tên, độ dài số (giữ số 0 đầu)] */

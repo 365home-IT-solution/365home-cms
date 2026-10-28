@@ -30,6 +30,9 @@ class StayPriceResolver
     /** @var array<string, ?PriceBoardItem> */
     private array $winners = [];
 
+    /** @var array<string, \Illuminate\Support\Collection<int, PriceBoardItem>> product_id => item của các bảng đang bật */
+    private array $candidates = [];
+
     /** @var array<string, array<int,int>> product_id => [timeslot_id => giá gốc] */
     private array $baseSlots = [];
 
@@ -104,7 +107,7 @@ class StayPriceResolver
             );
         }
 
-        return $item->price !== null ? (float) $item->price : $base;
+        return $item->priceForDate($date) ?? $base;
     }
 
     /** Bảng thắng của phòng vào ngày $date (null = giá gốc). */
@@ -119,7 +122,9 @@ class StayPriceResolver
         $key  = $productId . '|' . $date->toDateString();
 
         if (! array_key_exists($key, $this->winners)) {
-            $this->winners[$key] = $this->sync->winningItem($productId, $date);
+            // Nạp bảng của phòng 1 lần rồi chọn theo từng ngày — lịch 365 ngày không còn 365 truy vấn.
+            $this->candidates[$productId] ??= $this->sync->candidateItems($productId);
+            $this->winners[$key] = $this->sync->pickWinningItem($this->candidates[$productId], $date);
         }
 
         return $this->winners[$key];

@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
 use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\RoomCopyController as AdminRoomCopyController;
 use App\Http\Controllers\Api\Admin\PriceBoardController as AdminPriceBoardController;
 use App\Http\Controllers\Api\Admin\PriceTemplateController as AdminPriceTemplateController;
 use App\Http\Controllers\Api\Admin\SampleDataController as AdminSampleDataController;
@@ -464,6 +465,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
 |                            has_promotion/is_increase/promotions (xem RoomController::
 |                            timeSlotsOverview()).
+| GET  /api/admin/rooms/{id}/copy/preview?quantity=&start_number= + POST /api/admin/rooms/{id}/copy
+|                          → sao chép phòng thành N phòng mới (chỉ Super Admin), xem docblock
+|                            App\Http\Controllers\Api\Admin\RoomCopyController.
 | POST/DELETE /api/admin/rooms/{id}/block
 |                          → khoá/mở khoá lịch phòng. styles=1: body room_time_slot_ids[]+date_from+
 |                            date_to (ghi room_time_slots.settings.blocked_dates). styles=2: body
@@ -526,6 +530,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('rooms/{id}/room-type/{roomTypeId}', [AdminProductController::class, 'destroyRoomType'])->name('rooms.room-type.destroy');
     Route::patch('rooms/{id}/confirm-cleaning', [AdminProductController::class, 'confirmCleaning'])->name('rooms.confirm-cleaning');
     Route::post('rooms/{id}/unlock', [AdminProductController::class, 'unlock'])->name('rooms.unlock');
+    Route::get('rooms/{id}/copy/preview', [AdminRoomCopyController::class, 'preview'])->name('rooms.copy.preview');
+    Route::post('rooms/{id}/copy', [AdminRoomCopyController::class, 'copy'])->name('rooms.copy');
     Route::post('rooms/emergency-lock/bulk', [AdminProductController::class, 'bulkEmergencyLock'])->name('rooms.emergency-lock.bulk');
     Route::post('rooms/{id}/emergency-lock', [AdminProductController::class, 'emergencyLock'])->name('rooms.emergency-lock');
     Route::delete('rooms/{id}/emergency-lock', [AdminProductController::class, 'releaseEmergencyLock'])->name('rooms.emergency-lock.release');

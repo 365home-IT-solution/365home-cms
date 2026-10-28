@@ -43,6 +43,7 @@ class PriceBoardItem extends Model
         'baseline_fields',
         'baseline_time_slots',
         'sheet_id',
+        'weekday_prices',
     ];
 
     protected $casts = [
@@ -51,11 +52,28 @@ class PriceBoardItem extends Model
         'room_config'         => 'array',
         'baseline_fields'     => 'array',
         'baseline_time_slots' => 'array',
+        'weekday_prices'      => 'array',
     ];
 
     public function sheet()
     {
         return $this->belongsTo(PriceBoardSheet::class, 'sheet_id');
+    }
+
+    /** Giá 1 đêm bắt đầu ngày $date: giá theo thứ (nếu có) hoặc một giá cho mọi ngày (price); null = không khai báo. */
+    public function priceForDate(\Carbon\Carbon|string $date): ?float
+    {
+        $weekday = (array) $this->weekday_prices;
+
+        if ($weekday !== []) {
+            $day = \Carbon\Carbon::parse($date)->dayOfWeekIso;
+
+            if (isset($weekday[$day]) && $weekday[$day] !== null && $weekday[$day] !== '') {
+                return (float) $weekday[$day];
+            }
+        }
+
+        return $this->price === null ? null : (float) $this->price;
     }
 
     public function priceBoard()

@@ -582,6 +582,7 @@ if (typeof window.dailyRoomCalendar === 'undefined') {
             bookedRanges: cfg.bookedRanges || [],
             adminBlockedRanges: cfg.adminBlockedRanges || [],
             datePrices: cfg.datePrices || {},
+            stayPrices: cfg.stayPrices || {},
             dayPrices: cfg.dayPrices || {},
             promoDiscounts: cfg.promoDiscounts || {},
             promoLabels: cfg.promoLabels || {},
@@ -645,6 +646,8 @@ if (typeof window.dailyRoomCalendar === 'undefined') {
 
             basePriceFor(i) {
                 if (Object.prototype.hasOwnProperty.call(this.datePrices, i) && this.datePrices[i] !== null) return this.datePrices[i];
+                // Giá theo thứ của bảng giá (server tính theo từng ngày); ngày đặc biệt ở trên luôn thắng.
+                if (Object.prototype.hasOwnProperty.call(this.stayPrices, i)) return this.stayPrices[i];
                 const dow = new Date(i + 'T00:00:00').getDay();
                 return this.dayPrices[dow] > 0 ? this.dayPrices[dow] : this.pricePerNight;
             },

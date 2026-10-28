@@ -1319,6 +1319,7 @@
                     $adminBlockedRanges = $calendar['adminBlockedRanges'];
                     $datePrices = $calendar['datePrices'];
                     $dayPrices = $calendar['dayPrices'];
+                    $stayPrices = $calendar['stayPrices'];
                     $promoLabels = $calendar['promoLabels'];
                     $promoDiscounts = $calendar['promoDiscounts'];
                     $surchargeData = $calendar['surchargeData'];
@@ -1330,6 +1331,7 @@
                         'adminBlockedRanges' => $adminBlockedRanges,
                         'datePrices' => $datePrices,
                         'dayPrices' => $dayPrices,
+                        'stayPrices' => $stayPrices,
                         'promoLabels' => $promoLabels,
                         'promoDiscounts' => $promoDiscounts,
                         'surchargeData' => $surchargeData,

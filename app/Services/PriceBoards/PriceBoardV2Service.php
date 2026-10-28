@@ -249,6 +249,24 @@ class PriceBoardV2Service
             $errors += $slotErrors;
         }
 
+        // Giá theo thứ (chỉ bộ giá "Theo ngày"): thay cho một giá cho mọi ngày. null/[] = một giá cho mọi ngày.
+        $weekday = null;
+        $rawWeekday = array_key_exists('weekday_prices', $raw) ? $raw['weekday_prices'] : ($current['weekday_prices'] ?? null);
+
+        if (! array_key_exists('weekday_prices', $raw) && ! empty($rawWeekday) && $mode === PriceBoard::MODE_OVERRIDE && $style === 2) {
+            // Request không nhắc tới giá theo thứ: giữ đúng giá đã lưu (đã chuẩn hoá), kể cả khi giai đoạn 2 đang tắt.
+            $weekday = array_map('intval', (array) $rawWeekday);
+        } elseif (! empty($rawWeekday)) {
+            if ($mode !== PriceBoard::MODE_OVERRIDE || $style !== 2) {
+                $errors["sheets.{$index}.weekday_prices"] = ['Giá theo thứ chỉ dùng cho bộ giá theo ngày (room_style = 2, pricing_mode = override).'];
+            } elseif (! PriceBoard::phase2Enabled()) {
+                $errors["sheets.{$index}.weekday_prices"] = ['Giá theo thứ chỉ dùng được khi bật giai đoạn 2 của bảng giá (PRICE_BOARDS_PHASE2).'];
+            } else {
+                [$weekday, $weekdayErrors] = $this->normalizeWeekdayPrices((array) $rawWeekday, "sheets.{$index}.weekday_prices");
+                $errors += $weekdayErrors;
+            }
+        }
+
         if ($errors) {
             throw ValidationException::withMessages($errors);
         }
@@ -273,7 +291,9 @@ class PriceBoardV2Service
             'sort_order'    => (int) ($raw['sort_order'] ?? $index),
             'product_ids'   => array_values(array_unique(array_map('strval', $pick('product_ids', [])))),
             'time_slots'    => $slots,
-            'price'         => $pick('price'),
+            // Có giá theo thứ thì price = giá thấp nhất trong tuần ("giá từ" của phòng); không thì giữ một giá cho mọi ngày.
+            'price'         => $weekday ? min($weekday) : $pick('price'),
+            'weekday_prices' => $weekday,
             'default_checkin'  => $pick('default_checkin'),
             'default_checkout' => $pick('default_checkout'),
             'deposit_1_night'     => $pick('deposit_1_night'),
@@ -287,6 +307,46 @@ class PriceBoardV2Service
             'adjustment_value'      => $pick('adjustment_value'),
             'adjustment_timeslot_ids' => array_map('intval', $pick('adjustment_timeslot_ids', []) ?: []),
         ];
+    }
+
+    /** Tên thứ theo ISO (1 = Thứ 2 … 7 = Chủ nhật) để báo lỗi dễ đọc. */
+    public const MAX_WEEKDAY_PRICE = 999999999;
+
+    public const WEEKDAY_LABELS = [1 => 'Thứ 2', 2 => 'Thứ 3', 3 => 'Thứ 4', 4 => 'Thứ 5', 5 => 'Thứ 6', 6 => 'Thứ 7', 7 => 'Chủ nhật'];
+
+    /**
+     * Giá theo thứ: phải đủ 7 thứ (khoá 1…7), mỗi thứ là số nguyên không âm.
+     *
+     * @param array<int|string,mixed> $raw
+     * @return array{0: array<int,int>|null, 1: array<string,list<string>>}
+     */
+    private function normalizeWeekdayPrices(array $raw, string $path): array
+    {
+        $errors = [];
+        $out    = [];
+
+        foreach (array_keys($raw) as $key) {
+            if (! array_key_exists((int) $key, self::WEEKDAY_LABELS) || (string) (int) $key !== (string) $key) {
+                $errors[$path][] = 'Khoá giá theo thứ chỉ nhận 1 (Thứ 2) … 7 (Chủ nhật).';
+                break;
+            }
+        }
+
+        foreach (self::WEEKDAY_LABELS as $day => $label) {
+            $value = $raw[$day] ?? $raw[(string) $day] ?? null;
+
+            if ($value === null || $value === '') {
+                $errors["{$path}.{$day}"][] = "Thiếu giá {$label}.";
+            } elseif (! is_numeric($value) || (float) $value < 0 || (float) $value != (int) $value) {
+                $errors["{$path}.{$day}"][] = "Giá {$label} phải là số nguyên không âm.";
+            } elseif ((float) $value > self::MAX_WEEKDAY_PRICE) {
+                $errors["{$path}.{$day}"][] = "Giá {$label} không được lớn hơn " . number_format(self::MAX_WEEKDAY_PRICE, 0, ',', '.') . ' đ.';
+            } else {
+                $out[$day] = (int) $value;
+            }
+        }
+
+        return [$errors ? null : $out, $errors];
     }
 
     /**
@@ -520,6 +580,7 @@ class PriceBoardV2Service
                     'over_night'  => (bool) $sl->over_night, 'status' => $sl->status,
                 ])->all(),
                 'price'            => $s->price === null ? null : (float) $s->price,
+                'weekday_prices'   => $s->weekday_prices ?: null,
                 'default_checkin'  => $s->default_checkin,
                 'default_checkout' => $s->default_checkout,
                 'deposit_1_night'     => $s->deposit_1_night,
@@ -844,6 +905,7 @@ class PriceBoardV2Service
                 'is_default'   => (bool) $sheet['is_default'],
                 'sort_order'   => $sheet['sort_order'] ?? $i,
                 'price'        => $sheet['price'],
+                'weekday_prices' => $sheet['weekday_prices'] ?? null,
                 'default_checkin'  => $this->hm($sheet['default_checkin']),
                 'default_checkout' => $this->hm($sheet['default_checkout']),
                 'deposit_1_night'     => $sheet['deposit_1_night'],
@@ -988,6 +1050,7 @@ class PriceBoardV2Service
         if ((int) ($product->styles ?? 1) === 2) {
             return [$fields + [
                 'price'               => $sheet->price,
+                'weekday_prices'      => $sheet->weekday_prices ?: null,
                 'default_checkin'     => $sheet->default_checkin ?: '14:00',
                 'default_checkout'    => $sheet->default_checkout ?: '12:00',
                 'deposit_min_nights'  => $sheet->deposit_min_nights ?? 2,
