@@ -954,6 +954,31 @@ class PartnerForm
                                             ])
                                             ->action(fn (?Partner $record, array $data) => self::settleLegacyOrders($record, $data)),
 
+                                        // HỢP ĐỒNG GIẤY: hai bên đã ký tay trên bản in → xác nhận để hợp đồng có hiệu lực ngay và tạo tài khoản cho đối tác (không cần Bên A ký số).
+                                        Forms\Components\Actions\Action::make('confirmHandSigned')
+                                            ->label('Xác nhận đã ký tay & tạo tài khoản')
+                                            ->icon('heroicon-o-pencil-square')
+                                            ->color('success')
+                                            ->visible(fn (?Partner $record) => $record && (auth()->user()?->isSuperAdmin() ?? false) && $record->usesContract()
+                                                && ($version = self::latestVersion($record)) && ! $version->isFullySigned() && $record->contract_status !== 'active')
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
+                                            ->tooltip(fn (?Partner $record) => $record && ! app(PartnerLegalDocumentService::class)->isContractEligible($record) ? 'Hồ sơ pháp lý của đối tác chưa được duyệt.' : null)
+                                            ->modalHeading('Xác nhận hợp đồng đã ký tay')
+                                            ->modalDescription('Dùng khi hai bên ĐÃ KÝ TAY trên bản in hợp đồng. Hệ thống coi như ký đủ cả hai bên: hợp đồng có hiệu lực ngay (ngày ký, thời hạn, luồng tiền, ký quỹ), tài khoản đăng nhập của đối tác được tạo và gửi qua email. Không cần Bên A ký số. Không hoàn tác được — kiểm tra kỹ bản giấy đã có đủ chữ ký trước khi xác nhận.')
+                                            ->modalSubmitActionLabel('Xác nhận & tạo tài khoản')
+                                            ->form([
+                                                Forms\Components\DatePicker::make('signed_at')->label('Ngày ký trên bản giấy')->native(false)->displayFormat('d/m/Y')
+                                                    ->default(now())->maxDate(now())->required()
+                                                    ->helperText('Ngày hai bên ký; dùng tính ngày hiệu lực và thời hạn hợp đồng.'),
+                                                Forms\Components\TextInput::make('signer_name')->label('Họ tên người ký bên đối tác')
+                                                    ->default(fn (?Partner $record) => $record?->representative_name)->maxLength(255),
+                                                Forms\Components\FileUpload::make('signed_files')->label('Bản scan / ảnh hợp đồng đã ký (không bắt buộc)')
+                                                    ->multiple()->maxFiles(10)->acceptedFileTypes(['application/pdf', 'image/*'])
+                                                    ->disk('local')->directory('tmp/hand-signed')->maxSize(20480)
+                                                    ->helperText('PDF hoặc ảnh từng trang, tối đa 10 tệp, mỗi tệp 20 MB. Có thể bỏ trống và tải sau.'),
+                                            ])
+                                            ->action(fn (?Partner $record, array $data) => self::confirmHandSigned($record, $data)),
+
                                         // Đối tác ký bằng chữ ký số (CKS) của họ thay cho OTP — admin thao tác hộ khi đối tác gửi file đã ký.
                                         Forms\Components\Actions\Action::make('downloadPartnerPdfToSign')
                                             ->label('Tải PDF để đối tác ký CKS')
@@ -1055,7 +1080,7 @@ class PartnerForm
                                             ->label('Tải lại PDF đã ký')
                                             ->icon('heroicon-o-document-arrow-down')
                                             ->color('gray')
-                                            ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPlatformSigned())
+                                            ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPlatformSigned() && self::latestVersion($record)?->platform_sign_method !== 'manual')
                                             ->action(fn (?Partner $record) => self::signAndExportContract($record, forceNewSignature: true)),
                                     ])->fullWidth(),
 
@@ -1412,6 +1437,50 @@ class PartnerForm
         return response()->download($file['path'], $file['file_name'])->deleteFileAfterSend($file['temporary']);
     }
 
+    private static function confirmHandSigned(?Partner $record, array $data): void
+    {
+        if (! $record) {
+            return;
+        }
+
+        $disk  = \Illuminate\Support\Facades\Storage::disk('local');
+        $paths = array_values(array_filter((array) ($data['signed_files'] ?? [])));
+
+        try {
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->confirmHandSigned(
+                $record,
+                auth()->user(),
+                filled($data['signed_at'] ?? null) ? \Illuminate\Support\Carbon::parse($data['signed_at']) : null,
+                $data['signer_name'] ?? null,
+                array_map(fn (string $p) => $disk->path($p), $paths),
+                (string) request()->ip(),
+                (string) request()->userAgent(),
+            );
+        } catch (ValidationException $e) {
+            Notification::make()->title('Chưa xác nhận được hợp đồng ký tay')->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))->danger()->persistent()->send();
+            // Tệp tạm chưa được chuyển vào kho: xoá để không để lại rác.
+            array_map(fn (string $p) => $disk->delete($p), $paths);
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->title('Không xác nhận được hợp đồng ký tay')->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $account = $result['account'];
+
+        Notification::make()
+            ->title('Đã xác nhận hợp đồng ký tay — hợp đồng có hiệu lực')
+            ->body($account['created']
+                ? "Đã tạo tài khoản {$account['email']} và gửi email đăng nhập cho đối tác."
+                : ($account['exists'] ? 'Đối tác đã có tài khoản từ trước.' : 'Chưa tạo được tài khoản: ' . $account['reason']))
+            ->{$account['exists'] ? 'success' : 'warning'}()
+            ->persistent()
+            ->send();
+    }
+
     private static function uploadPartnerSignedPdf(?Partner $record, string $path, ?string $signerName): void
     {
         $version = self::latestVersion($record);
@@ -1559,7 +1628,9 @@ class PartnerForm
 
         $partnerRow = $version->isPartnerConfirmed() && $version->isPartnerSignedManually()
             ? '<span style="color:#0369a1;font-weight:700;">✓ Đã ký tay (bản scan)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
-                .' bởi '.e($version->partner_signed_by_name).' — '.$version->getMedia('partner_manual_signed')->count().' tệp, bấm "Tải hợp đồng đối tác ký tay" để đối chiếu'
+                .' bởi '.e($version->partner_signed_by_name).($version->getMedia('partner_manual_signed')->count() > 0
+                ? ' — '.$version->getMedia('partner_manual_signed')->count().' tệp, bấm "Tải hợp đồng đối tác ký tay" để đối chiếu'
+                : ' — không đính kèm bản scan')
             : ($version->isPartnerConfirmed()
             ? ($version->isPartnerSignedByCks()
                 ? '<span style="color:#0369a1;font-weight:700;">✓ Đã ký số (CKS)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
@@ -1573,7 +1644,10 @@ class PartnerForm
                     .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')')
             : '<span style="color:#f59e0b;font-weight:700;">Chưa xác nhận</span> — đang chờ đối tác xác nhận qua link đã gửi');
 
-        $platformRow = $version->isPlatformSigned()
+        $platformRow = $version->isPlatformSigned() && $version->platform_sign_method === 'manual'
+            ? '<span style="color:#10b981;font-weight:700;">✓ Đã xác nhận ký tay (hợp đồng giấy)</span> ngày '.e($version->platform_signed_at->format('d/m/Y'))
+                .' — người xác nhận: '.e($version->platformSignedBy?->fullname ?: ($version->platformSignedBy?->email ?? '—'))
+            : ($version->isPlatformSigned()
             ? '<span style="color:#10b981;font-weight:700;">✓ Đã ký số & phát hành PDF</span> lúc '.e($version->platform_signed_at->format('H:i d/m/Y'))
                 .' — người thao tác: '.e($version->platformSignedBy?->fullname ?: ($version->platformSignedBy?->email ?? '—'))
                 .' — <span style="color:#6b7280;">'.e(self::SIGNING_PROVIDER_LABELS[$version->platform_signing_provider] ?? $version->platform_signing_provider ?? '—').'</span>'
@@ -1582,7 +1656,7 @@ class PartnerForm
                         .(filled($cert['cert_org'] ?? null) ? ' — '.e($cert['cert_org']) : '').(filled($cert['cert_issuer'] ?? null) ? ' (CA: '.e($cert['cert_issuer']).')' : '').'</div>'
                     : '')
                 .'<div style="margin-top:2px;font-size:0.72rem;color:#6b7280;">🔏 File PDF đã ký được lưu trên server — bấm "Tải lại PDF đã ký" để tải về (không ký lại).</div>'
-            : '<span style="color:#f59e0b;font-weight:700;">Chưa ký</span> — ký bằng "Ký số tự động" hoặc tải PDF về ký rồi tải lên; ký trước hay sau đối tác đều được';
+            : '<span style="color:#f59e0b;font-weight:700;">Chưa ký</span> — ký bằng "Ký số tự động" hoặc tải PDF về ký rồi tải lên; ký trước hay sau đối tác đều được');
 
         return <<<HTML
             <div style="display:flex;flex-direction:column;gap:6px;font-size:0.82rem;padding:10px 0;border-top:1px dashed #e5e7eb;margin-top:8px;">

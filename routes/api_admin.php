@@ -116,6 +116,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/contract/partner-pdf-to-sign', [AdminPartnerController::class, 'partnerPdfToSign'])->name('partners.contract.partner-pdf-to-sign');
     Route::post('partners/{partner}/contract/partner-upload', [AdminPartnerController::class, 'partnerUpload'])->name('partners.contract.partner-upload');
     Route::post('partners/{partner}/contract/partner-manual-upload', [AdminPartnerController::class, 'partnerManualUpload'])->name('partners.contract.partner-manual-upload');
+    Route::post('partners/{partner}/contract/confirm-hand-signed', [AdminPartnerController::class, 'confirmHandSigned'])->name('partners.contract.confirm-hand-signed');
     Route::get('partners/{partner}/contract/partner-manual-files', [AdminPartnerController::class, 'partnerManualFiles'])->name('partners.contract.partner-manual-files');
     Route::post('partners/{partner}/contract/platform-upload', [AdminPartnerController::class, 'platformUpload'])->name('partners.contract.platform-upload');
     Route::post('partners/{partner}/contract/platform-resign', [AdminPartnerController::class, 'platformResign'])->name('partners.contract.platform-resign');

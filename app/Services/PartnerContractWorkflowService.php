@@ -13,6 +13,7 @@ use App\Services\PdfSigning\ContractPdfRenderer;
 use App\Services\PdfSigning\ContractPdfSigningService;
 use App\Services\PdfSigning\UploadedPdfSignatureVerifier;
 use App\Support\PartnerContractRenderer;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -527,6 +528,138 @@ class PartnerContractWorkflowService
         ]);
 
         return ['pdf' => $pdf, 'file_name' => $fileName];
+    }
+
+    /**
+     * HỢP ĐỒNG GIẤY — admin xác nhận hai bên ĐÃ KÝ TAY trên bản in. Coi như ký đủ cả hai bên, không cần Bên A ký số: hợp đồng có hiệu lực (trạng thái hoạt động, ngày ký,
+     * thời hạn, luồng tiền) và tài khoản chủ đối tác được tạo + gửi email đăng nhập ngay. Bản scan/ảnh hợp đồng đã ký là TUỲ CHỌN (lưu để đối chiếu).
+     * Chỉ xác nhận được khi hồ sơ pháp lý đã duyệt và đối tác đã có hợp đồng do hệ thống tạo (mã số + nội dung để in ra ký).
+     *
+     * @param  iterable<\Illuminate\Http\UploadedFile|string>  $files  tệp scan/ảnh (UploadedFile hoặc đường dẫn tuyệt đối; tệp đường dẫn được chuyển vào kho), tối đa 10
+     * @return array{version_id: int, contract_status: ?string, contract_signed_at: ?string, contract_expires_at: ?string, files: int, account: array{created: bool, exists: bool, email: ?string, reason: ?string}}
+     */
+    public function confirmHandSigned(Partner $partner, User $actor, ?\DateTimeInterface $signedAt, ?string $signerName, iterable $files, string $ip, string $userAgent): array
+    {
+        if (! $partner->usesContract()) {
+            throw ValidationException::withMessages(['contract' => 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).']);
+        }
+
+        $this->documents->assertContractEligible($partner);
+
+        $files = collect($files)->values();
+        if ($files->count() > 10) {
+            throw ValidationException::withMessages(['signed_files' => 'Tối đa 10 tệp.']);
+        }
+
+        $hadAccount = $partner->users()->exists();
+
+        /** @var array{0: PartnerContractVersion, 1: \Illuminate\Support\Carbon} $done */
+        $done = DB::transaction(function () use ($partner, $actor, $signedAt, $signerName, $files, $ip, $userAgent) {
+            $locked  = Partner::query()->lockForUpdate()->findOrFail($partner->id);
+            $version = $locked->contractVersions()->first();
+
+            if (! $version) {
+                throw ValidationException::withMessages(['contract' => 'Đối tác chưa có hợp đồng. Bấm "Tạo & gửi hợp đồng ký" để hệ thống tạo bản hợp đồng (mã số, nội dung) rồi in ra ký tay.']);
+            }
+
+            if ($version->isFullySigned() || (! $version->isAddendum() && $locked->contract_status === 'active')) {
+                throw ValidationException::withMessages(['contract' => 'Hợp đồng này đã có hiệu lực.']);
+            }
+
+            // Ngày ký ghi trên bản giấy (mặc định hôm nay): không ở tương lai và không trước ngày hệ thống tạo hợp đồng (bản in lấy từ hệ thống).
+            $at = $signedAt ? \Illuminate\Support\Carbon::instance($signedAt)->setTimeFrom(now()) : now();
+            if ($at->isFuture()) {
+                $at = now();
+            }
+            if ($at->copy()->startOfDay()->lt($version->created_at->copy()->startOfDay())) {
+                throw ValidationException::withMessages(['signed_at' => 'Ngày ký không được trước ngày tạo hợp đồng (' . $version->created_at->format('d/m/Y') . ').']);
+            }
+
+            foreach ($files as $i => $file) {
+                $ext = $file instanceof \Illuminate\Http\UploadedFile
+                    ? strtolower($file->getClientOriginalExtension() ?: (string) $file->extension())
+                    : strtolower(pathinfo((string) $file, PATHINFO_EXTENSION));
+
+                $version->addMedia($file)
+                    ->usingFileName("hop-dong-{$version->id}-ky-tay-xac-nhan-" . ($i + 1) . ($ext !== '' ? ".{$ext}" : ''))
+                    ->toMediaCollection('partner_manual_signed', 'local');
+            }
+
+            $name       = trim((string) $signerName) ?: (string) ($locked->representative_name ?: ($locked->legal_name ?: $locked->name));
+            $attributes = [
+                'platform_signing_provider' => 'manual_paper',
+                'platform_sign_method' => 'manual',
+                'platform_signed_at' => $at,
+                'platform_signed_by' => $actor->id,
+                'platform_signed_ip' => $ip,
+                'platform_signed_user_agent' => $userAgent,
+            ];
+
+            // Đối tác đã ký rồi (OTP / CKS / tải scan) thì giữ nguyên chữ ký đó; chưa thì ghi nhận ký tay.
+            if (! $version->isPartnerConfirmed()) {
+                $attributes += [
+                    'partner_confirmed_at' => $at,
+                    'partner_signed_at' => $at,
+                    'partner_sign_method' => 'manual',
+                    'partner_signing_provider' => 'manual_upload',
+                    'partner_signed_by_name' => $name,
+                    'partner_signed_ip' => $ip,
+                    'partner_signed_user_agent' => $userAgent,
+                ];
+            }
+
+            $version->update($attributes);
+
+            if (! $version->isAddendum()) {
+                $locked->update(['contract_type' => 'paper']);
+            }
+
+            \App\Models\PartnerStatusLog::create([
+                'partner_id' => $locked->id, 'from_status' => $locked->verification_status, 'to_status' => $locked->verification_status, 'changed_by' => $actor->id,
+                'note' => 'Admin xác nhận hợp đồng đã ký tay (hai bên ký trên bản in) — ngày ký ' . $at->format('d/m/Y') . ($files->isNotEmpty() ? ', kèm ' . $files->count() . ' tệp scan.' : ', không kèm bản scan.'),
+            ]);
+
+            return [$version, $at];
+        });
+
+        [$version, $at] = $done;
+
+        // Hiệu lực hợp đồng: trạng thái hoạt động, ngày ký, thời hạn, luồng tiền (giống khi Bên A ký số xong) — và tài khoản chủ đối tác (xem Partner::booted()).
+        $this->activateContract($partner->fresh(), $version->fresh(), $actor, $at);
+
+        $partner = $partner->fresh();
+
+        // Hồ sơ không thuộc nhóm tự cấp tài khoản (không phải đăng ký công khai / không do admin tạo) thì Partner::booted() bỏ qua: admin đã xác nhận hợp đồng giấy nên vẫn cấp.
+        if (! $version->isAddendum() && ! $hadAccount && ! $partner->users()->exists() && ! $partner->canProvisionOwnerAccount()) {
+            app(PartnerOnboardingService::class)->provisionAccount($partner);
+        }
+
+        return [
+            'version_id' => $version->id,
+            'contract_status' => $partner->contract_status,
+            'contract_signed_at' => $partner->contract_signed_at?->toIso8601String(),
+            'contract_expires_at' => $partner->contract_expires_at?->toIso8601String(),
+            'files' => $files->count(),
+            'account' => $this->accountOutcome($partner, $hadAccount),
+        ];
+    }
+
+    /** @return array{created: bool, exists: bool, email: ?string, reason: ?string} */
+    private function accountOutcome(Partner $partner, bool $hadAccount): array
+    {
+        $owner = $partner->users()->orderBy('created_at')->first();
+
+        if ($owner) {
+            return ['created' => ! $hadAccount, 'exists' => true, 'email' => $owner->email, 'reason' => $hadAccount ? 'Đối tác đã có tài khoản từ trước.' : null];
+        }
+
+        $reason = blank($partner->email)
+            ? 'Hồ sơ đối tác không có email — thêm email rồi bấm "Gửi lại tài khoản đăng nhập" ở trang đối tác.'
+            : (User::query()->where('email', $partner->email)->exists()
+                ? "Email {$partner->email} đã thuộc một tài khoản khác — xử lý rồi bấm \"Gửi lại tài khoản đăng nhập\" ở trang đối tác."
+                : 'Chưa tạo được tài khoản — xem lịch sử đối tác và bấm "Gửi lại tài khoản đăng nhập".');
+
+        return ['created' => false, 'exists' => false, 'email' => $partner->email, 'reason' => $reason];
     }
 
     /**
