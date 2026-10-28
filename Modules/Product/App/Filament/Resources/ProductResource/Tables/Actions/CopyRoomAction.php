@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions;
 
+use App\Exceptions\RoomCopyException;
 use App\Models\User;
 use App\Services\RoomCopyService;
 use App\Support\ApprovalContext;
@@ -46,12 +47,30 @@ class CopyRoomAction
                     ->label('Tên phòng sẽ tạo')
                     ->content(fn (Get $get) => self::previewContent($record, $get)),
             ])
-            ->action(function (Product $record, array $data): void {
-                $copies = app(RoomCopyService::class)->copy(
-                    $record,
-                    (int) $data['quantity'],
-                    filled($data['start_number'] ?? null) ? (int) $data['start_number'] : null
-                );
+            ->action(function (Product $record, array $data, Action $action): void {
+                try {
+                    $copies = app(RoomCopyService::class)->copy(
+                        $record,
+                        (int) $data['quantity'],
+                        filled($data['start_number'] ?? null) ? (int) $data['start_number'] : null
+                    );
+                } catch (RoomCopyException $e) {
+                    Notification::make()
+                        ->title('Không sao chép được phòng')
+                        ->body($e->errorCode === RoomCopyException::INTERRUPTED && $e->names
+                            ? $e->getMessage() . ' Đã tạo: ' . implode(', ', $e->names) . '.'
+                            : $e->getMessage())
+                        ->danger()
+                        ->persistent()
+                        ->send();
+
+                    // Trùng tên / đang có lượt khác: giữ form mở để đổi số bắt đầu hoặc thử lại.
+                    if ($e->errorCode !== RoomCopyException::INTERRUPTED) {
+                        $action->halt();
+                    }
+
+                    return;
+                }
 
                 if (ApprovalContext::hasNotices()) {
                     return;
@@ -87,9 +106,16 @@ class CopyRoomAction
             return 'Nhập số lượng từ 1 đến ' . RoomCopyService::MAX_COPIES . '.';
         }
 
-        $start = filled($get('start_number')) ? (int) $get('start_number') : null;
-        $names = app(RoomCopyService::class)->previewNames($record, $quantity, $start);
+        $start   = filled($get('start_number')) ? (int) $get('start_number') : null;
+        $service = app(RoomCopyService::class);
+        $names   = $service->previewNames($record, $quantity, $start);
+        $html    = e(implode(', ', $names));
 
-        return new HtmlString(e(implode(', ', $names)));
+        if ($taken = $service->takenNames($record, $names)) {
+            $html .= '<br><span style="color:#dc2626;">Đã có phòng mang tên: ' . e(implode(', ', $taken))
+                . ' — đổi số bắt đầu hoặc để trống.</span>';
+        }
+
+        return new HtmlString($html);
     }
 }

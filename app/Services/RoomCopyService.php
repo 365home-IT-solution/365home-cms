@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\RoomCopyException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -68,25 +70,77 @@ class RoomCopyService
         );
     }
 
-    /** @return Collection<int, Product> */
+    /**
+     * Tên trong danh sách đã có phòng cùng đối tác dùng — chỉ xảy ra khi tự nhập số bắt đầu (số tự
+     * động luôn bỏ qua số đã dùng, xem nextFreeNumber()).
+     *
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    public function takenNames(Product $source, array $names): array
+    {
+        return Product::withoutGlobalScopes()
+            ->where('partner_id', $source->partner_id)
+            ->whereIn('name', $names)
+            ->pluck('name')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return Collection<int, Product>
+     *
+     * @throws RoomCopyException
+     */
     public function copy(Product $source, int $quantity, ?int $startNumber = null): Collection
+    {
+        // Mỗi đối tác chỉ một lượt sao chép cùng lúc — hai lượt song song sẽ chọn trùng số và trùng tên phòng.
+        $lock = Cache::lock('room-copy:' . $source->partner_id, 300);
+
+        if (! $lock->get()) {
+            throw RoomCopyException::busy();
+        }
+
+        try {
+            // Mỗi phòng chép file ảnh riêng: nhiều phòng có thể lâu hơn giới hạn thời gian mặc định của máy chủ.
+            @set_time_limit(300);
+
+            return $this->copyAll($source, $quantity, $startNumber);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /** @return Collection<int, Product> */
+    private function copyAll(Product $source, int $quantity, ?int $startNumber): Collection
     {
         $quantity = max(1, min(self::MAX_COPIES, $quantity));
         $source   = Product::withoutGlobalScopes()->with(['categories:id', 'tags:id', 'media'])->findOrFail($source->getKey());
         $names    = $this->previewNames($source, $quantity, $startNumber);
+
+        if ($taken = $this->takenNames($source, $names)) {
+            throw RoomCopyException::nameTaken($taken);
+        }
 
         $sortOrder = (int) Product::withoutGlobalScopes()->where('partner_id', $source->partner_id)->max('sort_order');
 
         $copies = collect();
 
         foreach ($names as $i => $name) {
-            $copy = DB::transaction(fn () => $this->copyOne($source, $name, $sortOrder + $i + 1));
+            try {
+                $copy = DB::transaction(fn () => $this->copyOne($source, $name, $sortOrder + $i + 1));
+                // Ghi nhận ngay khi phòng đã tạo — lỗi ở bước sau (ảnh…) vẫn báo đúng phòng này đã có.
+                $copies->push($copy);
 
-            app(BranchServiceSync::class)->syncRoom($copy);
-            $this->copyMedia($source, $copy);
-            $this->copyRoomImages($source, $copy);
+                app(BranchServiceSync::class)->syncRoom($copy);
+                $this->copyMedia($source, $copy);
+                $this->copyRoomImages($source, $copy);
+            } catch (\Throwable $e) {
+                report($e);
 
-            $copies->push($copy);
+                throw RoomCopyException::interrupted($copies->pluck('name')->all(), $e);
+            }
         }
 
         return $copies;

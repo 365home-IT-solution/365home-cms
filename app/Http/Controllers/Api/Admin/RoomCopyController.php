@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\RoomCopyException;
 use App\Http\Controllers\Controller;
 use App\Services\RoomCopyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
@@ -16,7 +16,9 @@ use Modules\Product\App\Models\Product;
  * Sao chép phòng (chỉ Super Admin) — cùng nghiệp vụ với nút "Sao chép" ở danh sách Phòng trên CMS, xem App\Services\RoomCopyService.
  *
  *  - GET  /api/admin/rooms/{id}/copy/preview?quantity=&start_number=  tên các phòng sẽ được tạo (để app hiện xem trước)
+ *        + taken_names: tên đã có phòng dùng (khác rỗng thì POST sẽ bị từ chối 422)
  *  - POST /api/admin/rooms/{id}/copy   body: quantity (1..50), start_number?   tạo N phòng mới từ phòng gốc
+ *        lỗi: 409 room_copy_busy | 422 room_copy_name_taken (names) | 500 room_copy_interrupted (created)
  */
 class RoomCopyController extends Controller
 {
@@ -27,12 +29,14 @@ class RoomCopyController extends Controller
         $this->authorizeSuper($request);
         $source = $this->source($id);
         $data   = $this->validated($request);
+        $names  = $this->service->previewNames($source, $data['quantity'], $data['start_number'] ?? null);
 
         return response()->json(['data' => [
             'source'       => ['id' => $source->id, 'name' => $source->name],
             'quantity'     => $data['quantity'],
             'start_number' => $data['start_number'] ?? null,
-            'names'        => $this->service->previewNames($source, $data['quantity'], $data['start_number'] ?? null),
+            'names'        => $names,
+            'taken_names'  => $this->service->takenNames($source, $names),
         ]]);
     }
 
@@ -42,29 +46,15 @@ class RoomCopyController extends Controller
         $source = $this->source($id);
         $data   = $this->validated($request);
 
-        // Mỗi đối tác chỉ một lượt sao chép cùng lúc — hai lượt song song sẽ chọn trùng số và trùng tên phòng.
-        $lock = Cache::lock('room-copy:' . $source->partner_id, 300);
-
-        if (! $lock->get()) {
-            return response()->json(['message' => 'Đang có một lượt sao chép phòng khác của đối tác này, vui lòng thử lại sau ít phút.'], 409);
-        }
-
-        $names = $this->service->previewNames($source, $data['quantity'], $data['start_number'] ?? null);
-
         try {
-            // Mỗi phòng chép file ảnh riêng: nhiều phòng có thể lâu hơn giới hạn thời gian mặc định của máy chủ.
-            @set_time_limit(300);
-
             $copies = $this->service->copy($source, $data['quantity'], $data['start_number'] ?? null);
-        } catch (\Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Sao chép phòng bị gián đoạn giữa chừng. Các phòng đã tạo được giữ lại — kiểm tra danh sách phòng rồi sao chép phần còn thiếu.',
-                'created' => Product::withoutGlobalScopes()->where('partner_id', $source->partner_id)->whereIn('name', $names)->pluck('name')->values(),
-            ], 500);
-        } finally {
-            $lock->release();
+        } catch (RoomCopyException $e) {
+            return response()->json(array_filter([
+                'message' => $e->getMessage(),
+                'code'    => $e->errorCode,
+                'names'   => $e->errorCode === RoomCopyException::NAME_TAKEN ? $e->names : null,
+                'created' => $e->errorCode === RoomCopyException::INTERRUPTED ? $e->names : null,
+            ], fn ($v) => $v !== null), $e->status);
         }
 
         return response()->json([
