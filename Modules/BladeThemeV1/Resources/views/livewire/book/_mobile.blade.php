@@ -195,7 +195,7 @@
                 $roomMetaJson = json_encode([
                     'is_activated'             => (bool) $room->is_activated,
                     'totalSlotsInRoom'         => $room->roomTimeSlots->count(),
-                    'fullBookingDiscountValue' => (string) $room->full_booking_discount,
+                    'fullBookingDiscountValue' => (string) $room->effective_full_booking_discount,
                     'bulkDiscountRules'        => $room->bulk_discount_rules ?? [],
                 ]);
             @endphp

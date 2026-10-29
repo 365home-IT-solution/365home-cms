@@ -818,7 +818,7 @@ class Book extends Component
         // Kiểm tra xem là % hay số tiền cố định
         if (str_contains($fullBookingDiscount, '%')) {
             $percentage = (float) str_replace('%', '', $fullBookingDiscount);
-            return $totalPrice * ($percentage / 100);
+            return (float) (int) ($totalPrice * ($percentage / 100));
         } else {
             return (float) str_replace(['.', ','], '', $fullBookingDiscount);
         }
@@ -877,7 +877,7 @@ class Book extends Component
             return false;
         }
         $room = Product::with('roomTimeSlots')->find($roomId);
-        if (!$room || empty($room->full_booking_discount)) {
+        if (!$room || empty($room->effective_full_booking_discount)) {
             return false;
         }
 

@@ -44,7 +44,7 @@ class ApprovalService
     public const PRODUCT_PRICE_FIELDS = [
         'price' => 'Giá', 'discount' => 'Giảm giá', 'vat' => 'VAT', 'price_unit' => 'Đơn vị giá', 'styles' => 'Kiểu đặt phòng',
         'nights' => 'Đặt qua đêm', 'default_checkin' => 'Giờ nhận phòng mặc định', 'default_checkout' => 'Giờ trả phòng mặc định',
-        'full_booking_discount' => 'Giảm giá đặt trọn gói', 'bulk_discount_rules' => 'Giảm giá theo số đêm', 'room_config' => 'Cấu hình phòng',
+        'full_booking_discount' => 'Giảm giá đặt trọn gói', 'full_day_price' => 'Giá cả ngày', 'bulk_discount_rules' => 'Giảm giá theo số đêm', 'room_config' => 'Cấu hình phòng',
         'deposit_1_night' => 'Cọc 1 đêm (%)', 'deposit_multi_night' => 'Cọc nhiều đêm (%)', 'deposit_min_nights' => 'Số đêm tối thiểu để cọc nhiều đêm',
     ];
 

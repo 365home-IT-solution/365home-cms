@@ -479,6 +479,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                            room_config (như discount-settings nhưng cho 1 phòng) + deposit_1_night/
 |                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout
 |                            (xem docblock ProductController::updateBookingSettings()).
+| POST /api/admin/rooms/{id}/promotions/bulk → gán/thay/gỡ NHIỀU ưu đãi cho NHIỀU khung giờ (hoặc mọi khung) trong 1 lần
 | GET/POST/DELETE /api/admin/rooms/{id}/promotions
 |                          → gán/gỡ ưu đãi (Promotion) cho 1 khung giờ của phòng (bảng pivot
 |                            promotion_room_time_slot) — xem RoomPromotionController.
@@ -541,6 +542,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');
     Route::get('rooms/{id}/promotions',    [AdminRoomPromotionController::class, 'index'])->name('rooms.promotions.index');
     Route::post('rooms/{id}/promotions',   [AdminRoomPromotionController::class, 'store'])->name('rooms.promotions.store');
+    Route::post('rooms/{id}/promotions/bulk', [AdminRoomPromotionController::class, 'bulk'])->name('rooms.promotions.bulk');
     Route::delete('rooms/{id}/promotions/{promotionId}', [AdminRoomPromotionController::class, 'destroy'])->name('rooms.promotions.destroy');
 
     // Mở BẤT KỲ khóa TTLock nào (mọi chi nhánh), KHÔNG cần gắn đơn hàng/phòng — bản API của nút

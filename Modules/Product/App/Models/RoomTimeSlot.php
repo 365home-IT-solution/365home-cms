@@ -112,7 +112,7 @@ class RoomTimeSlot extends Model
             return null;
         }
 
-        if ($date === null || $date === '' || $this->date !== null || ! config('price_boards.phase2')) {
+        if ($date === null || $date === '' || $this->date !== null || ! PriceBoard::phase2Enabled()) {
             return (int) $this->price;
         }
 

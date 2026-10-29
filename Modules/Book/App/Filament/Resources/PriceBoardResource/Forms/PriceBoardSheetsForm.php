@@ -274,6 +274,15 @@ class PriceBoardSheetsForm
                     ->placeholder('VD: 20%')
                     ->helperText('Để trống = giữ giá trị hiện tại của từng phòng.'),
 
+                TextInput::make('full_day_price')
+                    ->label('Giá cả ngày')
+                    ->numeric()
+                    ->minValue(0)
+                    ->maxValue(999999999)
+                    ->suffix('₫')
+                    ->placeholder('VD: 450000')
+                    ->helperText('Khách chọn ĐỦ mọi khung giờ trong ngày thì tính đúng giá này (thay cho "Giảm khi đặt cả ngày"). Phải thấp hơn tổng giá các khung. Để trống = giữ giá cả ngày hiện tại của từng phòng; nhập 0 = bỏ giá cả ngày của các phòng này.'),
+
                 Repeater::make('bulk_discount_rules')
                     ->label('Giảm theo số khung đặt')
                     ->addActionLabel('Thêm mức giảm')
@@ -431,6 +440,9 @@ class PriceBoardSheetsForm
                     $row['full_booking_discount'] = $sheet['full_booking_discount'];
                 }
 
+                // Giá cả ngày: có số (0 = xoá giá cả ngày của phòng) thì khai báo; để trống thì gửi null = bỏ khai báo.
+                $row['full_day_price'] = filled($sheet['full_day_price'] ?? null) ? (int) $sheet['full_day_price'] : null;
+
                 if (! empty($sheet['bulk_discount_rules'])) {
                     $row['bulk_discount_rules'] = array_values(array_map(
                         fn ($r) => ['slots' => (int) $r['slots'], 'discount' => (float) $r['discount']],
@@ -488,6 +500,7 @@ class PriceBoardSheetsForm
                     'timeslot_id' => $t['timeslot_id'], 'price' => $t['price'], 'over_night' => $t['over_night'],
                 ], $s['time_slots']),
                 'full_booking_discount'       => in_array('full_booking_discount', $s['fields_set'], true) ? $s['full_booking_discount'] : null,
+                'full_day_price'              => in_array('full_day_price', $s['fields_set'], true) ? $s['full_day_price'] : null,
                 'bulk_discount_rules'         => in_array('bulk_discount_rules', $s['fields_set'], true) ? ($s['bulk_discount_rules'] ?? []) : [],
                 'room_config_max_free_guests' => in_array('room_config', $s['fields_set'], true) ? ($s['room_config']['max_free_guests'] ?? null) : null,
                 'room_config_extra_guest_fee' => in_array('room_config', $s['fields_set'], true) ? ($s['room_config']['extra_guest_fee'] ?? null) : null,

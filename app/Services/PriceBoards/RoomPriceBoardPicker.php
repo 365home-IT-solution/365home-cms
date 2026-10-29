@@ -358,6 +358,10 @@ class RoomPriceBoardPicker
             }
         }
 
+        if ($sheet->declares('full_day_price')) {
+            $extra['full_day_price'] = $sheet->full_day_price !== null && (float) $sheet->full_day_price > 0 ? $sheet->full_day_price : null;
+        }
+
         if ($extra) {
             $room->forceFill($extra)->save();
         }

@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use Modules\Promotion\App\Models\Promotion;
 
 /**
  * Gộp XEM + SỬA giá khung giờ (room_time_slots.price/over_night) VÀ điều kiện giảm giá
@@ -33,7 +34,7 @@ use Modules\Product\App\Models\RoomTimeSlot;
 class RoomPricingController extends Controller
 {
     private const DISCOUNT_FIELDS = [
-        'full_booking_discount', 'bulk_discount_rules', 'room_config',
+        'full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config',
         'deposit_1_night', 'deposit_multi_night', 'deposit_min_nights',
         'default_checkin', 'default_checkout',
     ];
@@ -50,7 +51,7 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
-        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')->with('promotions')]);
 
         return response()->json($this->toItem($room));
     }
@@ -86,10 +87,14 @@ class RoomPricingController extends Controller
             'time_slots.*.over_night'         => 'nullable|boolean',
             'time_slots.*.checkin'            => 'nullable|date_format:H:i',
             'time_slots.*.checkout'           => 'nullable|date_format:H:i',
+            // Ưu đãi gắn cho khung: [] = gỡ hết, bỏ key = giữ nguyên. Chỉ phòng styles=1.
+            'time_slots.*.promotion_ids'      => 'nullable|array',
+            'time_slots.*.promotion_ids.*'    => 'integer',
 
             'price'                           => 'nullable|numeric|min:0',
 
             'full_booking_discount'           => 'nullable|string|max:50',
+            'full_day_price'                  => 'nullable|numeric|min:0|max:999999999',
             'bulk_discount_rules'             => 'nullable|array',
             'bulk_discount_rules.*.slots'     => 'required_with:bulk_discount_rules|integer|min:1',
             'bulk_discount_rules.*.discount'  => 'required_with:bulk_discount_rules|numeric|min:0|max:100',
@@ -115,12 +120,42 @@ class RoomPricingController extends Controller
             return response()->json(['message' => $error], 422);
         }
 
+        if ($hasTimeSlots) {
+            $promotionIds = collect($data['time_slots'])->pluck('promotion_ids')->flatten()->filter()->unique()->values()->all();
+
+            $touchesPromotions = collect($data['time_slots'])->contains(fn ($row) => array_key_exists('promotion_ids', $row));
+
+            if ($touchesPromotions && $denied = RoomPromotionController::denyPromotionManagement($request->user())) {
+                return $denied;
+            }
+
+            if ($promotionIds && (int) $room->styles !== 1) {
+                return response()->json(['message' => 'Ưu đãi theo khung chỉ áp dụng cho phòng theo khung giờ (styles=1). Phòng theo ngày dùng /date-pricing.'], 422);
+            }
+
+            if ($promotionIds && count($this->visiblePromotionIds($request->user(), $promotionIds)) !== count($promotionIds)) {
+                return response()->json(['message' => 'Có ưu đãi không tồn tại hoặc không thuộc phạm vi của bạn.', 'errors' => ['time_slots' => ['promotion_ids không hợp lệ.']]], 422);
+            }
+
+            // Chỉ nhận ưu đãi đang bật và còn hạn; ưu đãi ĐÃ gắn sẵn cho khung thì được giữ lại (như CMS).
+            if ($promotionIds && (int) $room->styles === 1) {
+                $attached = RoomTimeSlot::where('room_id', $room->id)->whereNull('date')
+                    ->with('promotions:id')->get()->flatMap(fn ($s) => $s->promotions->pluck('id'))->unique()->all();
+                $unusable = Promotion::whereIn('id', array_diff($promotionIds, $attached))->get()
+                    ->reject(fn (Promotion $p) => RoomPromotionController::isUsable($p))->pluck('id')->all();
+
+                if ($unusable) {
+                    return response()->json(['message' => 'Ưu đãi #' . implode(', #', $unusable) . ' đang tắt hoặc đã hết hạn nên không gắn được.', 'errors' => ['time_slots' => ['promotion_ids không dùng được.']]], 422);
+                }
+            }
+        }
+
         $before = $priceBoards->snapshotPricing($room);
 
         DB::transaction(function () use ($room, $data, $hasTimeSlots, $hasPrice, $hasDiscount) {
             if ($hasTimeSlots) {
                 foreach ($data['time_slots'] as $row) {
-                    RoomTimeSlot::updateOrCreate(
+                    $slot = RoomTimeSlot::updateOrCreate(
                         ['room_id' => $room->id, 'timeslot_id' => $row['timeslot_id'], 'date' => null],
                         [
                             'price'      => $row['price'] ?? null,
@@ -130,6 +165,10 @@ class RoomPricingController extends Controller
                             'status'     => 'available',
                         ]
                     );
+
+                    if (array_key_exists('promotion_ids', $row) && (int) $room->styles === 1) {
+                        $slot->promotions()->sync($row['promotion_ids'] ?? []);
+                    }
                 }
             }
 
@@ -151,9 +190,7 @@ class RoomPricingController extends Controller
 
         $priceBoards->afterManualPriceEdit($room, $before);
 
-        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
-
-        return response()->json($this->toItem($room->fresh(['roomTimeSlots' => fn ($q) => $q->whereNull('date')])));
+        return response()->json($this->toItem($room->fresh(['roomTimeSlots' => fn ($q) => $q->whereNull('date')->with('promotions')])));
     }
 
     /**
@@ -261,6 +298,23 @@ class RoomPricingController extends Controller
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /** @param list<int> $ids  @return list<int> id ưu đãi mà người dùng này được phép dùng (cùng quy tắc RoomPromotionController). */
+    private function visiblePromotionIds(User $user, array $ids): array
+    {
+        $query = Promotion::whereIn('id', $ids);
+
+        if (! $user->seesAllPartners()) {
+            $query->where('partner_id', $user->partner_id);
+
+            $allowed = $user->allowedCategoryIds();
+            if (! empty($allowed)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowed));
+            }
+        }
+
+        return $query->pluck('id')->all();
+    }
+
     private function visibleRoom(User $user, string $id): ?Product
     {
         $room = Product::find($id);
@@ -313,6 +367,9 @@ class RoomPricingController extends Controller
                 'timeslot_id'       => $rts->timeslot_id,
                 'price'             => $rts->price,
                 'over_night'        => (bool) $rts->over_night,
+                'promotions'        => $rts->promotions->map(fn ($p) => [
+                    'id' => $p->id, 'name' => $p->name, 'type' => $p->type, 'value' => $p->value !== null ? (float) $p->value : null,
+                ])->values(),
             ])->values();
         }
 
@@ -332,6 +389,7 @@ class RoomPricingController extends Controller
             ]
             : [
                 'full_booking_discount' => $room->full_booking_discount,
+                'full_day_price'        => $room->full_day_price !== null ? (int) $room->full_day_price : null,
                 'bulk_discount_rules'   => $this->mapBulkDiscountRules($room->bulk_discount_rules),
                 'room_config'           => $room->room_config,
             ];

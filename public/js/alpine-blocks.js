@@ -210,7 +210,8 @@ return {
 
         if (discountStr.includes('%')) {
             const percentage = parseFloat(discountStr.replace('%', ''));
-            return totalPrice * (percentage / 100);
+            // Cắt phần thập phân như server ((int) trong PHP) để khớp từng đồng
+            return Math.floor(totalPrice * (percentage / 100));
         } else {
             return parseFloat(discountStr.replace(/[.,]/g, ''));
         }

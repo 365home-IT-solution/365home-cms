@@ -249,6 +249,10 @@ class PriceBoardV2Service
             $errors += $slotErrors;
         }
 
+        if (array_key_exists('full_day_price', $raw) && $raw['full_day_price'] !== null && ($mode !== PriceBoard::MODE_OVERRIDE || $style !== 1)) {
+            $errors["sheets.{$index}.full_day_price"] = ['Giá cả ngày chỉ dùng cho bộ giá theo giờ (room_style = 1, pricing_mode = override).'];
+        }
+
         // Giá theo thứ (chỉ bộ giá "Theo ngày"): thay cho một giá cho mọi ngày. null/[] = một giá cho mọi ngày.
         $weekday = null;
         $rawWeekday = array_key_exists('weekday_prices', $raw) ? $raw['weekday_prices'] : ($current['weekday_prices'] ?? null);
@@ -273,7 +277,12 @@ class PriceBoardV2Service
 
         $declared = [];
         foreach (PriceBoardSheet::FIELDS_SET_KEYS as $key) {
-            if (array_key_exists($key, $raw)) {
+            if ($key === 'full_day_price') {
+                // Gửi số (0 = bảng này xoá giá cả ngày của phòng) thì khai báo; gửi null thì bỏ khai báo; không gửi thì giữ như cũ.
+                if (array_key_exists($key, $raw) ? $raw[$key] !== null : ($current && in_array($key, (array) ($current['fields_set'] ?? []), true))) {
+                    $declared[] = $key;
+                }
+            } elseif (array_key_exists($key, $raw)) {
                 $declared[] = $key;
             } elseif ($current && in_array($key, (array) ($current['fields_set'] ?? []), true)) {
                 $declared[] = $key;
@@ -301,6 +310,7 @@ class PriceBoardV2Service
             'deposit_multi_night' => $pick('deposit_multi_night'),
             'deposit_min_nights'  => $pick('deposit_min_nights'),
             'full_booking_discount' => $pick('full_booking_discount'),
+            'full_day_price'        => $pick('full_day_price'),
             'bulk_discount_rules'   => $pick('bulk_discount_rules'),
             'room_config'           => $pick('room_config'),
             'fields_set'            => $declared,
@@ -442,7 +452,7 @@ class PriceBoardV2Service
                 'product_ids' => array_values(array_unique(array_map('strval', $data['product_ids'] ?? []))),
                 'time_slots' => [], 'price' => null, 'default_checkin' => null, 'default_checkout' => null,
                 'deposit_1_night' => null, 'deposit_multi_night' => null, 'deposit_min_nights' => null,
-                'full_booking_discount' => null, 'bulk_discount_rules' => null, 'room_config' => null, 'fields_set' => [],
+                'full_booking_discount' => null, 'full_day_price' => null, 'bulk_discount_rules' => null, 'room_config' => null, 'fields_set' => [],
                 'adjustment_type' => $data['adjustment_type'] ?? null,
                 'adjustment_value' => $data['adjustment_value'] ?? null,
                 'adjustment_timeslot_ids' => [],
@@ -473,7 +483,7 @@ class PriceBoardV2Service
                 'room_style' => $style, 'is_default' => false, 'sort_order' => 0, 'product_ids' => [(string) $product->id],
                 'time_slots' => [], 'price' => null, 'default_checkin' => null, 'default_checkout' => null,
                 'deposit_1_night' => null, 'deposit_multi_night' => null, 'deposit_min_nights' => null,
-                'full_booking_discount' => null, 'bulk_discount_rules' => null, 'room_config' => null, 'fields_set' => [],
+                'full_booking_discount' => null, 'full_day_price' => null, 'bulk_discount_rules' => null, 'room_config' => null, 'fields_set' => [],
                 'adjustment_type' => null, 'adjustment_value' => null, 'adjustment_timeslot_ids' => [],
             ];
 
@@ -501,7 +511,7 @@ class PriceBoardV2Service
             }
 
             $signature = md5(json_encode([$sheet['room_style'], $sheet['time_slots'], $sheet['price'], $sheet['default_checkin'],
-                $sheet['default_checkout'], $sheet['deposit_min_nights'], $sheet['deposit_multi_night'], $sheet['full_booking_discount'],
+                $sheet['default_checkout'], $sheet['deposit_min_nights'], $sheet['deposit_multi_night'], $sheet['full_booking_discount'], $sheet['full_day_price'] ?? null,
                 $sheet['bulk_discount_rules'], $sheet['room_config'], $sheet['fields_set']]));
 
             if (isset($groups[$signature])) {
@@ -536,7 +546,7 @@ class PriceBoardV2Service
                 'id' => null, 'name' => 'Phòng không hợp lệ', 'pricing_mode' => PriceBoard::MODE_ADJUSTMENT, 'room_style' => null,
                 'is_default' => false, 'sort_order' => $order, 'product_ids' => $strays, 'time_slots' => [], 'price' => null,
                 'default_checkin' => null, 'default_checkout' => null, 'deposit_1_night' => null, 'deposit_multi_night' => null,
-                'deposit_min_nights' => null, 'full_booking_discount' => null, 'bulk_discount_rules' => null, 'room_config' => null,
+                'deposit_min_nights' => null, 'full_booking_discount' => null, 'full_day_price' => null, 'bulk_discount_rules' => null, 'room_config' => null,
                 'fields_set' => [], 'adjustment_type' => 'percentage', 'adjustment_value' => 0, 'adjustment_timeslot_ids' => [],
             ];
         }
@@ -588,6 +598,7 @@ class PriceBoardV2Service
                 'deposit_multi_night' => $s->deposit_multi_night,
                 'deposit_min_nights'  => $s->deposit_min_nights,
                 'full_booking_discount' => $s->full_booking_discount,
+                'full_day_price'        => $s->full_day_price === null ? null : (int) $s->full_day_price,
                 'bulk_discount_rules'   => $s->bulk_discount_rules,
                 'room_config'           => $s->room_config,
                 'fields_set'            => (array) $s->fields_set,
@@ -913,6 +924,7 @@ class PriceBoardV2Service
                 'deposit_multi_night' => $sheet['deposit_multi_night'],
                 'deposit_min_nights'  => $sheet['deposit_min_nights'],
                 'full_booking_discount' => $sheet['full_booking_discount'],
+                'full_day_price'        => $sheet['full_day_price'] ?? null,
                 'bulk_discount_rules'   => $sheet['bulk_discount_rules'],
                 'room_config'           => $sheet['room_config'],
                 'fields_set'            => $sheet['fields_set'],
@@ -1059,6 +1071,10 @@ class PriceBoardV2Service
                 'deposit_1_night'     => 100,
             ], []];
         }
+
+        // Giá cả ngày (phòng theo giờ): bộ giá khai báo thì lấy giá của bộ (0 = xoá), không thì giữ giá hiện tại của phòng. 0 = "không dùng".
+        $fullDay = $sheet->declares('full_day_price') ? $sheet->full_day_price : $product->full_day_price;
+        $fields['full_day_price'] = $fullDay !== null && (float) $fullDay > 0 ? (float) $fullDay : 0;
 
         return [$fields, $sheet->slots->map(fn ($s) => [
             'timeslot_id' => (int) $s->timeslot_id, 'price' => (int) $s->price,
@@ -1224,6 +1240,7 @@ class PriceBoardV2Service
                 'deposit_min_nights'    => $sheet->deposit_min_nights,
                 'deposit_multi_night'   => $sheet->deposit_multi_night,
                 'full_booking_discount' => $sheet->full_booking_discount,
+                'full_day_price'        => $sheet->full_day_price === null ? null : (int) $sheet->full_day_price,
                 'bulk_discount_rules'   => $sheet->bulk_discount_rules ?? [],
                 'room_config'           => $sheet->room_config,
                 'adjustment_timeslot_ids' => $sheet->pricing_mode === PriceBoard::MODE_ADJUSTMENT

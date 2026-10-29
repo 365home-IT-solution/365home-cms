@@ -10,12 +10,12 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PriceBoardSheet extends Model
 {
-    public const FIELDS_SET_KEYS = ['full_booking_discount', 'bulk_discount_rules', 'room_config'];
+    public const FIELDS_SET_KEYS = ['full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config'];
 
     protected $fillable = [
         'price_board_id', 'name', 'pricing_mode', 'room_style', 'is_default', 'sort_order',
         'price', 'default_checkin', 'default_checkout', 'deposit_1_night', 'deposit_multi_night', 'deposit_min_nights',
-        'full_booking_discount', 'bulk_discount_rules', 'room_config', 'fields_set',
+        'full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config', 'fields_set',
         'adjustment_type', 'adjustment_value', 'adjustment_timeslot_ids', 'slot_times', 'weekday_prices',
     ];
 
@@ -23,6 +23,7 @@ class PriceBoardSheet extends Model
         'is_default'              => 'boolean',
         'room_style'              => 'integer',
         'price'                   => 'decimal:2',
+        'full_day_price'          => 'decimal:2',
         'bulk_discount_rules'     => 'array',
         'room_config'             => 'array',
         'fields_set'              => 'array',

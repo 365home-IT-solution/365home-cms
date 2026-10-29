@@ -923,6 +923,7 @@ class ProductController extends Controller
             'room_ids'                          => 'required|array|min:1',
             'room_ids.*'                         => 'string',
             'full_booking_discount'             => 'nullable|string|max:50',
+            'full_day_price'                    => 'nullable|numeric|min:0|max:999999999',
             'bulk_discount_rules'                => 'nullable|array',
             'room_config'                         => 'nullable|array',
             'room_config.max_free_guests'        => 'nullable|integer|min:0',
@@ -930,12 +931,13 @@ class ProductController extends Controller
         ]);
 
         if (! array_key_exists('full_booking_discount', $data)
+            && ! array_key_exists('full_day_price', $data)
             && ! array_key_exists('bulk_discount_rules', $data)
             && ! array_key_exists('room_config', $data)) {
-            return response()->json(['message' => 'Cần nhập ít nhất 1 trong 3: full_booking_discount, bulk_discount_rules, room_config.'], 422);
+            return response()->json(['message' => 'Cần nhập ít nhất 1 trong 4: full_booking_discount, full_day_price, bulk_discount_rules, room_config.'], 422);
         }
 
-        $update = collect($data)->only(['full_booking_discount', 'bulk_discount_rules', 'room_config'])->toArray();
+        $update = collect($data)->only(['full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config'])->toArray();
 
         $query = Product::query()->whereIn('id', $data['room_ids']);
         if (! $user->seesAllPartners()) {
@@ -1022,6 +1024,7 @@ class ProductController extends Controller
 
         $data = $request->validate([
             'full_booking_discount'       => 'nullable|string|max:50',
+            'full_day_price'              => 'nullable|numeric|min:0|max:999999999',
             'bulk_discount_rules'         => 'nullable|array',
             'room_config'                 => 'nullable|array',
             'room_config.max_free_guests' => 'nullable|integer|min:0',
@@ -1034,7 +1037,7 @@ class ProductController extends Controller
         ]);
 
         $allowedFields = [
-            'full_booking_discount', 'bulk_discount_rules', 'room_config',
+            'full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config',
             'deposit_1_night', 'deposit_multi_night', 'deposit_min_nights',
             'default_checkin', 'default_checkout',
         ];

@@ -127,7 +127,7 @@
         if ($pricing['discount_type'] === 'full_booking') {
             $fullBookingDiscountDetails[] = [
                 'dates'  => $pricing['full_booking_dates'],
-                'label'  => $prod?->full_booking_discount,
+                'label'  => $prod?->effective_full_booking_discount,
                 'amount' => $pricing['system_discount'],
             ];
         } elseif ($pricing['discount_type'] === 'bulk') {
@@ -268,7 +268,7 @@
                 ->sortBy('slots')
                 ->values();
 
-            $hasFullBookingRule = filled($prod->full_booking_discount);
+            $hasFullBookingRule = filled($prod->effective_full_booking_discount);
 
             if ($bulkRules->isEmpty() && !$hasFullBookingRule) continue;
 
@@ -328,7 +328,7 @@
                 'bulkCalcBase'               => $bulkCalcBase,
                 'bulkWouldBeAmount'          => $bulkWouldBeAmount,
                 'hasFullBookingRule'         => $hasFullBookingRule,
-                'fullBookingLabel'           => $prod->full_booking_discount,
+                'fullBookingLabel'           => $prod->effective_full_booking_discount,
                 'isFullBookingApplied'       => $isFullBookingApplied,
                 'fullBookingForfeitedPromo'  => $fullBookingForfeitedPromo,
                 'fullBookingDates'      => $pricing['full_booking_dates'],

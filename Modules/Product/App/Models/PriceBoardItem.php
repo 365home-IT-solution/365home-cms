@@ -33,6 +33,7 @@ class PriceBoardItem extends Model
         'price',
         'price_unit',
         'full_booking_discount',
+        'full_day_price',
         'bulk_discount_rules',
         'room_config',
         'deposit_1_night',
@@ -48,6 +49,7 @@ class PriceBoardItem extends Model
 
     protected $casts = [
         'price'               => 'decimal:2',
+        'full_day_price'      => 'decimal:2',
         'bulk_discount_rules' => 'array',
         'room_config'         => 'array',
         'baseline_fields'     => 'array',
