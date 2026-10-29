@@ -156,6 +156,11 @@ class GuestBookingController extends Controller
             return $blocked;
         }
 
+        // Đối tác chưa liên kết tài khoản PayOS → chưa được bán online (423 PARTNER_PAYOS_REQUIRED).
+        if ($blocked = \App\Services\Payment\PartnerPayOsSalesGate::blockResponse($room)) {
+            return $blocked;
+        }
+
         // SĐT trùng hồ sơ khách đang bị khoá ở chi nhánh này → không lách được bằng cách đặt không đăng nhập.
         if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse(null, (string) $request->input('buyer_phone'), (string) $room->id)) {
             return $blocked;

@@ -119,6 +119,11 @@ class BookingController extends Controller
             return $blocked;
         }
 
+        // Đối tác chưa liên kết tài khoản PayOS → chưa được bán online (423 PARTNER_PAYOS_REQUIRED).
+        if ($blocked = \App\Services\Payment\PartnerPayOsSalesGate::blockResponse($room)) {
+            return $blocked;
+        }
+
         // Khách bị khoá đặt phòng ở chi nhánh của phòng này (403 CUSTOMER_BRANCH_BLOCKED).
         if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse($customer, $buyerPhone, (string) $room->id)) {
             return $blocked;

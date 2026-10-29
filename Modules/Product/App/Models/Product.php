@@ -132,6 +132,9 @@ class Product extends Model implements HasMedia, Resourceable
             $query->where(fn ($q) => $q->whereNull($q->qualifyColumn('partner_id'))->orWhereNotIn($q->qualifyColumn('partner_id'), $suspendedPartnerIds));
         }
 
+        // Đối tác chưa liên kết tài khoản PayOS thì chưa được đăng bán — xem App\Services\Payment\PartnerPayOsSalesGate.
+        \App\Services\Payment\PartnerPayOsSalesGate::applyToRoomQuery($query);
+
         $inactiveCatIds = Category::inactiveBranchCategoryIds();
 
         if ($inactiveCatIds->isEmpty()) {
