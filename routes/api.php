@@ -41,6 +41,16 @@ use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
 
+Route::get('public/sepay/orders/{code}/payment', [\App\Http\Controllers\Api\SePayPaymentController::class, 'show'])
+    ->middleware('throttle:public-api')->name('api.sepay.orders.payment');
+Route::get('public/sepay/payments/{code}', [\App\Http\Controllers\Api\SePayPaymentController::class, 'link'])
+    ->whereNumber('code')->middleware('throttle:public-api')->name('api.sepay.payments.show');
+
+// SePay gọi qua domain API chính: https://365home.vn/api/webhook/sepay.
+// Controller tự xác thực HMAC-SHA256 nên route không cần đăng nhập.
+Route::post('webhook/sepay', \App\Http\Controllers\SePayWebhookController::class)
+    ->name('webhook.sepay');
+
 // Đăng ký hợp tác công khai (khách chưa có tài khoản đối tác): đăng ký → giấy tờ → thông tin hợp đồng → ký → gửi duyệt.
 // MiniHouse: chỉ MUA GÓI rồi dùng (không đăng ký đối tác/ký hợp đồng).
 Route::prefix('public')->name('api.minihouse-purchase.')->group(function () {

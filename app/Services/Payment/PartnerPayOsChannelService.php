@@ -169,6 +169,12 @@ class PartnerPayOsChannelService
     {
         $account = $partner->payOsAccount ?? new PartnerPayOsAccount(['partner_id' => $partner->id, 'is_active' => true]);
 
+        // Mỗi đối tác chỉ dùng MỘT kênh: đang bật SePay thì kênh PayOS riêng không được bật (SePay được ưu tiên nên PayOS sẽ không có tác dụng).
+        if ((array_key_exists('is_active', $data) ? (bool) $data['is_active'] : (bool) $account->is_active)
+            && \Modules\Payment\Entities\PartnerSePayAccount::query()->where('partner_id', $partner->id)->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['is_active' => 'Đối tác đang dùng SePay. Tắt SePay ở "SePay theo đối tác" trước, rồi mới bật kênh PayOS riêng (mỗi đối tác chỉ dùng một kênh).']);
+        }
+
         $credentials = [
             'client_id'    => filled($data['client_id'] ?? null) ? trim((string) $data['client_id']) : $account->client_id,
             'api_key'      => filled($data['api_key'] ?? null) ? trim((string) $data['api_key']) : $account->api_key,

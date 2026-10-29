@@ -108,6 +108,13 @@ Route::prefix('/order')->group(function () {
 Route::post('/webhook/payos', [PaymentController::class, 'handlePayOSWebhook'])
      ->name('webhook.payos');
 
+// Trang QR thanh toán SePay (checkoutUrl của cổng SePay).
+Route::get('/thanh-toan-sepay/{code}', [\Modules\Payment\Http\Controllers\SePayCheckoutController::class, 'show'])
+    ->whereNumber('code')->name('sepay.checkout');
+
+Route::post('/webhook/sepay', '\\App\\Http\\Controllers\\SePayWebhookController')
+    ->name('webhook.sepay.legacy');
+
 // Tạo link PayOS cho phần tiền còn lại (sau khi đã đặt cọc)
 Route::post('/dat-phong/tao-thanh-toan-con-lai/{code}', [PaymentController::class, 'createRemainingPayment'])
      ->name('payment.remaining.create');

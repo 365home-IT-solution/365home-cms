@@ -48,6 +48,11 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
+            // Webhook SePay ở domain API chính; đã được bảo vệ bằng HMAC-SHA256 và chống replay.
+            if ($request->is('api/webhook/sepay')) {
+                return Limit::none();
+            }
+
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 

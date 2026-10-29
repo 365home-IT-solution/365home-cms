@@ -171,6 +171,11 @@ class PayOsAccountResolver
 
     public static function forOrder(?Order $order): ?PayOsGateway
     {
+        // Đối tác bật SePay → cổng SePay (cùng giao diện) thay cho PayOS: mọi luồng tạo/tra/huỷ link tự chạy qua SePay.
+        if ($order && ($sePay = app(SePayService::class)->gatewayFor($order))) {
+            return $sePay;
+        }
+
         return self::forCategory($order?->category_id ? (int) $order->category_id : null, self::partnerIdForOrder($order));
     }
 

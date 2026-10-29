@@ -64,7 +64,7 @@ class OrderCommissionService
         $categoryId = $order->category_id ? (int) $order->category_id : null;
         $partnerId = PayOsAccountResolver::partnerIdForOrder($order);
 
-        return PayOsAccountResolver::branchAccountFor($categoryId) || PayOsAccountResolver::partnerAccountFor($partnerId)
+        return PayOsAccountResolver::branchAccountFor($categoryId) || PayOsAccountResolver::partnerAccountFor($partnerId) || app(\App\Services\Payment\SePayService::class)->usesSePay($order)
             ? self::COLLECTED_PARTNER
             : self::COLLECTED_PLATFORM;
     }
