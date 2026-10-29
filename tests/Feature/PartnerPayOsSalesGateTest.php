@@ -15,8 +15,9 @@ use Modules\Payment\Entities\PartnerPayOsAccount;
 use Modules\Product\App\Models\Product;
 use Tests\TestCase;
 
-// Đối tác/chi nhánh chưa liên kết tài khoản PayOS thì phòng không được bán online: ẩn khỏi danh sách và API đặt phòng của khách
-// (có tài khoản + vãng lai) trả 423 PARTNER_PAYOS_REQUIRED, không tạo đơn. Xem App\Services\Payment\PartnerPayOsSalesGate.
+// Đối tác được bật "Bắt buộc PayOS riêng" mà chưa liên kết tài khoản PayOS (của đối tác hoặc chi nhánh) thì phòng không được bán online:
+// ẩn khỏi danh sách và API đặt phòng của khách (có tài khoản + vãng lai) trả 423 PARTNER_PAYOS_REQUIRED, không tạo đơn. Đối tác không bật
+// vẫn bán bằng PayOS chung. Xem App\Services\Payment\PartnerPayOsSalesGate.
 class PartnerPayOsSalesGateTest extends TestCase
 {
     use DatabaseTransactions;
@@ -38,6 +39,7 @@ class PartnerPayOsSalesGateTest extends TestCase
 
         // Đối tác Homestay mới (chưa có kênh PayOS nào) làm chủ phòng — rollback sau mỗi test.
         $this->partner = Partner::create(['name' => 'PayOS gate ' . uniqid(), 'partner_type' => Partner::TYPE_HOMESTAY, 'status' => true]);
+        $this->partner->forceFill(['require_own_payos' => true])->save();
         Product::withoutGlobalScopes()->whereKey($room->id)->update(['partner_id' => $this->partner->id]);
         $this->room = $room->fresh();
     }
@@ -142,6 +144,36 @@ class PartnerPayOsSalesGateTest extends TestCase
         PartnerPayOsAccount::where('partner_id', $this->partner->id)->update(['is_active' => true]);
         PartnerPayOsAccount::where('partner_id', $this->partner->id)->first()->forceFill(['checksum_key' => ''])->save();
         $this->assertFalse(PartnerPayOsSalesGate::canSellRoom($this->room));
+    }
+
+    public function test_partner_not_required_keeps_selling_with_shared_payos(): void
+    {
+        $this->partner->forceFill(['require_own_payos' => false])->save();
+
+        $this->assertTrue(PartnerPayOsSalesGate::canSellRoom($this->room));
+        $this->assertTrue(Product::query()->activeBranch()->whereKey($this->room->id)->exists());
+
+        $response = $this->postJson('/api/guest/orders', $this->guestBooking());
+        $this->assertNotSame(423, $response->status(), $response->getContent());
+    }
+
+    public function test_super_admin_toggles_several_partners_at_once(): void
+    {
+        \Filament\Facades\Filament::setCurrentPanel(\Filament\Facades\Filament::getPanel('admin'));
+        $this->actingAs(\App\Models\User::role('super_admin')->first());
+
+        $partners = collect([
+            Partner::create(['name' => 'PayOS rieng A ' . uniqid(), 'status' => true]),
+            Partner::create(['name' => 'PayOS rieng B ' . uniqid(), 'status' => true]),
+        ]);
+
+        \Livewire\Livewire::test(\App\Filament\Resources\PartnerResource\Pages\ListPartners::class)
+            ->callTableBulkAction('enableRequireOwnPayOs', $partners);
+        $partners->each(fn (Partner $p) => $this->assertTrue((bool) $p->fresh()->require_own_payos));
+
+        \Livewire\Livewire::test(\App\Filament\Resources\PartnerResource\Pages\ListPartners::class)
+            ->callTableBulkAction('disableRequireOwnPayOs', $partners);
+        $partners->each(fn (Partner $p) => $this->assertFalse((bool) $p->fresh()->require_own_payos));
     }
 
     public function test_gate_can_be_turned_off(): void
