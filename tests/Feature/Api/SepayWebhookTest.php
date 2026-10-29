@@ -10,6 +10,7 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\BankTransaction;
+use Modules\Payment\Entities\BranchPayOsAccount;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\PartnerBankChannel;
 use Tests\TestCase;
@@ -69,6 +70,8 @@ class SepayWebhookTest extends TestCase
         $partner = Partner::create([
             'partner_type' => Partner::TYPE_HOMESTAY, 'name' => $name, 'legal_name' => $name, 'phone' => $phone,
             'status' => true, 'verification_status' => 'approved', 'contract_status' => 'active',
+            // Tab Tài chính (nhập lúc đăng ký đối tác) — kênh chuyển khoản đối chiếu chủ tài khoản với đây.
+            'bank_name' => 'MB Bank', 'bank_account_number' => '0123456789', 'bank_account_holder' => 'Nguyễn Văn An',
         ]);
         $partner->forceFill(['payment_flow_effective_at' => now()->subDay()])->save();
 
@@ -113,6 +116,56 @@ class SepayWebhookTest extends TestCase
         $this->postJson("/api/admin/partners/{$this->partner->id}/bank-channel", ['is_active' => false], $staffHeaders)->assertForbidden();
 
         $this->assertSame('partner', $this->order()->fresh()->collected_by);
+    }
+
+    public function test_channel_defaults_to_the_financial_account_and_rejects_another_holder(): void
+    {
+        $partner = $this->makePartner('Đối tác Tài chính', '0970000904');
+        $url = "/api/admin/partners/{$partner->id}/bank-channel";
+
+        // Không gửi tài khoản → dùng đúng tài khoản ở tab Tài chính.
+        $this->postJson($url, [], $this->adminHeaders)->assertOk()
+            ->assertJsonPath('data.bank_code', 'MB')->assertJsonPath('data.account_number', '0123456789')
+            ->assertJsonPath('data.account_holder', 'NGUYEN VAN AN')->assertJsonPath('data.matches_financial', true);
+
+        // Tài khoản khác của CÙNG chủ tài khoản: được. Chủ tài khoản khác: 422, giữ nguyên tài khoản cũ.
+        $this->postJson($url, ['bank_code' => 'ACB', 'account_number' => '27304377', 'account_holder' => 'nguyen  van an'], $this->adminHeaders)->assertOk()
+            ->assertJsonPath('data.matches_financial', false);
+        $this->postJson($url, ['bank_code' => 'ACB', 'account_number' => '11112222', 'account_holder' => 'Tran Thi B'], $this->adminHeaders)
+            ->assertUnprocessable()->assertJsonValidationErrors('account_holder');
+        $this->assertSame('27304377', $partner->bankChannel()->first()->account_number);
+
+        // Quay về tài khoản tab Tài chính.
+        $this->postJson($url, ['use_financial_account' => true], $this->adminHeaders)->assertOk()->assertJsonPath('data.matches_financial', true);
+
+        // Tab Tài chính chưa có chủ tài khoản → không cho bật kênh.
+        $bare = $this->makePartner('Đối tác thiếu TC', '0970000905');
+        $bare->update(['bank_account_holder' => null]);
+        $this->postJson("/api/admin/partners/{$bare->id}/bank-channel", ['bank_code' => 'MB', 'account_number' => '555666777'], $this->adminHeaders)
+            ->assertUnprocessable()->assertJsonValidationErrors('account_holder');
+    }
+
+    public function test_each_branch_shows_where_booking_money_goes_and_branch_payos_wins(): void
+    {
+        $override = $this->makeBranch($this->partner);
+        BranchPayOsAccount::create(['category_id' => $override->id, 'is_active' => true, 'client_id' => 'c', 'api_key' => 'a', 'checksum_key' => 'k', 'account_holder' => 'NGUYEN VAN AN']);
+
+        $branches = collect($this->getJson("/api/admin/partners/{$this->partner->id}/bank-channel", $this->adminHeaders)->assertOk()->json('data.branches'))->keyBy('category_id');
+        $this->assertSame('partner_bank', $branches[$this->branch->id]['type']);
+        $this->assertSame('0123456789', $branches[$this->branch->id]['account_number']);
+        $this->assertSame('branch_payos', $branches[$override->id]['type']);
+
+        // Đơn ở chi nhánh có PayOS riêng không đi chuyển khoản; tiền chuyển nhầm vào tài khoản đối tác thì chờ kiểm tra, không tự xác nhận.
+        $order = $this->order([], $override);
+        $this->assertNull(SepayWebhookService::transferInfo($order));
+        $this->webhook(['content' => '365H' . $order->order_code])->assertJsonPath('status', BankTransaction::STATUS_NEEDS_REVIEW);
+        $this->assertSame('pending', $order->fresh()->status);
+
+        // Tắt kênh: chi nhánh quay về 365home thu hộ (đối tác chưa có PayOS riêng).
+        $this->postJson("/api/admin/partners/{$this->partner->id}/bank-channel", ['is_active' => false], $this->adminHeaders)->assertOk()
+            ->assertJsonPath('data.in_use', false);
+        $branches = collect($this->getJson("/api/admin/partners/{$this->partner->id}/bank-channel", $this->adminHeaders)->json('data.branches'))->keyBy('category_id');
+        $this->assertSame('platform', $branches[$this->branch->id]['type']);
     }
 
     public function test_transfer_info_is_only_for_the_order_owner_and_builds_vietqr_for_the_amount_due(): void

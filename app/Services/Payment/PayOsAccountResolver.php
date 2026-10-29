@@ -154,6 +154,56 @@ class PayOsAccountResolver
         return $channel;
     }
 
+    /**
+     * Kênh chuyển khoản áp dụng cho đơn ở chi nhánh này. Chi nhánh có PayOS riêng (ghi đè) luôn được ưu tiên — khi đó không dùng kênh
+     * chuyển khoản của đối tác. Thứ tự đầy đủ xem destinationForCategory().
+     */
+    public static function bankChannelForCategory(?int $categoryId, ?string $partnerId = null): ?PartnerBankChannel
+    {
+        if (self::branchAccountFor($categoryId)) {
+            return null;
+        }
+
+        return self::bankChannelFor($partnerId ?? self::partnerIdForCategory($categoryId));
+    }
+
+    public static function bankChannelForOrder(?Order $order): ?PartnerBankChannel
+    {
+        return $order ? self::bankChannelForCategory($order->category_id ? (int) $order->category_id : null, self::partnerIdForOrder($order)) : null;
+    }
+
+    /**
+     * Tiền đặt phòng online của 1 chi nhánh đang về đâu, theo đúng thứ tự áp dụng khi khách thanh toán:
+     *   1. branch_payos  — PayOS riêng của chi nhánh (ghi đè)
+     *   2. partner_bank  — chuyển khoản VietQR + SePay vào tài khoản đối tác
+     *   3. partner_payos — PayOS riêng của đối tác
+     *   4. platform      — 365home thu hộ
+     *
+     * @return array{type: string, label: string, collected_by: string, bank_name?: ?string, account_number?: string, account_holder?: ?string, last_webhook_at?: ?string}
+     */
+    public static function destinationForCategory(?int $categoryId, ?string $partnerId = null): array
+    {
+        $partnerId ??= self::partnerIdForCategory($categoryId);
+
+        if ($branch = self::branchAccountFor($categoryId)) {
+            return ['type' => 'branch_payos', 'label' => 'PayOS riêng của chi nhánh', 'collected_by' => 'partner', 'account_holder' => $branch->account_holder];
+        }
+
+        if ($bank = self::bankChannelFor($partnerId)) {
+            return [
+                'type' => 'partner_bank', 'label' => 'Chuyển khoản VietQR (SePay) vào tài khoản đối tác', 'collected_by' => 'partner',
+                'bank_name' => $bank->bank()['short_name'] ?? $bank->bank_code, 'account_number' => $bank->account_number,
+                'account_holder' => $bank->account_holder, 'last_webhook_at' => $bank->last_webhook_at?->toIso8601String(),
+            ];
+        }
+
+        if ($partner = self::partnerAccountFor($partnerId)) {
+            return ['type' => 'partner_payos', 'label' => 'PayOS riêng của đối tác', 'collected_by' => 'partner', 'account_holder' => $partner->account_holder];
+        }
+
+        return ['type' => 'platform', 'label' => '365home thu hộ', 'collected_by' => 'platform'];
+    }
+
     public static function forCategory(?int $categoryId, ?string $partnerId = null): ?PayOsGateway
     {
         $partnerId ??= self::partnerIdForCategory($categoryId);

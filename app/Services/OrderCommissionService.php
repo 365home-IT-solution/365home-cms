@@ -64,7 +64,7 @@ class OrderCommissionService
         $categoryId = $order->category_id ? (int) $order->category_id : null;
         $partnerId = PayOsAccountResolver::partnerIdForOrder($order);
 
-        return PayOsAccountResolver::branchAccountFor($categoryId) || PayOsAccountResolver::partnerAccountFor($partnerId) || PayOsAccountResolver::bankChannelFor($partnerId)
+        return PayOsAccountResolver::branchAccountFor($categoryId) || PayOsAccountResolver::partnerAccountFor($partnerId) || PayOsAccountResolver::bankChannelForCategory($categoryId, $partnerId)
             ? self::COLLECTED_PARTNER
             : self::COLLECTED_PLATFORM;
     }

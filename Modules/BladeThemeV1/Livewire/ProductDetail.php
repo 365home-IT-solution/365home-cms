@@ -2070,7 +2070,7 @@ public function confirmBooking()
     protected function processPayOSPayment($order)
     {
         // Đối tác dùng kênh chuyển khoản (VietQR + SePay): khách chuyển thẳng vào tài khoản đối tác, webhook SePay tự xác nhận đơn.
-        if (\App\Services\Payment\PayOsAccountResolver::bankChannelFor(\App\Services\Payment\PayOsAccountResolver::partnerIdForOrder($order))) {
+        if (\App\Services\Payment\PayOsAccountResolver::bankChannelForOrder($order)) {
             $order->update(['status' => 'pending', 'expired_at' => now()->addMinutes(15)]);
 
             return redirect()->to(\App\Services\Payment\SepayWebhookService::pageUrl($order));

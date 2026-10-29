@@ -106,8 +106,8 @@ class SepayWebhookService
                     return $this->finish($txn, BankTransaction::STATUS_UNMATCHED, 'Đơn không thuộc đối tác sở hữu tài khoản nhận.', clearOrder: true);
                 }
 
-                if (PayOsAccountResolver::bankChannelFor($channel->partner_id)?->id !== $channel->id) {
-                    return $this->finish($txn, BankTransaction::STATUS_NEEDS_REVIEW, 'Kênh chuyển khoản đang tắt hoặc hợp đồng thu trực tiếp chưa hiệu lực — kiểm tra rồi xác nhận tay.');
+                if (PayOsAccountResolver::bankChannelForOrder($order)?->id !== $channel->id) {
+                    return $this->finish($txn, BankTransaction::STATUS_NEEDS_REVIEW, 'Đơn không thu qua kênh chuyển khoản này (kênh tắt, hợp đồng thu trực tiếp chưa hiệu lực, hoặc chi nhánh dùng PayOS riêng) — kiểm tra rồi xác nhận tay.');
                 }
 
                 return $this->apply($txn, $order, $amount);
@@ -154,7 +154,7 @@ class SepayWebhookService
      */
     public static function transferInfo(Order $order): ?array
     {
-        $channel = PayOsAccountResolver::bankChannelFor(PayOsAccountResolver::partnerIdForOrder($order));
+        $channel = PayOsAccountResolver::bankChannelForOrder($order);
         $due     = self::dueFor($order);
         $bank    = $channel?->bank();
 

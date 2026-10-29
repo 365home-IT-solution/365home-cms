@@ -46,6 +46,8 @@ class PartnerPayOsChannelService
             'webhook_url'          => route('webhook.payos'),
             'webhook_confirmed_at' => $account?->webhook_confirmed_at?->toIso8601String(),
             'updated_at'           => $account?->updated_at?->toIso8601String(),
+            // Từng chi nhánh: tiền đặt phòng online đang về đâu (PayOS chi nhánh / chuyển khoản SePay / PayOS đối tác / 365home thu hộ).
+            'branches'             => app(PartnerBankChannelService::class)->branchDestinations($partner),
             // Chi nhánh đang ghi đè bằng tài khoản PayOS riêng (quản lý ở trang quản trị web).
             'branch_overrides'     => BranchPayOsAccount::query()->with('category:id,name')
                 ->whereIn('category_id', $partner->categories()->pluck('id'))->get()
