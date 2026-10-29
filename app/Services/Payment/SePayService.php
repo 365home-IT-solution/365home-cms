@@ -15,6 +15,7 @@ use Modules\Payment\Entities\PartnerSePayAccount;
 use Modules\Payment\Entities\SePayPaymentLink;
 use Modules\Payment\Entities\SePayTransaction;
 use Modules\Payment\Http\Controllers\PaymentController;
+use App\Support\Pay2SConfig;
 use App\Support\SePayConfig;
 use RuntimeException;
 
@@ -69,19 +70,39 @@ class SePayService
     /** Tài khoản SePay đang dùng cho đơn: đối tác bật SePay, được phép dùng kênh riêng (đã có hợp đồng mẫu mới) và đơn không thuộc chi nhánh có PayOS riêng. */
     public function accountFor(Order $order): ?PartnerSePayAccount
     {
-        if (! SePayConfig::enabled()) {
-            return null;
-        }
-
         if (PayOsAccountResolver::branchAccountFor($order->category_id ? (int) $order->category_id : null)) {
             return null;
         }
 
         $partnerId = PayOsAccountResolver::partnerIdForOrder($order);
 
-        return $partnerId && PayOsAccountResolver::partnerFlowAllowsOwnChannel($partnerId)
-            ? PartnerSePayAccount::query()->where('partner_id', $partnerId)->where('is_active', true)->first()
-            : null;
+        if (! $partnerId || ! PayOsAccountResolver::partnerFlowAllowsOwnChannel($partnerId)) {
+            return null;
+        }
+
+        $account = PartnerSePayAccount::query()->where('partner_id', $partnerId)->where('is_active', true)->first();
+
+        return $account && $this->providerEnabled((string) $account->provider) ? $account : null;
+    }
+
+    /** Công tắc tổng của từng cổng (CMS → Cấu hình web): tắt = mọi đối tác của cổng đó quay về PayOS. */
+    public function providerEnabled(string $provider): bool
+    {
+        return $provider === PartnerSePayAccount::PROVIDER_PAY2S ? Pay2SConfig::enabled() : SePayConfig::enabled();
+    }
+
+    public function providerLabel(string $provider): string
+    {
+        return PartnerSePayAccount::PROVIDERS[$provider] ?? ucfirst($provider);
+    }
+
+    /** Cổng (sepay | pay2s) của đối tác sở hữu yêu cầu thanh toán — dùng chọn đường hỏi giao dịch. */
+    private function providerOfLink(SePayPaymentLink $link): ?string
+    {
+        $order = $link->order ?: Order::withoutGlobalScopes()->find($link->order_id);
+        $partnerId = $order ? PayOsAccountResolver::partnerIdForOrder($order) : null;
+
+        return $partnerId ? PartnerSePayAccount::query()->where('partner_id', $partnerId)->value('provider') : null;
     }
 
     /** Số tiền tối thiểu của 1 lần thu: PayOS không tạo được link dưới 2.000đ; chuyển khoản SePay không có mức đó (mặc định 1.000đ, đổi bằng SEPAY_MIN_AMOUNT). */
@@ -94,22 +115,26 @@ class SePayService
      * Trường thêm vào phản hồi đơn cho app/web: kênh thu tiền của đơn và (nếu SePay) yêu cầu thanh toán đang chờ — số tiền, nội dung
      * chuyển khoản, ngân hàng, ảnh QR, trang QR. PayOS trả qr_code như cũ nên sepay = null.
      *
-     * @return array{payment_provider: string, sepay: ?array}
+     * Đối tác dùng Pay2S: payment_provider = 'pay2s', cùng nội dung nằm ở khoá `pay2s` (khoá `sepay` = null).
+     *
+     * @return array{payment_provider: string, sepay: ?array, pay2s?: ?array}
      */
     public function paymentFields(Order $order): array
     {
-        if (! $this->usesSePay($order)) {
+        $account = $this->accountFor($order);
+
+        if (! $account) {
             return ['payment_provider' => 'payos', 'sepay' => null];
         }
 
         $link = SePayPaymentLink::query()->where('order_id', $order->id)->where('status', SePayPaymentLink::PENDING)
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
             ->latest('id')->first();
+        $data = $link ? $this->payloadFor($link, $account) + ['checkout_url' => route('sepay.checkout', ['code' => $link->code])] : null;
 
-        return [
-            'payment_provider' => 'sepay',
-            'sepay' => $link ? $this->payloadFor($link) + ['checkout_url' => route('sepay.checkout', ['code' => $link->code])] : null,
-        ];
+        return $account->provider === PartnerSePayAccount::PROVIDER_PAY2S
+            ? ['payment_provider' => 'pay2s', 'sepay' => null, 'pay2s' => $data]
+            : ['payment_provider' => 'sepay', 'sepay' => $data];
     }
 
     public function usesSePay(Order $order): bool
@@ -181,7 +206,11 @@ class SePayService
      */
     public function transferContent(PartnerSePayAccount $account, string $paymentCode): string
     {
-        return ($account->bank_bin === '970415' || in_array(strtoupper((string) $account->bank_code), ['CTG', 'ICB'], true)) ? 'SEVQR ' . $paymentCode : $paymentCode;
+        // SEVQR là quy ước riêng của SePay; Pay2S nhận biến động VietinBank theo cách khác nên giữ nguyên nội dung.
+        $needsSevqr = $account->provider !== PartnerSePayAccount::PROVIDER_PAY2S
+            && ($account->bank_bin === '970415' || in_array(strtoupper((string) $account->bank_code), ['CTG', 'ICB'], true));
+
+        return $needsSevqr ? 'SEVQR ' . $paymentCode : $paymentCode;
     }
 
     public function qrUrl(PartnerSePayAccount $account, int $amount, string $paymentCode): string
@@ -199,7 +228,7 @@ class SePayService
         $code = $link->paymentCode();
 
         return [
-            'provider' => 'sepay',
+            'provider' => $account->provider ?: 'sepay',
             'status' => $link->status,
             'order_code' => (string) $order->order_code,
             'amount' => (int) $link->amount,
@@ -221,18 +250,18 @@ class SePayService
      * @param array<string,mixed> $raw  dữ liệu gốc lưu để đối soát
      * @return array{status: string, reason: ?string, order: ?Order}  status: processed | rejected | duplicate | failed
      */
-    public function handleIncoming(array $payload, array $raw): array
+    public function handleIncoming(array $payload, array $raw, string $provider = PartnerSePayAccount::PROVIDER_SEPAY): array
     {
         $amount = (int) $payload['transferAmount'];
-        $account = PartnerSePayAccount::query()->where('account_number', $payload['accountNumber'])->first();
+        $account = $this->findAccount((string) $payload['accountNumber'], (string) ($payload['subAccount'] ?? ''));
         $code = $this->extractCode($payload);
         $link = $code ? SePayPaymentLink::query()->where('code', $code)->first() : null;
         $order = $link ? Order::withoutGlobalScopes()->with('items')->find($link->order_id) : null;
-        $failure = $this->validatePayment($account, $link, $order, $amount);
+        $failure = $this->validatePayment($account, $link, $order, $amount, $provider);
 
         try {
             $transaction = SePayTransaction::query()->create([
-                'sepay_id' => $payload['id'], 'partner_sepay_account_id' => $account?->id,
+                'provider' => $provider, 'sepay_id' => $payload['id'], 'partner_sepay_account_id' => $account?->id,
                 'order_id' => $order?->id, 'payment_code' => ($payload['code'] ?? null) ?: ($code ? $this->prefix() . $code : null),
                 'amount' => $amount, 'reference_code' => $payload['referenceCode'] ?? null,
                 'transaction_at' => $payload['transactionDate'] ?? null, 'status' => $failure ? 'rejected' : 'received',
@@ -243,7 +272,7 @@ class SePayService
                 throw $e;
             }
 
-            $transaction = SePayTransaction::query()->where('sepay_id', $payload['id'])->first();
+            $transaction = SePayTransaction::query()->where('provider', $provider)->where('sepay_id', $payload['id'])->first();
 
             // Đã xử lý hoặc đã từ chối: gửi lại / kéo lại cùng giao dịch thì bỏ qua. Chỉ giao dịch lỗi xử lý (failed) mới chạy lại.
             if (! $transaction || $transaction->status !== 'failed') {
@@ -290,13 +319,34 @@ class SePayService
             : ['status' => 'processed', 'reason' => null, 'order' => $order->fresh()];
     }
 
-    private function validatePayment(?PartnerSePayAccount $account, ?SePayPaymentLink $link, ?Order $order, int $amount): ?string
+    /**
+     * Tài khoản SePay của đối tác theo giao dịch tiền vào. Tiền có thể về tài khoản chính (accountNumber) HOẶC tài khoản ảo/VA (subAccount): ngân hàng
+     * chỉ nhận qua VA (BIDV, OCB, MSB, KienLongBank...) và nhiều tài khoản doanh nghiệp báo SePay số chính ở accountNumber và số VA ở subAccount.
+     * CMS lưu số nào (số chính hoặc số VA khách chuyển tới) cũng nhận đúng; ưu tiên số VA khi có.
+     */
+    private function findAccount(string $accountNumber, string $subAccount): ?PartnerSePayAccount
+    {
+        $numbers = array_values(array_unique(array_filter([trim($subAccount), trim($accountNumber)])));
+
+        foreach ($numbers as $number) {
+            if ($account = PartnerSePayAccount::query()->where('account_number', $number)->first()) {
+                return $account;
+            }
+        }
+
+        return null;
+    }
+
+    private function validatePayment(?PartnerSePayAccount $account, ?SePayPaymentLink $link, ?Order $order, int $amount, string $provider = PartnerSePayAccount::PROVIDER_SEPAY): ?string
     {
         if (! $account) {
-            return 'Số tài khoản nhận tiền chưa được khai báo ở CMS → SePay theo đối tác.';
+            return 'Số tài khoản nhận tiền chưa được khai báo ở CMS → SePay / Pay2S theo đối tác.';
         }
         if (! $account->is_active) {
-            return 'Tài khoản SePay của đối tác đang tắt.';
+            return 'Tài khoản ' . $this->providerLabel($provider) . ' của đối tác đang tắt.';
+        }
+        if (($account->provider ?: PartnerSePayAccount::PROVIDER_SEPAY) !== $provider) {
+            return 'Tài khoản này đang khai báo cổng ' . $this->providerLabel((string) $account->provider) . ', nhưng giao dịch đến từ ' . $this->providerLabel($provider) . ' — đối soát thủ công.';
         }
         if (! $link) {
             return 'Không tìm thấy yêu cầu thanh toán theo mã trong nội dung chuyển khoản.';
@@ -378,64 +428,63 @@ class SePayService
      */
     public function pull(?SePayPaymentLink $link = null, int $hours = 24): int
     {
+        // Yêu cầu của đối tác dùng Pay2S: hỏi API Pay2S (cùng bộ kiểm tra handleIncoming).
+        if ($link && $this->providerOfLink($link) === PartnerSePayAccount::PROVIDER_PAY2S) {
+            return app(Pay2SService::class)->pull($link, $hours);
+        }
+
         if (! $this->canPull()) {
             return 0;
         }
+
+        // MỘT lần gọi cho cả công ty SePay, KHÔNG lọc theo số tài khoản: tiền qua tài khoản ảo (VA) mang số tài khoản chính của ngân hàng nên lọc theo số VA
+        // sẽ không thấy. Việc khớp đúng tài khoản đối tác do handleIncoming() làm (số chính hoặc số VA).
+        $query = ['transaction_date_min' => now()->subHours($hours)->format('Y-m-d H:i:s'), 'limit' => 1000];
 
         if ($link) {
             if (! Cache::add('sepay:pull:' . $link->code, 1, now()->addSeconds((int) SePayConfig::get('pull_throttle_seconds', 3)))) {
                 return 0;
             }
 
-            $order = Order::withoutGlobalScopes()->find($link->order_id);
-            $account = $order ? PartnerSePayAccount::query()->where('partner_id', PayOsAccountResolver::partnerIdForOrder($order))->first() : null;
-            $accounts = $account ? collect([$account]) : collect();
-        } else {
-            $accounts = PartnerSePayAccount::query()->where('is_active', true)->get();
+            $query['amount_in'] = (int) $link->amount;
+        }
+
+        try {
+            $response = Http::withToken((string) SePayConfig::get('api_token'))->acceptJson()->timeout(10)
+                ->get(rtrim((string) SePayConfig::get('api_url', 'https://my.sepay.vn'), '/') . '/userapi/transactions/list', $query);
+        } catch (\Throwable $e) {
+            Log::warning('SePay kéo giao dịch lỗi mạng', ['error' => $e->getMessage()]);
+
+            return 0;
+        }
+
+        if (! $response->successful()) {
+            Log::warning('SePay kéo giao dịch thất bại', ['status' => $response->status(), 'body' => Str::limit($response->body(), 300)]);
+
+            return 0;
         }
 
         $confirmed = 0;
 
-        foreach ($accounts as $account) {
-            $query = ['account_number' => $account->account_number, 'transaction_date_min' => now()->subHours($hours)->format('Y-m-d H:i:s'), 'limit' => 200];
-            if ($link) {
-                $query['amount_in'] = (int) $link->amount;
-            }
-
-            try {
-                $response = Http::withToken((string) SePayConfig::get('api_token'))->acceptJson()->timeout(10)
-                    ->get(rtrim((string) SePayConfig::get('api_url', 'https://my.sepay.vn'), '/') . '/userapi/transactions/list', $query);
-            } catch (\Throwable $e) {
-                Log::warning('SePay kéo giao dịch lỗi mạng', ['account' => $account->account_number, 'error' => $e->getMessage()]);
-
+        foreach ((array) $response->json('transactions', []) as $tx) {
+            if ((float) ($tx['amount_in'] ?? 0) <= 0) {
                 continue;
             }
 
-            if (! $response->successful()) {
-                Log::warning('SePay kéo giao dịch thất bại', ['account' => $account->account_number, 'status' => $response->status(), 'body' => Str::limit($response->body(), 300)]);
+            $payload = [
+                'id' => (int) $tx['id'], 'accountNumber' => (string) ($tx['account_number'] ?? ''), 'subAccount' => $tx['sub_account'] ?? null,
+                'transferAmount' => (int) round((float) $tx['amount_in']),
+                'transactionDate' => $tx['transaction_date'] ?? null, 'referenceCode' => $tx['reference_number'] ?? null,
+                'code' => $tx['code'] ?? null, 'content' => $tx['transaction_content'] ?? null,
+            ];
 
+            // Giao dịch không có mã thanh toán của hệ thống là tiền không liên quan (không ghi vào nhật ký đối soát).
+            if ($this->extractCode($payload) === null) {
                 continue;
             }
 
-            foreach ((array) $response->json('transactions', []) as $tx) {
-                if ((float) ($tx['amount_in'] ?? 0) <= 0) {
-                    continue;
-                }
-
-                $payload = [
-                    'id' => (int) $tx['id'], 'accountNumber' => (string) ($tx['account_number'] ?? $account->account_number), 'transferAmount' => (int) round((float) $tx['amount_in']),
-                    'transactionDate' => $tx['transaction_date'] ?? null, 'referenceCode' => $tx['reference_number'] ?? null,
-                    'code' => $tx['code'] ?? null, 'content' => $tx['transaction_content'] ?? null,
-                ];
-
-                // Giao dịch không có mã thanh toán của hệ thống là tiền không liên quan (không ghi vào nhật ký đối soát).
-                if ($this->extractCode($payload) === null) {
-                    continue;
-                }
-
-                if ($this->handleIncoming($payload, ['source' => 'sepay_api'] + $tx)['status'] === 'processed') {
-                    $confirmed++;
-                }
+            if ($this->handleIncoming($payload, ['source' => 'sepay_api'] + $tx)['status'] === 'processed') {
+                $confirmed++;
             }
         }
 

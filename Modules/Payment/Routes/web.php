@@ -115,6 +115,9 @@ Route::get('/thanh-toan-sepay/{code}', [\Modules\Payment\Http\Controllers\SePayC
 Route::post('/webhook/sepay', '\\App\\Http\\Controllers\\SePayWebhookController')
     ->name('webhook.sepay.legacy');
 
+Route::post('/webhook/pay2s', '\\App\\Http\\Controllers\\Pay2SWebhookController')
+    ->name('webhook.pay2s.legacy');
+
 // Tạo link PayOS cho phần tiền còn lại (sau khi đã đặt cọc)
 Route::post('/dat-phong/tao-thanh-toan-con-lai/{code}', [PaymentController::class, 'createRemainingPayment'])
      ->name('payment.remaining.create');

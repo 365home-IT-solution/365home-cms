@@ -53,7 +53,8 @@ class Kernel extends ConsoleKernel
         // sát hạn vẫn được xác nhận trước khi đơn bị huỷ. Chỉ chạy khi đã có SEPAY_API_TOKEN.
         $schedule->command('sepay:sync --hours=6')
             ->everyMinute()
-            ->when(fn () => \App\Support\SePayConfig::enabled() && filled(\App\Support\SePayConfig::get('api_token')))
+            ->when(fn () => (\App\Support\SePayConfig::enabled() && filled(\App\Support\SePayConfig::get('api_token')))
+                || (\App\Support\Pay2SConfig::enabled() && filled(\App\Support\Pay2SConfig::get('api_token'))))
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping(2)
             ->appendOutputTo(storage_path('logs/sepay-sync.log'));

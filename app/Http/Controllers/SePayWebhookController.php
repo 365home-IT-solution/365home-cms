@@ -18,6 +18,7 @@ class SePayWebhookController extends Controller
         $payload = $request->validate([
             'id' => ['required', 'integer', 'min:0'],
             'accountNumber' => ['required', 'string'],
+            'subAccount' => ['nullable', 'string'],
             'transferType' => ['required', 'in:in,out'],
             'transferAmount' => ['required', 'integer', 'min:0'],
             'transactionDate' => ['nullable', 'date_format:Y-m-d H:i:s'],
