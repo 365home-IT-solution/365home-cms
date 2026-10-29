@@ -108,12 +108,6 @@ class PartnerTable
                     ->tooltip('Bật để khách đặt phòng của đối tác này trên website phải tải cả 2 mặt CCCD (mặt có mã QR + mặt còn lại).')
                     ->visible(fn () => Filament::getCurrentPanel()?->getId() !== 'minihouse-admin' && (auth()->user()?->isSuperAdmin() ?? false)),
 
-                // Bật: đối tác phải liên kết PayOS riêng (của đối tác hoặc chi nhánh) mới được đăng bán phòng online; tắt = bán bằng PayOS chung như cũ.
-                ToggleColumn::make('require_own_payos')
-                    ->label('Bắt buộc PayOS riêng')
-                    ->tooltip('Bật để phòng của đối tác này chỉ được đăng bán (hiện ở tìm kiếm, nhận đặt phòng trên web/app) khi đã liên kết tài khoản PayOS riêng. Tắt thì vẫn bán bằng PayOS chung của 365home.')
-                    ->visible(fn () => Filament::getCurrentPanel()?->getId() !== 'minihouse-admin' && (auth()->user()?->isSuperAdmin() ?? false)),
-
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->date('d/m/Y')
@@ -164,8 +158,6 @@ class PartnerTable
             ->bulkActions([
                 self::cccdTwoSidesBulkAction(true),
                 self::cccdTwoSidesBulkAction(false),
-                self::requireOwnPayOsBulkAction(true),
-                self::requireOwnPayOsBulkAction(false),
             ]);
     }
 
@@ -187,29 +179,6 @@ class PartnerTable
 
                 Notification::make()
                     ->title(($enabled ? 'Đã bật' : 'Đã tắt') . ' CCCD 2 mặt cho ' . $records->count() . ' đối tác')
-                    ->success()
-                    ->send();
-            });
-    }
-
-    private static function requireOwnPayOsBulkAction(bool $enabled): BulkAction
-    {
-        return BulkAction::make($enabled ? 'enableRequireOwnPayOs' : 'disableRequireOwnPayOs')
-            ->label($enabled ? 'Bật bắt buộc PayOS riêng' : 'Tắt bắt buộc PayOS riêng')
-            ->icon($enabled ? 'heroicon-o-credit-card' : 'heroicon-o-minus-circle')
-            ->color($enabled ? 'primary' : 'gray')
-            ->visible(fn () => Filament::getCurrentPanel()?->getId() !== 'minihouse-admin' && (auth()->user()?->isSuperAdmin() ?? false))
-            ->requiresConfirmation()
-            ->modalDescription($enabled
-                ? 'Phòng của các đối tác đã chọn sẽ bị ẩn và không nhận đặt phòng online cho tới khi đối tác (hoặc chi nhánh) liên kết tài khoản PayOS riêng.'
-                : 'Các đối tác đã chọn được bán phòng bằng PayOS chung của 365home như cũ.')
-            ->deselectRecordsAfterCompletion()
-            ->action(function (Collection $records) use ($enabled): void {
-                // forceFill + save từng bản ghi (không update hàng loạt) để LogsAuditTrail vẫn ghi lịch sử thay đổi.
-                $records->each(fn (Partner $partner) => $partner->forceFill(['require_own_payos' => $enabled])->save());
-
-                Notification::make()
-                    ->title(($enabled ? 'Đã bật' : 'Đã tắt') . ' bắt buộc PayOS riêng cho ' . $records->count() . ' đối tác')
                     ->success()
                     ->send();
             });

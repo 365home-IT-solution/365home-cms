@@ -1269,12 +1269,6 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
-        // Báo sớm (trước khi mở modal xác nhận) nếu phòng chưa được bán online (đối tác chưa liên kết PayOS) — confirmBooking() chặn lại lần nữa.
-        if (! \App\Services\Payment\PartnerPayOsSalesGate::canSellRoom($this->product)) {
-            $this->dispatch('notify', ['message' => \App\Services\Payment\PartnerPayOsSalesGate::message(), 'type' => 'error']);
-            return;
-        }
-
         // Báo sớm (trước khi mở modal xác nhận) nếu khách bị khoá đặt phòng ở chi nhánh này — confirmBooking() chặn lại lần nữa.
         if ($message = $this->customerBranchBlockMessage()) {
             $this->dispatch('notify', ['message' => $message, 'type' => 'error']);
@@ -1364,12 +1358,6 @@ public function confirmBooking()
     // Đối tác bị tạm ngưng bán do ký quỹ → khách có sẵn link phòng vẫn không đặt được (cùng quy tắc API: 423).
     if (\App\Services\EscrowService::isSalesSuspended($this->product->partner_id ?? null)) {
         $this->bookingConfirmError = 'Cơ sở này đang tạm ngưng nhận đặt phòng online. Vui lòng chọn phòng khác.';
-        return;
-    }
-
-    // Đối tác chưa liên kết tài khoản PayOS → chưa được bán online (khách có sẵn link phòng cũng không đặt được, cùng quy tắc API: 423).
-    if (! \App\Services\Payment\PartnerPayOsSalesGate::canSellRoom($this->product)) {
-        $this->bookingConfirmError = \App\Services\Payment\PartnerPayOsSalesGate::message();
         return;
     }
 

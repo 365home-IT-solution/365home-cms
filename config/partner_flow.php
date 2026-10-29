@@ -6,11 +6,6 @@
 return [
     'minihouse_contract_enabled' => (bool) env('MINIHOUSE_CONTRACT_ENABLED', false),
 
-    // Homestay: đối tác được Super Admin bật "Bắt buộc PayOS riêng" chỉ đăng bán phòng online (hiện ở tìm kiếm + nhận đặt phòng trên web/app)
-    // khi đã liên kết tài khoản PayOS (kênh riêng của đối tác hoặc của chi nhánh); đối tác không bật vẫn bán bằng PayOS chung — xem
-    // App\Services\Payment\PartnerPayOsSalesGate. false = tắt toàn bộ cổng, mọi đối tác bán như cũ.
-    'require_payos_channel' => (bool) env('PARTNER_REQUIRE_PAYOS_CHANNEL', true),
-
     // MiniHouse: đăng ký lần đầu được TẶNG dùng thử N tháng sau khi Super Admin DUYỆT (tài khoản + mật khẩu gửi qua email lúc duyệt); 0 = tắt,
     // khi đó phải thanh toán gói mới được dùng. Thanh toán trước khi được duyệt cũng kích hoạt luôn.
     'minihouse_signup_trial_months' => (int) env('MINIHOUSE_SIGNUP_TRIAL_MONTHS', 1),

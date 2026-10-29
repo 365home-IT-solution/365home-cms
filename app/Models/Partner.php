@@ -121,8 +121,6 @@ class Partner extends Model implements HasMedia
         'payos_self_setup_enabled' => 'boolean',
         // Super Admin bật thì đặt phòng trên web phải tải CCCD 2 mặt (không nằm trong $fillable — chỉ bật/tắt ở danh sách Đối tác).
         'cccd_two_sides' => 'boolean',
-        // Super Admin bật thì đối tác phải liên kết PayOS riêng mới được đăng bán phòng (không nằm trong $fillable — xem PartnerPayOsSalesGate).
-        'require_own_payos' => 'boolean',
     ];
 
     public function registerMediaCollections(): void
