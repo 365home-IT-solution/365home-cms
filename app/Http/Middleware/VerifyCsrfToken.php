@@ -13,6 +13,7 @@ class VerifyCsrfToken extends Middleware
      */
     protected $except = [
         'webhook/payos',
+        'webhook/sepay',
         // Gọi server-to-server từ Node (websocket/server.js) — không có phiên trình duyệt nào để
         // lấy CSRF token, tự bảo vệ bằng X-Internal-Key riêng (xem routes/web.php).
         'internal/frigate-session',

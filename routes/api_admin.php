@@ -151,6 +151,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('partners/{partner}/payment-channel/branches/{category}', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'destroyBranch'])->whereNumber('category')->name('partners.payment-channel.branches.destroy');
     Route::post('partners/{partner}/payment-channel/otp', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'sendOtp'])->middleware('throttle:5,1')->name('partners.payment-channel.otp');
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
+    Route::get('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'show'])->name('partners.sepay-account.show');
+    Route::post('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'store'])->name('partners.sepay-account.store');
     // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
     Route::prefix('partners/{partner}/escrow')->name('partners.escrow.')->controller(\App\Http\Controllers\Api\Admin\PartnerEscrowController::class)->group(function () {
         Route::get('/', 'show')->name('show');

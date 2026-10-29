@@ -61,7 +61,7 @@ class OrderPaymentController extends Controller
 
         $dueNow = $order->depositDueAmount();
 
-        if ($dueNow < 2000) {
+        if ($dueNow < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
         }
 
@@ -426,7 +426,7 @@ class OrderPaymentController extends Controller
     {
         $remaining = $this->calcRemaining($order);
 
-        if ($remaining < 2000) {
+        if ($remaining < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return ['error' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'];
         }
 

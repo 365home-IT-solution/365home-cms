@@ -479,7 +479,7 @@ class BookingController extends Controller
         });
 
         // ── 8. Tạo link PayOS (nếu chọn chuyển khoản thay vì tiền mặt) ────────
-        if ($paymentMethod === 'PayOS' && $amountDue >= 2000) {
+        if ($paymentMethod === 'PayOS' && $amountDue >= app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             $this->createPayOSLink($order, $summaryName, $request->input('return_url'), $request->input('cancel_url'));
         }
 

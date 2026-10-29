@@ -49,6 +49,15 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // SePay: hỏi giao dịch tiền vào để xác nhận đơn khi webhook chậm/lỡ. Đặt TRƯỚC lệnh huỷ đơn hết hạn bên dưới để khách vừa chuyển khoản
+        // sát hạn vẫn được xác nhận trước khi đơn bị huỷ. Chỉ chạy khi đã có SEPAY_API_TOKEN.
+        $schedule->command('sepay:sync --hours=6')
+            ->everyMinute()
+            ->when(fn () => \App\Support\SePayConfig::enabled() && filled(\App\Support\SePayConfig::get('api_token')))
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(2)
+            ->appendOutputTo(storage_path('logs/sepay-sync.log'));
+
         $schedule->command('orders:expire-pending')
             ->everyMinute()
             ->timezone('Asia/Ho_Chi_Minh')

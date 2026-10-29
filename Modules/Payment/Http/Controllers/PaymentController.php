@@ -781,6 +781,50 @@ private function buildTelegramMessage(Order $order, string $status): string
         }
     }
 
+    /**
+     * Xử lý khoản đã nhận qua SePay sau khi SePayWebhookController xác thực HMAC, tài khoản, mã, số tiền và trạng thái đơn.
+     * $kind: initial | deposit_retry (đơn paid/cọc), remaining (phần còn lại), extra (phát sinh) — cùng nhánh xử lý với webhook PayOS.
+     */
+    public function processVerifiedSePayLink(Order $order, string $kind): bool
+    {
+        return match ($kind) {
+            'remaining' => $this->handleRemainingPayment($order),
+            'extra'     => $this->handleExtraChargePaidViaSePay($order),
+            default     => $this->handlePaidStatus($order, ['status' => 'PAID', 'provider' => 'sepay']),
+        };
+    }
+
+    private function handleExtraChargePaidViaSePay(Order $order): bool
+    {
+        app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($order);
+        $order->update(['extra_charge_payment_method' => 'sepay']);
+
+        try {
+            $amount = number_format((int) $order->extra_charge_amount, 0, ',', '.');
+            $title  = 'Thanh toán khoản phát sinh thành công';
+            $body   = "Đơn #{$order->order_code}: {$amount}đ đã được xác nhận.";
+            $extra  = ['order_code' => (string) $order->order_code, 'type' => 'order_extra_charge_paid'];
+
+            $notifService = app(\App\Services\NotificationFcmService::class);
+
+            if (is_null($order->customer_id) && $order->device_token) {
+                $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_extra_charge_paid', $extra);
+            } elseif ($order->customer_id && ($customer = $order->customer)) {
+                $notifService->sendToCustomer($customer, $title, $body, 'order_extra_charge_paid', $extra);
+            }
+
+            app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                (string) $order->order_code,
+                ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'sepay']],
+                $order->customer_id,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('SePay: Extra charge notify failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+        }
+
+        return true;
+    }
+
     // =========================================================
     // HANDLE CANCELLED STATUS ❌
     // =========================================================

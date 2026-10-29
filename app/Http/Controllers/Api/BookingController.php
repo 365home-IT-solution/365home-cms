@@ -515,7 +515,7 @@ class BookingController extends Controller
         });
 
         // ── 8. Tạo link PayOS ────────────────────────────────────────────────
-        if ($paymentMethod === 'PayOS' && $amountDue >= 2000) {
+        if ($paymentMethod === 'PayOS' && $amountDue >= app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             $this->createPayOSLink($order, $summaryName, $request->input('return_url'), $request->input('cancel_url'));
         }
 
@@ -549,6 +549,7 @@ class BookingController extends Controller
                 'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,

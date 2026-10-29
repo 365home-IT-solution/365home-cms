@@ -242,7 +242,7 @@ class ExtraChargeService
             ];
         }
 
-        if ($remaining < 2000) {
+        if ($remaining < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return ['error' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'];
         }
 
