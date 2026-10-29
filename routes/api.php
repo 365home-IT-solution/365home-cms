@@ -51,6 +51,10 @@ Route::get('public/sepay/payments/{code}', [\App\Http\Controllers\Api\SePayPayme
 Route::post('webhook/sepay', \App\Http\Controllers\SePayWebhookController::class)
     ->name('webhook.sepay');
 
+// Pay2S gọi: https://365home.vn/api/webhook/pay2s — controller tự xác thực token Bearer của webhook nên route không cần đăng nhập.
+Route::post('webhook/pay2s', \App\Http\Controllers\Pay2SWebhookController::class)
+    ->name('webhook.pay2s');
+
 // Đăng ký hợp tác công khai (khách chưa có tài khoản đối tác): đăng ký → giấy tờ → thông tin hợp đồng → ký → gửi duyệt.
 // MiniHouse: chỉ MUA GÓI rồi dùng (không đăng ký đối tác/ký hợp đồng).
 Route::prefix('public')->name('api.minihouse-purchase.')->group(function () {

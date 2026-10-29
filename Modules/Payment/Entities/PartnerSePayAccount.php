@@ -11,9 +11,23 @@ class PartnerSePayAccount extends Model
     // Tên bảng theo migration (Eloquent tự suy ra "se_pay" nên không khớp).
     protected $table = 'partner_sepay_accounts';
 
-    protected $fillable = ['partner_id', 'is_active', 'bank_code', 'bank_bin', 'account_number', 'account_holder', 'note', 'updated_by'];
+    public const PROVIDER_SEPAY = 'sepay';
 
-    protected $casts = ['is_active' => 'boolean'];
+    public const PROVIDER_PAY2S = 'pay2s';
+
+    public const PROVIDERS = [self::PROVIDER_SEPAY => 'SePay', self::PROVIDER_PAY2S => 'Pay2S'];
+
+    protected $fillable = ['partner_id', 'provider', 'is_active', 'bank_code', 'bank_bin', 'account_number', 'account_holder', 'note', 'webhook_token', 'updated_by'];
+
+    // webhook_token: token Pay2S sinh cho webhook của tài khoản này (mã hoá khi lưu, không bao giờ trả ra API/form).
+    protected $casts = ['is_active' => 'boolean', 'webhook_token' => 'encrypted'];
+
+    protected $hidden = ['webhook_token'];
+
+    public function providerLabel(): string
+    {
+        return self::PROVIDERS[$this->provider] ?? ucfirst((string) $this->provider);
+    }
 
     public function partner(): BelongsTo
     {

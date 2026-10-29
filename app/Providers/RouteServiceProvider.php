@@ -48,8 +48,8 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            // Webhook SePay ở domain API chính; đã được bảo vệ bằng HMAC-SHA256 và chống replay.
-            if ($request->is('api/webhook/sepay')) {
+            // Webhook SePay ở domain API chính; đã được bảo vệ bằng HMAC-SHA256 và chống replay. Webhook Pay2S bảo vệ bằng token Bearer riêng từng webhook.
+            if ($request->is('api/webhook/sepay', 'api/webhook/pay2s')) {
                 return Limit::none();
             }
 

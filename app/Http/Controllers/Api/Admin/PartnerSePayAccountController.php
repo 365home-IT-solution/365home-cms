@@ -24,6 +24,8 @@ class PartnerSePayAccountController extends Controller
         $account = PartnerSePayAccount::query()->where('partner_id', $partner->id)->first();
         $banks = config('banks.list', []);
         $data = $request->validate([
+            'provider' => ['sometimes', Rule::in(array_keys(PartnerSePayAccount::PROVIDERS))],
+            'webhook_token' => ['nullable', 'string', 'max:500'],
             'bank_code' => ['required', Rule::in(array_keys($banks))],
             'account_number' => ['required', 'string', 'max:50', 'regex:/^[0-9A-Za-z.-]+$/', Rule::unique('partner_sepay_accounts')->ignore($account?->id)],
             'account_holder' => ['required', 'string', 'max:255'],
@@ -33,15 +35,21 @@ class PartnerSePayAccountController extends Controller
 
         if (($data['is_active'] ?? true) && \Modules\Payment\Entities\PartnerPayOsAccount::query()->where('partner_id', $partner->id)->where('is_active', true)->exists()) {
             return response()->json([
-                'message' => 'Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi bật SePay (mỗi đối tác chỉ dùng một kênh).',
+                'message' => 'Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi bật SePay / Pay2S (mỗi đối tác chỉ dùng một kênh).',
                 'errors' => ['is_active' => ['Đối tác đang dùng kênh PayOS riêng.']],
             ], 422);
         }
 
         $bank = $banks[$data['bank_code']];
+        $provider = $data['provider'] ?? $account?->provider ?? PartnerSePayAccount::PROVIDER_SEPAY;
+        // Token webhook chỉ dùng cho Pay2S; để trống/không gửi = giữ nguyên token đang lưu.
+        if ($provider !== PartnerSePayAccount::PROVIDER_PAY2S || ! filled($data['webhook_token'] ?? null)) {
+            unset($data['webhook_token']);
+        }
+
         $account = PartnerSePayAccount::query()->updateOrCreate(
             ['partner_id' => $partner->id],
-            [...$data, 'bank_bin' => $bank['bin'], 'account_number' => trim($data['account_number']), 'account_holder' => mb_strtoupper(trim($data['account_holder'])), 'updated_by' => $request->user()->id]
+            [...$data, 'provider' => $provider, 'bank_bin' => $bank['bin'], 'account_number' => trim($data['account_number']), 'account_holder' => mb_strtoupper(trim($data['account_holder'])), 'updated_by' => $request->user()->id]
         );
 
         return response()->json(['message' => 'Đã lưu tài khoản SePay của đối tác.', 'data' => $this->data($partner->fresh())]);
@@ -53,6 +61,8 @@ class PartnerSePayAccountController extends Controller
 
         return [
             'configured' => (bool) $account,
+            'provider' => $account?->provider ?? PartnerSePayAccount::PROVIDER_SEPAY,
+            'has_webhook_token' => (bool) $account?->webhook_token,
             'is_active' => (bool) $account?->is_active,
             'bank_code' => $account?->bank_code,
             'bank_bin' => $account?->bank_bin,
@@ -60,7 +70,9 @@ class PartnerSePayAccountController extends Controller
             'account_holder' => $account?->account_holder,
             'note' => $account?->note,
             'eligible' => $partner->usesDirectPayment(),
-            'webhook_url' => \App\Support\SePayConfig::get('webhook_url') ?: route('webhook.sepay'),
+            'webhook_url' => ($account?->provider ?? 'sepay') === PartnerSePayAccount::PROVIDER_PAY2S
+                ? (\App\Support\Pay2SConfig::get('webhook_url') ?: route('webhook.pay2s'))
+                : (\App\Support\SePayConfig::get('webhook_url') ?: route('webhook.sepay')),
             'code_prefix' => \App\Support\SePayConfig::get('code_prefix', 'DH'),
         ];
     }

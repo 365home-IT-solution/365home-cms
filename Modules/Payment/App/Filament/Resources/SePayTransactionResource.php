@@ -10,7 +10,7 @@ use Illuminate\Support\HtmlString;
 use Modules\Payment\App\Filament\Resources\SePayTransactionResource\Pages;
 use Modules\Payment\Entities\SePayTransaction;
 
-// "Giao dịch SePay" — nhật ký MỌI giao dịch tiền vào mà SePay báo về, chỉ đọc, chỉ super_admin. Dùng để đối soát: giao dịch "Bị từ chối"
+// "Giao dịch SePay / Pay2S" — nhật ký MỌI giao dịch tiền vào mà SePay hoặc Pay2S báo về, chỉ đọc, chỉ super_admin. Dùng để đối soát: giao dịch "Bị từ chối"
 // (sai số tiền, chuyển trùng, đơn đã hết hạn...) là tiền ĐÃ VÀO tài khoản đối tác nhưng đơn chưa được xác nhận — cần xử lý thủ công/hoàn tiền.
 class SePayTransactionResource extends Resource
 {
@@ -18,16 +18,16 @@ class SePayTransactionResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-list';
 
-    protected static ?string $navigationLabel = 'Giao dịch SePay';
+    protected static ?string $navigationLabel = 'Giao dịch SePay / Pay2S';
 
-    protected static ?string $modelLabel = 'giao dịch SePay';
+    protected static ?string $modelLabel = 'giao dịch SePay / Pay2S';
 
-    protected static ?string $pluralModelLabel = 'Giao dịch SePay';
+    protected static ?string $pluralModelLabel = 'Giao dịch SePay / Pay2S';
 
     public const STATUS = [
         'processed' => 'Đã xác nhận đơn',
         'rejected' => 'Bị từ chối',
-        'failed' => 'Lỗi xử lý (SePay sẽ gửi lại)',
+        'failed' => 'Lỗi xử lý (cổng sẽ gửi lại)',
         'received' => 'Đang xử lý',
     ];
 
@@ -52,6 +52,9 @@ class SePayTransactionResource extends Resource
             ->modifyQueryUsing(fn (Builder $query) => $query->with('account.partner'))
             ->defaultSort('id', 'desc')
             ->columns([
+                Tables\Columns\TextColumn::make('provider')->label('Cổng')->badge()
+                    ->formatStateUsing(fn (?string $state) => \Modules\Payment\Entities\PartnerSePayAccount::PROVIDERS[$state ?: 'sepay'] ?? $state)
+                    ->color(fn (?string $state) => $state === 'pay2s' ? 'info' : 'success'),
                 Tables\Columns\TextColumn::make('transaction_at')->label('Thời gian')->dateTime('d/m/Y H:i')->sortable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('account.partner.name')->label('Đối tác')->placeholder('Không xác định')->wrap(),
                 Tables\Columns\TextColumn::make('payment_code')->label('Mã thanh toán')->searchable()->copyable()->placeholder('—'),
@@ -66,12 +69,13 @@ class SePayTransactionResource extends Resource
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')->label('Trạng thái')->options(static::STATUS),
+                Tables\Filters\SelectFilter::make('provider')->label('Cổng')->options(\Modules\Payment\Entities\PartnerSePayAccount::PROVIDERS),
             ])
             ->actions([
                 Tables\Actions\Action::make('detail')
                     ->label('Chi tiết')
                     ->icon('heroicon-o-eye')
-                    ->modalHeading('Dữ liệu SePay gửi về')
+                    ->modalHeading('Dữ liệu cổng gửi về')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Đóng')
                     ->modalContent(fn (SePayTransaction $record) => new HtmlString(
