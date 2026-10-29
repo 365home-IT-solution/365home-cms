@@ -69,6 +69,12 @@ class BookingController extends Controller
 
         $request->validate($baseRules);
 
+        // Đối tác/chi nhánh chưa liên kết tài khoản PayOS → chưa được bán online (423 PARTNER_PAYOS_REQUIRED). Chặn NGAY sau validate, trước
+        // khi nhận/quét CCCD — không bắt khách tải CCCD rồi mới từ chối, không lưu ảnh thừa. Phòng không tồn tại thì để bước load phòng trả 404.
+        if ($blocked = \App\Services\Payment\PartnerPayOsSalesGate::blockResponse(Product::where('id', $request->input('room_id'))->first())) {
+            return $blocked;
+        }
+
         // Normalize: accept coupon_codes (preferred) hoặc coupon_code (array hoặc string)
         $couponInput = $request->input('coupon_codes');
         if (empty($couponInput)) {
@@ -116,11 +122,6 @@ class BookingController extends Controller
 
         // Đối tác bị tạm ngưng bán do ký quỹ → không nhận đơn mới (423 PARTNER_ESCROW_LOW).
         if ($blocked = \App\Services\EscrowService::salesBlockResponse($room->partner_id)) {
-            return $blocked;
-        }
-
-        // Đối tác chưa liên kết tài khoản PayOS → chưa được bán online (423 PARTNER_PAYOS_REQUIRED).
-        if ($blocked = \App\Services\Payment\PartnerPayOsSalesGate::blockResponse($room)) {
             return $blocked;
         }
 
