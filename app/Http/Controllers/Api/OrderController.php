@@ -568,6 +568,7 @@ class OrderController extends Controller
                 'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
@@ -632,8 +633,35 @@ class OrderController extends Controller
             return response()->json(['message' => 'Đơn này không thanh toán qua PayOS.'], 422);
         }
 
-        if ((int) $order->full_amount < 2000) {
+        if ((int) $order->full_amount < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
+        }
+
+        // Đối tác thu qua SePay / Pay2S: trả yêu cầu thanh toán đang chờ (tạo lại nếu hết hạn) thay cho chuỗi QR của PayOS.
+        $sePay = app(\App\Services\Payment\SePayService::class);
+
+        if ($sePay->usesSePay($order)) {
+            $fields = $sePay->paymentFields($order);
+
+            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? null)) {
+                $this->buildPayOSLink($order, $order->items->first()?->name ?? 'Đặt phòng');
+                $order->refresh();
+                $fields = $sePay->paymentFields($order);
+            }
+
+            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? null)) {
+                return response()->json(['message' => 'Không thể tạo yêu cầu thanh toán. Vui lòng thử lại sau.'], 500);
+            }
+
+            return response()->json([
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
+                'qr_code'        => null,
+                'expired_at'     => $order->expired_at,
+                ...$fields,
+            ]);
         }
 
         $needsNew = ! $order->qr_code
@@ -687,7 +715,7 @@ class OrderController extends Controller
             return response()->json(['message' => 'Đơn này không thanh toán qua PayOS.'], 422);
         }
 
-        if ((int) $order->full_amount < 2000) {
+        if ((int) $order->full_amount < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
         }
 
@@ -708,6 +736,7 @@ class OrderController extends Controller
             'order_status'   => $order->order_status,
             'qr_code'        => $order->qr_code,
             'expired_at'     => $order->expired_at,
+            ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
         ]);
     }
 
@@ -729,21 +758,22 @@ class OrderController extends Controller
             return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
         }
 
-        $depositPct  = (int) $order->deposit_percent;
-        $depositPaid = (int) $order->full_amount;
-        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        // full_amount CỐ ĐỊNH = tổng giá thật từ lúc tạo đơn (BookingController::store) — tiền cọc đã thu tính từ đó qua depositDueAmount(),
+        // cùng công thức với khách vãng lai và API admin (trước đây coi full_amount là tiền cọc nên đòi gấp đôi).
+        $depositPaid = $order->depositDueAmount();
         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
+        $remaining   = max(0, ((int) $order->full_amount - $depositPaid) + $extraCharge);
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
                 'order_code' => $order->order_code,
                 'qr_code'    => $order->remaining_qr_code,
                 'amount'     => $remaining,
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
             ]);
         }
 
-        if ($remaining < 2000) {
+        if ($remaining < app(\App\Services\Payment\SePayService::class)->minAmount($order)) {
             return response()->json(['message' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'], 422);
         }
 
@@ -791,6 +821,7 @@ class OrderController extends Controller
                 'qr_code'    => $qrCode,
                 'amount'     => $remaining,
                 'expired_at' => $expiredAt->toIso8601String(),
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
             ]);
 
         } catch (\Throwable $e) {
@@ -962,18 +993,12 @@ class OrderController extends Controller
             switch ($status) {
                 case 'PAID':
                     if ($isRemaining) {
-                        // Tính full_amount đúng (deposit + remaining) để Observer tích điểm chính xác
-                        $depositPct  = (int) ($order->deposit_percent ?? 0);
-                        $depositPaid = (int) $order->full_amount;
-                        $realTotal   = $depositPct > 0
-                            ? (int) round($depositPaid * 100 / $depositPct)
-                            : $depositPaid;
+                        // full_amount CỐ ĐỊNH từ lúc tạo đơn (tổng giá thật) — không tính ngược từ tiền cọc nữa; chỉ cập nhật 'amount' = tổng thực thu (gồm phụ phí nếu có).
                         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-                        $totalPaid   = $realTotal + $extraCharge;
+                        $totalPaid   = (int) $order->full_amount + $extraCharge;
 
                         $order->update([
                             'status'                   => 'paid',
-                            'full_amount'              => $totalPaid,
                             'amount'                   => $totalPaid,
                             'remaining_paid_at'        => now(),
                             'remaining_payment_method' => 'payos',
@@ -1217,6 +1242,7 @@ class OrderController extends Controller
                 'payment_status' => $order->payment_status,
                 'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,

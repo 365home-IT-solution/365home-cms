@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Concerns\ResolvesProvince;
 use App\Services\MinihouseRoomSearchService;
 use App\Services\RoomSearchService;
+use App\Services\SearchLocationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -296,12 +297,30 @@ class SearchController extends Controller
 
     // ─── GET /v1/search/locations ────────────────────────────────────────────
 
+    // Homestay: gợi ý trộn CHI NHÁNH + TỈNH/THÀNH + PHƯỜNG/XÃ + ĐỊA CHỈ (App\Services\SearchLocationService) — mỗi
+    // dòng có type (branch|province|ward|address) và params để gửi tiếp vào GET /v1/search. ?limit= (1–20, mặc định 10).
+    // Mỗi dòng vẫn giữ name / query / latitude / longitude như bản cũ nên app cũ không bị vỡ.
+
     public function locations(Request $request): JsonResponse
     {
         $q = trim((string) $request->query('q', ''));
 
-        if (strlen($q) < 2) {
-            return response()->json(['data' => []]);
+        if (mb_strlen($q) < SearchLocationService::MIN_LENGTH) {
+            return response()->json(['data' => [], 'meta' => ['query' => $q, 'total' => 0]]);
+        }
+
+        if (! MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))) {
+            $limit = max(1, min(20, (int) $request->query('limit', 10)));
+            $rows  = app(SearchLocationService::class)->suggest($q, $limit);
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => [
+                    'query'  => $q,
+                    'total'  => $rows->count(),
+                    'counts' => $rows->countBy('type'),
+                ],
+            ]);
         }
 
         // Tab MiniHouse → toà nhà còn phòng trống khớp tên/địa chỉ/tỉnh/phường.
@@ -319,23 +338,6 @@ class SearchController extends Controller
             return response()->json(['data' => $results]);
         }
 
-        $results = Product::where('is_activated', true)
-            ->where('is_in_stock', true)
-            ->activeBranch()
-            ->whereNotNull('address')
-            ->where('address', 'like', "%{$q}%")
-            ->orderBy('name')
-            ->limit(10)
-            ->get(['name', 'address', 'latitude', 'longitude'])
-            ->map(fn ($p) => [
-                'name'      => $p->address,
-                'query'     => $p->address,
-                'latitude'  => $p->latitude  ? (string) $p->latitude  : null,
-                'longitude' => $p->longitude ? (string) $p->longitude : null,
-            ])
-            ->unique('name')
-            ->values();
-
-        return response()->json(['data' => $results]);
+        return response()->json(['data' => []]);
     }
 }

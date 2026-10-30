@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Setting;
 
+use App\Services\Payment\PaymentGatewaySettingsService;
 use App\Services\Payment\SePayService;
 use App\Settings\SePaySettings;
 use App\Support\SePayConfig;
@@ -143,16 +144,8 @@ class ManageSePaySettings extends SettingsPage
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $current = app(SePaySettings::class);
-
-        $data['enabled'] = (bool) ($data['enabled'] ?? false);
-        // Để trống = giữ nguyên khoá cũ (khoá đã lưu không hiện lại nên không thể "lưu lại nguyên giá trị").
-        $data['webhook_secret'] = filled($data['webhook_secret'] ?? null) ? trim((string) $data['webhook_secret']) : $current->webhook_secret;
-        $data['api_token'] = filled($data['api_token'] ?? null) ? trim((string) $data['api_token']) : $current->api_token;
-        $data['code_prefix'] = filled($data['code_prefix'] ?? null) ? Str::upper(trim((string) $data['code_prefix'])) : null;
-        $data['min_amount'] = filled($data['min_amount'] ?? null) ? (int) $data['min_amount'] : null;
-
-        return $data;
+        // Cùng một bộ chuẩn hoá với API admin (PaymentGatewaySettingsService): khoá để trống = giữ nguyên khoá cũ.
+        return app(PaymentGatewaySettingsService::class)->normalize('sepay', $data, app(SePaySettings::class));
     }
 
     public function getSavedNotification(): ?Notification

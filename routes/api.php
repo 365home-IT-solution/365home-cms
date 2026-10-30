@@ -240,7 +240,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | GET /api/v1/search             → Kết quả tìm kiếm + marker bản đồ
     |                                     (?tab={id MiniHouse} hoặc ?type=mini_house|minihouse →
     |                                      tìm phòng MiniHouse còn trống, xem MinihouseRoomController)
-    | GET /api/v1/search/locations   → Autocomplete địa điểm khi gõ
+    | GET /api/v1/search/locations   → Gợi ý khi gõ ô "Địa điểm": CHI NHÁNH + TỈNH/THÀNH + PHƯỜNG/XÃ + ĐỊA CHỈ (?q= tối thiểu 2 ký tự,
+    |                                     ?limit=1–20, ?tab=). Mỗi dòng: type (branch|province|ward|address), name, query, description,
+    |                                     latitude/longitude, params = tham số gửi tiếp vào GET /api/v1/search (province=<slug chi nhánh>
+    |                                     | province_id | ward_code | q). Không phân biệt dấu, d = đ. Xem SearchLocationService (app/Services).
     |--------------------------------------------------------------------------
     */
     /*

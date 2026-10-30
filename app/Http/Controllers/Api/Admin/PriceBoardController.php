@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\PriceBoardSyncService;
 use App\Services\PriceBoards\PriceBoardResolver;
 use App\Services\PriceBoards\PriceBoardV2Service;
+use App\Support\HolidayPrices;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -419,6 +420,8 @@ class PriceBoardController extends Controller
                 ])->values(),
                 'price'            => $s->price === null ? null : (int) $s->price,
                 'weekday_prices'   => $s->weekday_prices ?: null,
+                'holiday_prices'   => $s->holiday_prices ?: null,
+                'weekday_adjustments' => $s->weekday_adjustments ?: null,
                 'default_checkin'  => $s->default_checkin,
                 'default_checkout' => $s->default_checkout,
             ])->values(),
@@ -701,6 +704,17 @@ class PriceBoardController extends Controller
             'sheets.*.price'                          => 'nullable|numeric|min:0',
             'sheets.*.weekday_prices'                 => 'nullable|array',
             'sheets.*.weekday_prices.*'               => 'nullable|integer|min:0|max:999999999',
+            // Giá ngày lễ: cấp bộ giá (sheets.*.holiday_prices) và dùng chung cả bảng (holiday_prices) — from/to "MM-DD" khi recurring (lặp hàng năm)
+            // hoặc "YYYY-MM-DD"; hoặc chỉ gửi holiday_id (lấy khoảng ngày từ danh mục ngày lễ). Service kiểm tra chi tiết.
+            ...$this->holidayRules('sheets.*.holiday_prices'),
+            ...$this->holidayRules('holiday_prices'),
+            // Tăng/giảm theo thứ (không dùng cùng weekday_prices): days = thứ ISO 1 (Thứ 2) … 7 (Chủ nhật).
+            'sheets.*.weekday_adjustments'            => 'nullable|array|max:' . \App\Support\WeekdayAdjustments::MAX_ROWS,
+            'sheets.*.weekday_adjustments.*'          => 'array',
+            'sheets.*.weekday_adjustments.*.days'     => 'required|array',
+            'sheets.*.weekday_adjustments.*.days.*'   => 'integer|min:1|max:7',
+            'sheets.*.weekday_adjustments.*.mode'     => ['required', Rule::in(\App\Support\WeekdayAdjustments::MODES)],
+            'sheets.*.weekday_adjustments.*.value'    => 'required|numeric',
             'sheets.*.default_checkin'                => 'nullable|date_format:H:i',
             'sheets.*.default_checkout'               => 'nullable|date_format:H:i',
             'sheets.*.deposit_min_nights'             => 'nullable|integer|min:1',
@@ -717,6 +731,24 @@ class PriceBoardController extends Controller
             'sheets.*.adjustment_value'               => 'nullable|numeric',
             'sheets.*.adjustment_timeslot_ids'        => 'nullable|array',
             'sheets.*.adjustment_timeslot_ids.*'      => 'integer',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function holidayRules(string $key): array
+    {
+        return [
+            $key                  => 'nullable|array|max:' . HolidayPrices::MAX_ROWS,
+            "{$key}.*"            => 'array',
+            "{$key}.*.holiday_id" => 'nullable|integer',
+            "{$key}.*.name"       => 'nullable|string|max:100',
+            "{$key}.*.recurring"  => 'nullable|boolean',
+            "{$key}.*.from"       => "required_without:{$key}.*.holiday_id|nullable|string|max:10",
+            "{$key}.*.to"         => "required_without:{$key}.*.holiday_id|nullable|string|max:10",
+            // mode: price (giá cố định, mặc định — gửi price hoặc value) | percent (tăng/giảm %) | fixed (cộng/trừ số tiền)
+            "{$key}.*.mode"       => ['nullable', Rule::in(HolidayPrices::MODES)],
+            "{$key}.*.price"      => 'nullable|numeric',
+            "{$key}.*.value"      => 'nullable|numeric',
         ];
     }
 
@@ -799,6 +831,7 @@ class PriceBoardController extends Controller
             'source_preset'    => $board->source_preset,
             'priority'         => (int) $board->priority,
             'days_of_week'     => array_values(array_map('intval', (array) $board->days_of_week)),
+            'holiday_prices'   => $board->holiday_prices ?: null,
             'sheets_count'     => $board->sheets_count ?? $board->sheets()->count(),
             'rooms_count'      => $board->items_count ?? $board->items()->count(),
             // Duyệt trước khi đăng: approved | pending (đăng mới, chờ 365home duyệt) | rejected. pending_update_id = id yêu cầu sửa đang chờ (bảng vẫn chạy bản cũ).
@@ -850,6 +883,8 @@ class PriceBoardController extends Controller
                 ])->values(),
                 'price'               => $sheet->price === null ? null : (float) $sheet->price,
                 'weekday_prices'      => $sheet->weekday_prices ?: null,
+                'holiday_prices'      => $sheet->holiday_prices ?: null,
+                'weekday_adjustments' => $sheet->weekday_adjustments ?: null,
                 'default_checkin'     => $sheet->default_checkin,
                 'default_checkout'    => $sheet->default_checkout,
                 'deposit_min_nights'  => $sheet->deposit_min_nights,
@@ -876,6 +911,8 @@ class PriceBoardController extends Controller
             'styles'                => (int) ($i->product?->styles ?? 1),
             'price'                 => $i->price === null ? null : (float) $i->price,
             'weekday_prices'        => $i->weekday_prices ?: null,
+            'holiday_prices'        => $i->holiday_prices ?: null,
+            'weekday_adjustments'   => $i->weekday_adjustments ?: null,
             'full_booking_discount' => $i->full_booking_discount,
             'full_day_price'        => $i->full_day_price === null ? null : (int) $i->full_day_price,
             'bulk_discount_rules'   => $i->bulk_discount_rules ?? [],
@@ -944,6 +981,7 @@ class PriceBoardController extends Controller
             'scope'        => $spec['scope'] ?? PriceBoard::SCOPE_ROOMS,
             'priority'     => (int) ($spec['priority'] ?? 0),
             'days_of_week' => $spec['days_of_week'] ?? [],
+            'holiday_prices' => $spec['holiday_prices'] ?? null,
             'start_date'   => $spec['start_date'] ?? null,
             'end_date'     => $spec['end_date'] ?? null,
         ]);

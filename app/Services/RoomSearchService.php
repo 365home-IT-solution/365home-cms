@@ -515,9 +515,13 @@ class RoomSearchService
             $query->whereNotIn('id', $bookedIds);
         }
 
-        // Keyword search
+        // Keyword search — không phân biệt dấu (collation unicode_ci) và đ = d ("da lat" ra "Đà Lạt"):
+        // so sánh trên cột đã chuẩn hoá đ → d (SearchLocationService::column) với từ khoá đã chuẩn hoá.
         if (! empty($validated['q'])) {
-            $q = $validated['q'];
+            $q   = $validated['q'];
+            $loc = app(\App\Services\SearchLocationService::class);
+            $pat = \App\Services\SearchLocationService::pattern($q);
+            $col = fn (string $column) => \App\Services\SearchLocationService::column($column) . ' like ?';
 
             // Khi province đã được auto-resolve thì không cần tìm theo tên tỉnh nữa
             $provinceCategoryIds = $province === null
@@ -527,16 +531,17 @@ class RoomSearchService
             // Toà nhà MiniHouse: tên toà (categories.name qua products.building_id) và địa chỉ/tỉnh/
             // phường nhập ở cài đặt toà nhà (minihouse_building_settings) — phòng homestay có
             // building_id = null nên 2 điều kiện này không ảnh hưởng gì tới chúng.
-            $buildingIdsByAddress = BuildingSetting::where('address', 'like', "%{$q}%")
-                ->orWhere('province_name_raw', 'like', "%{$q}%")
-                ->orWhere('ward_raw', 'like', "%{$q}%")
+            $buildingIdsByAddress = BuildingSetting::query()
+                ->where(fn ($b) => $b->whereRaw($col('address'), [$pat])
+                    ->orWhereRaw($col('province_name_raw'), [$pat])
+                    ->orWhereRaw($col('ward_raw'), [$pat]))
                 ->select('category_id');
 
-            $query->where(function ($sub) use ($q, $provinceCategoryIds, $buildingIdsByAddress) {
-                $sub->where('name', 'like', "%{$q}%")
-                    ->orWhere('address', 'like', "%{$q}%")
-                    ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"))
-                    ->orWhereIn('building_id', Category::where('name', 'like', "%{$q}%")->select('id'))
+            $query->where(function ($sub) use ($col, $pat, $provinceCategoryIds, $buildingIdsByAddress) {
+                $sub->whereRaw($col('name'), [$pat])
+                    ->orWhereRaw($col('address'), [$pat])
+                    ->orWhereHas('categories', fn ($cq) => $cq->whereRaw($col('name'), [$pat]))
+                    ->orWhereIn('building_id', Category::whereRaw($col('name'), [$pat])->select('id'))
                     ->orWhereIn('building_id', $buildingIdsByAddress);
 
                 if (! empty($provinceCategoryIds)) {
@@ -544,7 +549,6 @@ class RoomSearchService
                 }
             });
         }
-
         // Filter rooms by available time slots khi tìm theo_gio có time_from & time_to — khớp
         // theo kiểu OVERLAP (khung giờ của phòng chỉ cần giao nhau với [time_from, time_to] khách
         // chọn). BẮT BUỘC dùng overlap chứ không phải containment: dữ liệu time_slots thực tế mỗi
@@ -731,7 +735,7 @@ class RoomSearchService
     // Tìm tỉnh khớp tên → trả về category IDs (branch + child) để filter phòng
     private function getCategoryIdsByProvinceName(string $q): array
     {
-        $provinceIds = Province::where('name', 'like', "%{$q}%")->pluck('id');
+        $provinceIds = Province::whereRaw(\App\Services\SearchLocationService::column('name') . ' like ?', [\App\Services\SearchLocationService::pattern($q)])->pluck('id');
 
         if ($provinceIds->isEmpty()) {
             return [];

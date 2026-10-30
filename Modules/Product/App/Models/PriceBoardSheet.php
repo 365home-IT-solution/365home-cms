@@ -16,7 +16,7 @@ class PriceBoardSheet extends Model
         'price_board_id', 'name', 'pricing_mode', 'room_style', 'is_default', 'sort_order',
         'price', 'default_checkin', 'default_checkout', 'deposit_1_night', 'deposit_multi_night', 'deposit_min_nights',
         'full_booking_discount', 'full_day_price', 'bulk_discount_rules', 'room_config', 'fields_set',
-        'adjustment_type', 'adjustment_value', 'adjustment_timeslot_ids', 'slot_times', 'weekday_prices',
+        'adjustment_type', 'adjustment_value', 'adjustment_timeslot_ids', 'slot_times', 'weekday_prices', 'holiday_prices', 'weekday_adjustments',
     ];
 
     protected $casts = [
@@ -31,6 +31,8 @@ class PriceBoardSheet extends Model
         'adjustment_timeslot_ids' => 'array',
         'slot_times'              => 'array',
         'weekday_prices'          => 'array',
+        'holiday_prices'          => 'array',
+        'weekday_adjustments'     => 'array',
     ];
 
     public function board()
