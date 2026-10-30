@@ -1342,7 +1342,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $bookingDate = $slot['date'] ?? null;
             $rts         = $timeslotId ? $rtsMap->get($timeslotId) : null;
 
-            $dbBasePrice = ($rts && $rts->price !== null) ? (float) $rts->price : $effectiveBase;
+            // Giá của ĐÚNG ngày đặt (bảng giá giai đoạn 2 có giá theo thứ) — cùng priceOn() mà API (buildSlotItems) và
+            // calculateSlotPrice() (giá khách thấy trên lưới) dùng; trước đây lấy $rts->price nên lệch khi bật giá theo thứ.
+            $dbBasePrice = ($rts && $rts->price !== null)
+                ? (float) ($bookingDate ? ($rts->priceOn($bookingDate) ?? $rts->price) : $rts->price)
+                : $effectiveBase;
 
             $increaseAmount  = 0;
             $promoDiscount   = 0;
