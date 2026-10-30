@@ -79,6 +79,10 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->registerPartnerOnboardingRealtime();
 
+        // WS server không kết nối được → bỏ qua ngay các lệnh đẩy realtime tiếp theo thay vì mỗi lệnh chờ 2 giây
+        // (xoá nhiều đơn từng vượt max_execution_time → 500). Xem App\Support\WsCircuitBreaker.
+        \Illuminate\Support\Facades\Http::globalMiddleware(new \App\Support\WsCircuitBreaker());
+
         // livewire.min.js được chèn ở cuối <body> nên không chặn hiển thị ban đầu, nhưng vẫn chặn
         // trình duyệt "hoàn tất" trang (ảnh hưởng TTI) vì mặc định là <script> đồng bộ, không có
         // defer — Lighthouse xếp nó vào chuỗi phụ thuộc quan trọng. defer=true chỉ đổi THỜI ĐIỂM
