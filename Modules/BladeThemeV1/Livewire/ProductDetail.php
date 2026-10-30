@@ -1009,6 +1009,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->fullBookingDiscount = 0;
         $this->hasFullDayBooking = false;
         $this->couponDiscountAmount = 0;
+        $this->variantRemaining = null;
 
         if (empty($this->startTime) || empty($this->endTime)) {
             $this->totalAmount = 0;
@@ -1026,6 +1027,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         $nights = (int) $checkin->diffInDays($checkout);
+
+        if ($this->product?->is_variant) {
+            $this->variantRemaining = app(\App\Services\RoomInventory::class)->remaining($this->product, $checkin, $checkout);
+        }
 
         $dayPriceMap = ['mon'=>1,'tue'=>2,'wed'=>3,'thu'=>4,'fri'=>5,'sat'=>6,'sun'=>0];
         $dayPrices = [];
@@ -1863,7 +1868,7 @@ public function confirmBooking()
         // phải tự kiểm tra riêng ở đây — nếu không khách vẫn đặt được ngày admin đã khóa.
         // Ngữ nghĩa khóa CẢ 2 đầu [start, end] (giống daterange-picker.blade.php: iso >= start &&
         // iso <= end), so với khoảng đêm ở nửa mở [newStart, newEnd) của đơn mới.
-        $blockedRanges = $this->product->room_config['blocked_ranges'] ?? [];
+        $blockedRanges = $this->product->fullBlockedRanges(); // khoá một phần số phòng của biến thể đã trừ vào tồn phòng (RoomInventory)
         foreach ($blockedRanges as $range) {
             if (empty($range['start']) || empty($range['end'])) {
                 continue;
@@ -1879,6 +1884,11 @@ public function confirmBooking()
                     'is_blocked' => true,
                 ];
             }
+        }
+
+        // Biến thể phòng: còn ít nhất 1 phòng trống trong khoảng ngày thì không tính là trùng (web đặt 1 phòng/đơn).
+        if ($this->product->is_variant && app(\App\Services\RoomInventory::class)->hasRoom($this->product, $newStart, $newEnd)) {
+            return null;
         }
 
         $query = OrderItem::with('order')
@@ -1992,6 +2002,19 @@ public function confirmBooking()
 
             // checkin_date lưu dưới dạng 'Y-m-d H:i:s' = date + start_time
             $exactCheckin = Carbon::createFromFormat('Y-m-d H:i:s', "{$slotDate} {$startTime}");
+
+            // Biến thể phòng: khung giờ còn ít nhất 1 phòng trống thì không tính là trùng (web đặt 1 phòng/đơn).
+            $endTime = $tsInfo['end_time'] ?? $slot['endTime'] ?? null;
+            if ($this->product->is_variant && $endTime) {
+                $exactCheckout = Carbon::parse("{$slotDate} {$endTime}");
+                if ($exactCheckout->lte($exactCheckin)) {
+                    $exactCheckout->addDay();
+                }
+
+                if (app(\App\Services\RoomInventory::class)->hasRoom($this->product, $exactCheckin, $exactCheckout)) {
+                    continue;
+                }
+            }
 
             $query = OrderItem::with('order')
                 ->where('product_id', $this->product->id)
@@ -2223,6 +2246,17 @@ public function confirmBooking()
                     'checkout_date' => $item->checkout_date ? $item->checkout_date->format('Y-m-d H:i') : null,
                 ];
             }
+        }
+
+        // Biến thể phòng: chỉ tô xám những khoảng đã hết sạch phòng, không phải mọi khoảng có đơn.
+        $product = $this->product?->id === $productId ? $this->product : Product::find($productId);
+        if ($product?->is_variant) {
+            $items       = $orders->filter(fn ($order) => in_array($order->status, \App\Services\RoomInventory::ACTIVE_STATUSES, true))
+                ->flatMap(fn ($order) => $order->items->where('product_id', $productId));
+            $bookedDates = array_map(fn ($range) => [
+                'checkin_date'  => $range[0]->format('Y-m-d H:i'),
+                'checkout_date' => $range[1]->format('Y-m-d H:i'),
+            ], app(\App\Services\RoomInventory::class)->fullIntervals($items, $product->roomCapacity()));
         }
 
         $this->bookedDates = $bookedDates;

@@ -36,7 +36,7 @@ class ApprovalService
     public const PRODUCT_CONTENT_FIELDS = [
         'name' => 'Tên phòng', 'slug' => 'Đường dẫn (slug)', 'short_description' => 'Mô tả ngắn', 'description' => 'Mô tả chi tiết',
         'address' => 'Địa chỉ', 'latitude' => 'Vĩ độ', 'longitude' => 'Kinh độ', 'map_url' => 'Link bản đồ', 'hotline' => 'Hotline',
-        'wifi' => 'Wifi', 'home_code' => 'Mã cổng', 'bed_type' => 'Loại giường', 'room_area_sqm' => 'Diện tích (m²)', 'room_type_id' => 'Loại phòng',
+        'wifi' => 'Wifi', 'home_code' => 'Mã cổng', 'bed_type' => 'Loại giường', 'room_area_sqm' => 'Diện tích (m²)', 'room_type_id' => 'Loại phòng', 'is_variant' => 'Biến thể phòng', 'variant_quantity' => 'Số phòng của loại phòng',
         'setting_video_room' => 'Video phòng', 'thumbnail_color' => 'Màu thumbnail', 'badge' => 'Huy hiệu', 'is_trend' => 'Phòng nổi bật',
     ];
 

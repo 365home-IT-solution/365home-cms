@@ -83,6 +83,8 @@ class Product extends Model implements HasMedia, Resourceable
         'price_unit',
         'rating_score',
         'badge',
+        'is_variant',
+        'variant_quantity',
     ];
 
     /** Lúc đối tác đăng phòng mới: đối tác muốn phòng bật hay tắt (áp sau khi duyệt) — không phải cột DB, chỉ mang từ creating sang created. */
@@ -108,6 +110,8 @@ class Product extends Model implements HasMedia, Resourceable
         'bulk_discount_rules'  => 'array',
         'setting_video_room'   => 'array',
         'badge'        => 'array',
+        'is_variant'       => 'boolean',
+        'variant_quantity' => 'integer',
     ];
 
     public function categories()
@@ -350,6 +354,40 @@ class Product extends Model implements HasMedia, Resourceable
     public function specials()
     {
         return $this->hasMany(RoomSpecial::class, 'product_id')->orderBy('sort_order');
+    }
+
+    // Số phòng bán được cùng lúc: biến thể phòng = variant_quantity, phòng đơn = 1. Xem App\Services\RoomInventory.
+    public function roomCapacity(): int
+    {
+        return $this->is_variant ? max(1, (int) $this->variant_quantity) : 1;
+    }
+
+    /**
+     * Khoảng khoá lịch theo ngày (room_config.blocked_ranges: {start, end, rooms?}) khoá TRỌN phòng: phòng đơn, hoặc biến thể
+     * phòng mà không ghi rooms / rooms >= sức chứa. Đây là các khoảng chặn đặt + hiện 🔒 trên lịch như trước.
+     */
+    public function fullBlockedRanges(): array
+    {
+        return array_values(array_filter($this->blockedRanges(), fn ($r) => ! $this->isPartialBlock($r)));
+    }
+
+    /** Biến thể phòng: khoảng khoá chỉ MỘT PHẦN số phòng (vd 1/5 phòng đang sửa) — chỉ trừ tồn phòng, không chặn cả loại. */
+    public function partialBlockedRanges(): array
+    {
+        return array_values(array_filter($this->blockedRanges(), fn ($r) => $this->isPartialBlock($r)));
+    }
+
+    private function blockedRanges(): array
+    {
+        return array_values(array_filter(
+            is_array($this->room_config) ? ($this->room_config['blocked_ranges'] ?? []) : [],
+            fn ($r) => ! empty($r['start']) && ! empty($r['end']),
+        ));
+    }
+
+    private function isPartialBlock(array $range): bool
+    {
+        return $this->is_variant && ! empty($range['rooms']) && (int) $range['rooms'] < $this->roomCapacity();
     }
 
     public function orderItems()

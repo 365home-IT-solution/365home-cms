@@ -151,6 +151,7 @@ class CreateOrder extends CreateRecord
         // thể trong vòng đời Create) để không lỡ tạo dòng Order trống rồi mới phát hiện lỗi.
         $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($data['orderItems'] ?? null) ? $data['orderItems'] : []);
         $this->assertExpandedItemsHaveDates($expandedItems);
+        $this->assertVariantRoomsAvailable($expandedItems);
 
         $this->assertPrimaryGuestCccd($data);
         $data = $this->vetPrimaryGuestCccd($data, $expandedItems);

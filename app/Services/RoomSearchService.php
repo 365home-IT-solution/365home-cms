@@ -707,15 +707,23 @@ class RoomSearchService
             return [];
         }
 
-        return OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'confirmed']))
+        $items = OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'confirmed']))
             ->whereNotNull('product_id')
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $out)
             ->where('checkout_date', '>', $in)
-            ->pluck('product_id')
-            ->filter()
-            ->unique()
+            ->get(['product_id', 'checkin_date', 'checkout_date', 'quantity'])
+            ->groupBy('product_id');
+
+        // Biến thể phòng chỉ bị loại khỏi kết quả khi đã hết sạch phòng trong khoảng tìm kiếm.
+        $variants  = Product::whereIn('id', $items->keys())->where('is_variant', true)->get(['id', 'is_variant', 'variant_quantity'])->keyBy('id');
+        $inventory = app(\App\Services\RoomInventory::class);
+
+        return $items
+            ->filter(fn ($productItems, $productId) => ! $variants->has($productId)
+                || $inventory->peak($productItems, $in, $out) >= $variants[$productId]->roomCapacity())
+            ->keys()
             ->values()
             ->toArray();
     }

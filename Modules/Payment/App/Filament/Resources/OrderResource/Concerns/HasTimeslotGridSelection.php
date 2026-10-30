@@ -192,6 +192,42 @@ trait HasTimeslotGridSelection
         }
     }
 
+    // Biến thể phòng: chặn lưu khi các dòng của đơn cộng với đơn khác (và phòng admin khoá bớt) vượt số phòng của loại —
+    // lịch chọn ngày chỉ mờ đêm đã đầy lúc mở form, nên vẫn cần kiểm tra lại lúc lưu (2 admin đặt cùng lúc, hoặc 1 đơn
+    // thêm nhiều dòng cùng phòng). Đơn đang sửa truyền $excludeOrderId để không tự đếm order_items cũ của chính nó.
+    protected function assertVariantRoomsAvailable(array $expandedItems, ?int $excludeOrderId = null): void
+    {
+        $inventory = app(\App\Services\RoomInventory::class);
+
+        foreach (collect($expandedItems)->filter(fn ($i) => ! empty($i['product_id']))->groupBy('product_id') as $productId => $items) {
+            $room = \Modules\Product\App\Models\Product::find($productId);
+
+            if (! $room?->is_variant) {
+                continue;
+            }
+
+            $newItems = $items
+                ->filter(fn ($i) => ! empty($i['checkin_date']) && ! empty($i['checkout_date']))
+                ->map(fn ($i) => (object) [
+                    'checkin_date'  => $i['checkin_date'],
+                    'checkout_date' => $i['checkout_date'],
+                    'quantity'      => max(1, (int) ($i['quantity'] ?? 1)),
+                ])
+                ->values();
+
+            if ($over = $inventory->firstOverbooking($room, $newItems, [], $excludeOrderId)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('Đã hết phòng')
+                    ->body("{$room->name} đã đặt đủ {$room->roomCapacity()}/{$room->roomCapacity()} phòng từ {$over[0]->format('H:i d/m/Y')} đến {$over[1]->format('H:i d/m/Y')}. Vui lòng chọn ngày khác hoặc loại phòng khác.")
+                    ->danger()
+                    ->persistent()
+                    ->send();
+
+                throw new \Filament\Support\Exceptions\Halt();
+            }
+        }
+    }
+
     // Tính lại checkin_date/checkout_date/price của 1 dòng order item từ danh sách selected_slots
     // MỚI NHẤT — dùng chung cho cả lúc bấm chọn (selectTimeslot()) lẫn lúc phát hiện mất khung giờ
     // do hold hết hạn (renewTimeslotHolds()), tránh lặp lại cùng 1 logic ở 2 nơi.

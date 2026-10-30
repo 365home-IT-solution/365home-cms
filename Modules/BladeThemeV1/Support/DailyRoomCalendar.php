@@ -104,10 +104,8 @@ class DailyRoomCalendar
         return [
             'pricePerNight'      => (int) ($product->price ?? 0),
             'bookedRanges'       => $bookedRanges ?? (self::bookedRangesFor([$product->id])[$product->id] ?? []),
-            'adminBlockedRanges' => array_values(array_filter(
-                $product->room_config['blocked_ranges'] ?? [],
-                fn ($r) => ! empty($r['start']) && ! empty($r['end']),
-            )),
+            // Chỉ khoảng khoá TRỌN phòng hiện 🔒; khoá một phần số phòng của biến thể đã trừ vào bookedRanges bên trên.
+            'adminBlockedRanges' => $product->fullBlockedRanges(),
             'datePrices'         => $datePrices,
             'stayPrices'         => $stayPrices,
             'dayPrices'          => $dayPrices,
@@ -115,6 +113,24 @@ class DailyRoomCalendar
             'promoLabels'        => $promoLabels,
             'surchargeData'      => $surchargeData,
         ];
+    }
+
+    /** order_items đang giữ phòng: đơn đã thanh toán/cọc/xác nhận, hoặc đơn chờ thanh toán chưa hết hạn. */
+    private static function holdingItemsQuery(array $productIds)
+    {
+        return OrderItem::whereIn('product_id', $productIds)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->whereHas('order', function ($q) {
+                $q->where(function ($inner) {
+                    $inner->whereIn('status', self::HOLDING_STATUSES)
+                        ->orWhere(function ($pq) {
+                            $pq->where('status', 'pending')->where(function ($eq) {
+                                $eq->whereNull('expired_at')->orWhere('expired_at', '>', now());
+                            });
+                        });
+                });
+            });
     }
 
     /**
@@ -129,25 +145,37 @@ class DailyRoomCalendar
             return [];
         }
 
-        return OrderItem::whereIn('product_id', $productIds)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->whereHas('order', function ($q) {
-                $q->where(function ($inner) {
-                    $inner->whereIn('status', self::HOLDING_STATUSES)
-                        ->orWhere(function ($pq) {
-                            $pq->where('status', 'pending')->where(function ($eq) {
-                                $eq->whereNull('expired_at')->orWhere('expired_at', '>', now());
-                            });
-                        });
-                });
-            })
-            ->get(['product_id', 'checkin_date', 'checkout_date'])
-            ->groupBy(fn ($it) => (string) $it->product_id)
-            ->map(fn ($items) => $items->map(fn ($it) => [
-                'start' => Carbon::parse($it->checkin_date)->format('Y-m-d'),
-                'end'   => Carbon::parse($it->checkout_date)->format('Y-m-d'),
-            ])->values()->all())
-            ->all();
+        $variants  = Product::whereIn('id', $productIds)->where('is_variant', true)
+            ->get(['id', 'is_variant', 'variant_quantity', 'room_config', 'default_checkout'])
+            ->keyBy(fn ($p) => (string) $p->id);
+        $inventory = app(\App\Services\RoomInventory::class);
+        $items     = self::holdingItemsQuery($productIds)
+            ->get(['product_id', 'checkin_date', 'checkout_date', 'quantity'])
+            ->groupBy(fn ($it) => (string) $it->product_id);
+
+        $result = [];
+        foreach ($items->keys()->merge($variants->keys())->unique() as $productId) {
+            $productItems = $items->get($productId, collect());
+
+            if (isset($variants[$productId])) {
+                // Biến thể phòng: chỉ khoá những khoảng đã hết sạch phòng (đơn + phần phòng admin khoá), còn phòng thì
+                // khách vẫn chọn được. Khoảng đầy kết thúc lúc trả phòng (vd 12:00 ngày 06) → đêm cuối bị khoá là đêm
+                // hôm trước (05); không gạch ngày 06 (picker coi start..end là các ngày khoá, tính cả 2 đầu).
+                $variant = $variants[$productId];
+                $ranges  = collect($inventory->fullIntervals($productItems->concat($inventory->blockItems($variant)), $variant->roomCapacity()))
+                    ->map(fn ($r) => [$r[0], $r[1]->copy()->subDay()->max($r[0])])->all();
+            } else {
+                $ranges = $productItems->map(fn ($it) => [$it->checkin_date, $it->checkout_date])->all();
+            }
+
+            if ($ranges) {
+                $result[$productId] = collect($ranges)->map(fn ($range) => [
+                    'start' => Carbon::parse($range[0])->format('Y-m-d'),
+                    'end'   => Carbon::parse($range[1])->format('Y-m-d'),
+                ])->values()->all();
+            }
+        }
+
+        return $result;
     }
 }

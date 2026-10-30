@@ -908,6 +908,14 @@ class OrderForm
                                                                             $get('product_id'),
                                                                             $get('id')
                                                                         ))
+                                                                        // Biến thể phòng: ngày mờ = đêm đã đặt đủ số phòng (không phải chỉ có 1 đơn).
+                                                                        ->helperText(function (Get $get) {
+                                                                            $product = $get('product_id') ? Product::find($get('product_id')) : null;
+
+                                                                            return $product?->is_variant
+                                                                                ? "Loại phòng {$product->roomCapacity()} phòng — ngày bị mờ là ngày đã hết phòng."
+                                                                                : null;
+                                                                        })
                                                                         ->afterStateHydrated(function ($component, Get $get) {
                                                                             $val = $get('checkin_date');
                                                                             if ($val) {
@@ -928,11 +936,7 @@ class OrderForm
                                                                             if ($checkout && self::hasOverlappingNightBooking($get('product_id'), $state, $checkout, $get('id'))) {
                                                                                 $set('checkin_day', null);
                                                                                 $set('checkin_date', null);
-                                                                                Notification::make()
-                                                                                    ->title('Khoảng ngày này đã có khách khác đặt')
-                                                                                    ->body('Vui lòng chọn lại ngày nhận phòng khác.')
-                                                                                    ->warning()
-                                                                                    ->send();
+                                                                                self::notifyNightsTaken($get('product_id'), 'Vui lòng chọn lại ngày nhận phòng khác.');
                                                                                 return;
                                                                             }
 
@@ -998,11 +1002,7 @@ class OrderForm
                                                                             if ($checkin && self::hasOverlappingNightBooking($get('product_id'), $checkin, $state, $get('id'))) {
                                                                                 $set('checkout_day', null);
                                                                                 $set('checkout_date', null);
-                                                                                Notification::make()
-                                                                                    ->title('Khoảng ngày này đã có khách khác đặt')
-                                                                                    ->body('Vui lòng chọn lại ngày trả phòng khác.')
-                                                                                    ->warning()
-                                                                                    ->send();
+                                                                                self::notifyNightsTaken($get('product_id'), 'Vui lòng chọn lại ngày trả phòng khác.');
                                                                                 return;
                                                                             }
 
@@ -3382,6 +3382,11 @@ class OrderForm
 
         $product = Product::find($productId);
 
+        // Biến thể phòng: 1 đơn không kín ngày — chỉ các đêm đã đặt đủ số phòng (kể cả phòng admin khoá bớt) mới bị khoá.
+        if ($product?->is_variant) {
+            return self::fullNightsForVariant($product, $currentOrderItemId);
+        }
+
         $query = self::applyActiveOrderConstraint(
             OrderItem::where('product_id', $productId)
                 ->whereNotNull('checkin_date')
@@ -3422,6 +3427,35 @@ class OrderForm
         return $occupied;
     }
 
+    // Biến thể phòng: map 'Y-m-d' => true của các ĐÊM đã hết phòng (đơn đang giữ phòng + phòng admin khoá bớt), bỏ qua
+    // chính dòng đang sửa. Khác phòng đơn: không khoá ngày trả phòng — đêm đó vẫn bán được nếu còn phòng.
+    private static function fullNightsForVariant(Product $product, $currentOrderItemId = null): array
+    {
+        $query = self::applyActiveOrderConstraint(
+            OrderItem::where('product_id', $product->id)
+                ->whereNotNull('checkin_date')
+                ->whereNotNull('checkout_date')
+                ->where('checkout_date', '>', now()->startOfDay())
+        );
+
+        if ($currentOrderItemId) {
+            $query->where('id', '!=', $currentOrderItemId);
+        }
+
+        $inventory = app(\App\Services\RoomInventory::class);
+        $items     = $query->get(['checkin_date', 'checkout_date', 'quantity'])->concat($inventory->blockItems($product));
+        $full      = [];
+
+        foreach ($inventory->fullIntervals($items, $product->roomCapacity()) as [$start, $end]) {
+            // Khoảng đầy kết thúc lúc trả phòng (vd 12:00 ngày 06) → đêm cuối hết phòng là đêm 05.
+            for ($day = $start->copy()->startOfDay(); $day->lt($end->copy()->startOfDay()); $day->addDay()) {
+                $full[$day->format('Y-m-d')] = true;
+            }
+        }
+
+        return $full;
+    }
+
     public static function getBookedNightsForProduct(?string $productId, $currentOrderItemId = null): array
     {
         return array_keys(self::getOccupiedDaysForProduct($productId, $currentOrderItemId));
@@ -3432,6 +3466,29 @@ class OrderForm
     // giữa lại đè lên 1 ngày đã đặt — disabledDates chỉ chặn được khi chọn TRÚNG 1 ngày kín, không
     // chặn được kiểu "nhảy qua" này). Dùng CHUNG map ngày bị chiếm với getBookedNightsForProduct()
     // để nhất quán luật "qua giờ trả phòng hôm nay thì được đặt lại".
+    // Cảnh báo khi khoảng ngày vừa chọn đè lên đêm đã kín — biến thể phòng báo rõ là đã HẾT PHÒNG (đủ N/N phòng),
+    // phòng đơn giữ câu cũ "đã có khách khác đặt".
+    private static function notifyNightsTaken(?string $productId, string $hint): void
+    {
+        $product = $productId ? Product::find($productId) : null;
+
+        if ($product?->is_variant) {
+            Notification::make()
+                ->title('Đã hết phòng')
+                ->body("{$product->name} đã đặt đủ {$product->roomCapacity()}/{$product->roomCapacity()} phòng trong khoảng ngày này. {$hint}")
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title('Khoảng ngày này đã có khách khác đặt')
+            ->body($hint)
+            ->warning()
+            ->send();
+    }
+
     public static function hasOverlappingNightBooking(?string $productId, string $checkin, string $checkout, $currentOrderItemId = null): bool
     {
         if (! $productId) {
@@ -3447,8 +3504,11 @@ class OrderForm
 
         $occupied = self::getOccupiedDaysForProduct($productId, $currentOrderItemId);
 
+        // Biến thể phòng: map chỉ chứa các ĐÊM hết phòng → xét các đêm nhận..trả-1 (ngày trả phòng không phải 1 đêm ở).
+        $lastDay = Product::whereKey($productId)->value('is_variant') ? $end->copy()->subDay() : $end;
+
         $day = $start->copy();
-        while ($day->lte($end)) {
+        while ($day->lte($lastDay)) {
             if (isset($occupied[$day->format('Y-m-d')])) {
                 return true;
             }
@@ -3539,7 +3599,11 @@ class OrderForm
             $occupiedQuery->where('order_id', '!=', $excludeOrderId);
         }
 
-        $occupiedRanges = $occupiedQuery->get(['checkin_date', 'checkout_date'])
+        $occupiedItems  = $occupiedQuery->get(['checkin_date', 'checkout_date', 'quantity']);
+        // Biến thể phòng: ô chỉ "đã đặt" khi số phòng giữ cùng lúc trong khung giờ chạm sức chứa.
+        $gridProduct    = Product::find($productId);
+        $gridInventory  = app(\App\Services\RoomInventory::class);
+        $occupiedRanges = $occupiedItems
             ->map(fn (OrderItem $item) => [
                 \Carbon\Carbon::parse($item->checkin_date),
                 \Carbon\Carbon::parse($item->checkout_date),
@@ -3563,9 +3627,11 @@ class OrderForm
                 if ($isPast) {
                     $status = 'past';
                 } else {
-                    $isOccupied = $occupiedRanges->contains(
-                        fn (array $range) => $range[0]->lt($end) && $range[1]->gt($start)
-                    );
+                    $isOccupied = $gridProduct?->is_variant
+                        ? $gridInventory->peak($occupiedItems, $start, $end) >= $gridProduct->roomCapacity()
+                        : $occupiedRanges->contains(
+                            fn (array $range) => $range[0]->lt($end) && $range[1]->gt($start)
+                        );
 
                     if ($isOccupied) {
                         $status = 'booked';

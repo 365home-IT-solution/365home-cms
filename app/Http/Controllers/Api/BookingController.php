@@ -32,6 +32,9 @@ use PayOS\PayOS;
 
 class BookingController extends Controller
 {
+    // Số phòng khách đặt trong đơn — chỉ > 1 với biến thể phòng (Product::is_variant), xem RoomInventory.
+    private int $roomQuantity = 1;
+
     public function store(Request $request): JsonResponse
     {
         // ── 1. Validate ──────────────────────────────────────────────────────
@@ -39,6 +42,8 @@ class BookingController extends Controller
             'type'                    => 'required|in:slot,monthly,daily',
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
+            // Biến thể phòng: số phòng cùng loại muốn đặt (mặc định 1, phòng đơn luôn bị ép về 1).
+            'room_quantity'           => 'sometimes|integer|min:1|max:500',
             'payment_method'          => 'sometimes|in:PayOS,cod',
             'payment_type'            => 'sometimes|in:full,deposit',
             'coupon_codes'            => 'sometimes|nullable|array',
@@ -123,6 +128,9 @@ class BookingController extends Controller
         if ($blocked = app(\App\Services\CustomerBranchBlockService::class)->bookingBlockResponse($customer, $buyerPhone, (string) $room->id)) {
             return $blocked;
         }
+
+        $inventory          = app(\App\Services\RoomInventory::class);
+        $this->roomQuantity = $inventory->requestedQuantity($room, $request->input('room_quantity'));
 
         // ── 4. Xây dựng items đặt phòng ──────────────────────────────────────
         $rtsCollection = collect();
@@ -314,7 +322,12 @@ class BookingController extends Controller
         $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
 
         if ($hasFullBooking) {
-            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
+            // Quy tắc có thể là số tiền cố định → tính cho 1 phòng rồi nhân theo số phòng đặt.
+            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice / $this->roomQuantity, $room);
+            if ($this->roomQuantity > 1) {
+                $systemDiscount                           *= $this->roomQuantity;
+                $appliedSystemDiscount['discount_amount']  = $systemDiscount;
+            }
 
             $couponBase = $basePrice - $systemDiscount;
             if (! empty($couponCodes)) {
@@ -332,6 +345,12 @@ class BookingController extends Controller
                     [$promotionDiscount, $appliedPromotions] = $this->applyDailyPromotions($rtsCollection, $slotSummary);
                 } else {
                     [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $slotSummary);
+                }
+
+                // $slotSummary giữ giá của 1 phòng → khuyến mãi tính cho 1 phòng, nhân lên theo số phòng đặt.
+                if ($this->roomQuantity > 1) {
+                    $promotionDiscount *= $this->roomQuantity;
+                    $appliedPromotions  = array_map(fn ($p) => ['discount_amount' => ($p['discount_amount'] ?? 0) * $this->roomQuantity] + $p, $appliedPromotions);
                 }
             }
 
@@ -431,13 +450,9 @@ class BookingController extends Controller
                 if (empty($itemData['checkin_date'])) {
                     continue;
                 }
-                $conflict = OrderItem::where('product_id', $room->id)
-                    ->whereNotNull('checkin_date')
-                    ->whereNotNull('checkout_date')
-                    ->where('checkin_date', '<', $itemData['checkout_date'])
-                    ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                    ->exists();
+                $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom(
+                    $room, $itemData['checkin_date'], $itemData['checkout_date'], $this->roomQuantity, ['pending', 'paid', 'deposit']
+                );
 
                 if ($conflict) {
                     throw ValidationException::withMessages([
@@ -466,7 +481,7 @@ class BookingController extends Controller
                 'coupon_code'     => $firstCode,           // backward compat
                 'coupon_codes'    => $appliedCouponCodes ?: null,
                 'coupon_discount_amounts' => $couponDiscountAmounts ?: null,
-                'description'     => 'Đặt phòng - ' . $room->name,
+                'description'     => 'Đặt phòng - ' . $room->name . ($this->roomQuantity > 1 ? " ({$this->roomQuantity} phòng)" : ''),
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
                 'payment_method'  => $paymentMethod,
@@ -662,16 +677,10 @@ class BookingController extends Controller
                 $checkout->addDay();
             }
 
-            $conflict = OrderItem::where('product_id', $room->id)
-                ->whereNotNull('checkin_date')
-                ->whereNotNull('checkout_date')
-                ->where('checkin_date', '<', $checkout)
-                ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                ->exists();
+            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit']);
 
             if ($conflict) {
-                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                $errors["slots.{$index}.timeslot_id"] = [$room->is_variant ? 'Khung giờ này không còn đủ số phòng bạn chọn.' : 'Khung giờ này đã được đặt rồi.'];
                 continue;
             }
 
@@ -681,12 +690,13 @@ class BookingController extends Controller
             $label       = $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
             $price       = (int) $rts->priceOn($dateStr);
 
-            $totalPrice  += $price;
+            $totalPrice  += $price * $this->roomQuantity;
             $itemsData[]  = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $label,
-                'price'         => $price,
-                'quantity'      => 1,
+                // Biến thể phòng: price là tiền của CẢ quantity phòng (giữ nguyên ý nghĩa "tiền của dòng" khi cộng doanh thu).
+                'price'         => $price * $this->roomQuantity,
+                'quantity'      => $this->roomQuantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkin,
                 'checkout_date' => $checkout,
@@ -735,19 +745,19 @@ class BookingController extends Controller
             ]);
         }
 
-        $conflict = OrderItem::where('product_id', $room->id)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->where('checkin_date', '<', $checkout)
-            ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
-            ->exists();
-
-        if ($conflict) {
-            throw ValidationException::withMessages([
-                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
-            ]);
+        // Khoảng admin khoá trọn phòng (room_config.blocked_ranges) — web/admin đã chặn từ trước, API app trước đây bỏ sót.
+        // Khoá một phần số phòng của biến thể không chặn ở đây mà đã trừ vào tồn phòng (RoomInventory) bên dưới.
+        foreach ($room->fullBlockedRanges() as $range) {
+            if ($checkin->lte(Carbon::parse($range['end'])->startOfDay()) && $checkout->gt(Carbon::parse($range['start'])->startOfDay())) {
+                throw ValidationException::withMessages([
+                    'checkin_date' => ['Khoảng ngày này hiện không nhận đặt.'],
+                ]);
+            }
         }
+
+        app(\App\Services\RoomInventory::class)->assertAvailable(
+            $room, $checkin, $checkout, $this->roomQuantity, 'checkin_date', 'Phòng đã được đặt trong khoảng thời gian này.'
+        );
 
         $slotsByDate = $room->roomTimeSlots
             ->filter(fn ($rts) => $rts->timeSlot?->type === 'date')
@@ -776,13 +786,13 @@ class BookingController extends Controller
             $checkinDt       = Carbon::parse("{$dateStr} {$checkinTime}");
             $checkoutDt      = Carbon::parse("{$nextDate} {$checkoutTime}");
 
-            $totalPrice += $nightPrice;
+            $totalPrice += $nightPrice * $this->roomQuantity;
 
             $itemsData[] = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $current->format('d/m/Y'),
-                'price'         => (int) $nightPrice,
-                'quantity'      => 1,
+                'price'         => (int) $nightPrice * $this->roomQuantity,
+                'quantity'      => $this->roomQuantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkinDt,
                 'checkout_date' => $checkoutDt,
@@ -848,29 +858,19 @@ class BookingController extends Controller
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
 
-        $conflict = OrderItem::where('product_id', $room->id)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->where('checkin_date', '<', $checkout)
-            ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-            ->exists();
-
-        if ($conflict) {
-            throw ValidationException::withMessages([
-                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
-            ]);
-        }
+        app(\App\Services\RoomInventory::class)->assertAvailable(
+            $room, $checkin, $checkout, $this->roomQuantity, 'checkin_date', 'Phòng đã được đặt trong khoảng thời gian này.', ['pending', 'paid', 'deposit']
+        );
 
         $months   = max(1, (int) $checkin->diffInMonths($checkout));
-        $price    = (int) ($room->price * $months);
+        $price    = (int) ($room->price * $months) * $this->roomQuantity;
         $itemName = $room->name . ' - Thuê tháng (' . $months . ' tháng)';
 
         return [$price, $itemName, [[
             'product_id'    => $room->id,
             'name'          => $itemName,
             'price'         => $price,
-            'quantity'      => 1,
+            'quantity'      => $this->roomQuantity,
             'is_shipped'    => true,
             'checkin_date'  => $checkin,
             'checkout_date' => $checkout,
@@ -1227,7 +1227,8 @@ class BookingController extends Controller
 
         $config    = $room->room_config ?? [];
         $fee       = (int) ($config['extra_guest_fee'] ?? 0);
-        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        // Biến thể phòng: mỗi phòng đặt thêm được miễn phí max_free_guests người.
+        $threshold = (int) ($config['max_free_guests'] ?? 2) * $this->roomQuantity;
         $guests    = (int) $request->guest_count;
 
         if ($fee <= 0 || $guests <= $threshold) {

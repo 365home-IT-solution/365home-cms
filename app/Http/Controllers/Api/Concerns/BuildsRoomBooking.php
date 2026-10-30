@@ -73,14 +73,7 @@ trait BuildsRoomBooking
                 $checkout->addDay();
             }
 
-            $conflict = OrderItem::where('product_id', $room->id)
-                ->whereNotNull('checkin_date')
-                ->whereNotNull('checkout_date')
-                ->where('checkin_date', '<', $checkout)
-                ->where('checkout_date', '>', $checkin)
-                ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                ->exists();
+            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit'], $excludeOrderId);
 
             if ($conflict) {
                 $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
@@ -151,7 +144,7 @@ trait BuildsRoomBooking
         // (Livewire web)::checkDateRangeConflicts(), đã vá song song). Ngữ nghĩa khóa CẢ 2 đầu
         // [start, end] (giống daterange-picker.blade.php: iso >= start && iso <= end), so với
         // khoảng đêm ở nửa mở [checkin, checkout) của đơn mới.
-        $blockedRanges = $room->room_config['blocked_ranges'] ?? [];
+        $blockedRanges = $room->fullBlockedRanges(); // khoá một phần số phòng của biến thể đã trừ vào tồn phòng (RoomInventory)
         foreach ($blockedRanges as $range) {
             if (empty($range['start']) || empty($range['end'])) {
                 continue;
@@ -167,14 +160,7 @@ trait BuildsRoomBooking
             }
         }
 
-        $conflict = OrderItem::where('product_id', $room->id)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->where('checkin_date', '<', $checkout)
-            ->where('checkout_date', '>', $checkin)
-            ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
-            ->exists();
+        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit', 'confirmed'], $excludeOrderId);
 
         if ($conflict) {
             throw ValidationException::withMessages([
@@ -245,14 +231,7 @@ trait BuildsRoomBooking
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
 
-        $conflict = OrderItem::where('product_id', $room->id)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->where('checkin_date', '<', $checkout)
-            ->where('checkout_date', '>', $checkin)
-            ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-            ->exists();
+        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit'], $excludeOrderId);
 
         if ($conflict) {
             throw ValidationException::withMessages([

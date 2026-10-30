@@ -31,7 +31,8 @@ class RoomBlockController extends Controller
      * POST /api/admin/rooms/{id}/block
      * styles=1 — body: room_time_slot_ids[] (id của room_time_slots, PHẢI thuộc đúng phòng),
      *            date_from, date_to (Y-m-d, date_to >= date_from).
-     * styles=2 — body: date_from, date_to (không cần room_time_slot_ids).
+     * styles=2 — body: date_from, date_to (không cần room_time_slot_ids); biến thể phòng thêm rooms (tuỳ chọn, 1..sức
+     *            chứa) = khoá MỘT PHẦN số phòng — bỏ trống hoặc = sức chứa thì khoá trọn loại phòng như trước.
      */
     public function block(Request $request, string $id): JsonResponse
     {
@@ -146,23 +147,50 @@ class RoomBlockController extends Controller
 
     private function blockDailyRange(Request $request, Product $room): JsonResponse
     {
-        $data = $request->validate([
+        $capacity = $room->roomCapacity();
+        $data     = $request->validate([
             'date_from' => 'required|date',
             'date_to'   => 'required|date|after_or_equal:date_from',
+            'rooms'     => "nullable|integer|min:1|max:{$capacity}",
+        ], [
+            'rooms.max' => "Loại phòng này chỉ có {$capacity} phòng.",
         ]);
 
-        $config = is_array($room->room_config) ? $room->room_config : [];
-        $ranges = $config['blocked_ranges'] ?? [];
-        $ranges[] = [
+        $range = [
             'start' => Carbon::parse($data['date_from'])->toDateString(),
             'end'   => Carbon::parse($data['date_to'])->toDateString(),
         ];
+
+        // Biến thể phòng khoá một phần: không khoá quá số phòng đang trống (đã có khách đặt) để tránh bán lố.
+        if ($room->is_variant && ! empty($data['rooms']) && (int) $data['rooms'] < $capacity) {
+            $free = app(\App\Services\RoomInventory::class)->remaining(
+                $room,
+                Carbon::parse($range['start'])->startOfDay(),
+                Carbon::parse($range['end'])->addDay()->startOfDay(),
+            );
+
+            if ((int) $data['rooms'] > $free) {
+                return response()->json([
+                    'message' => "Khoảng ngày này chỉ còn {$free} phòng trống (đã có khách đặt) — không khoá được {$data['rooms']} phòng.",
+                    'errors'  => ['rooms' => ["Chỉ còn {$free} phòng trống."]],
+                ], 422);
+            }
+
+            $range['rooms'] = (int) $data['rooms'];
+        }
+
+        $config = is_array($room->room_config) ? $room->room_config : [];
+        $ranges = $config['blocked_ranges'] ?? [];
+        $ranges[] = $range;
         $config['blocked_ranges'] = array_values($ranges);
         $room->update(['room_config' => $config]);
 
         app(SlotRealtimeService::class)->broadcastDailyBlocked((string) $room->id, $config['blocked_ranges']);
 
-        return response()->json(['message' => 'Đã khoá khoảng thời gian.']);
+        return response()->json([
+            'message' => isset($range['rooms']) ? "Đã khoá {$range['rooms']}/{$capacity} phòng." : 'Đã khoá khoảng thời gian.',
+            'data'    => $range + ['rooms' => $room->is_variant ? $capacity : null, 'capacity' => $capacity],
+        ]);
     }
 
     // Gỡ đúng khoảng có start/end khớp CHÍNH XÁC với request — không xử lý gỡ 1 phần của 1 khoảng

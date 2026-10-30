@@ -103,6 +103,11 @@ private function buildTelegramMessage(Order $order, string $status): string
         }
     }
 
+    // ========== TỒN PHÒNG (biến thể phòng) ==========
+    foreach (app(\App\Services\RoomInventory::class)->orderStockLines($order) as $line) {
+        $message .= "🛏 {$line}\n";
+    }
+
     // ========== PHỤ PHÍ KHÁCH ==========
     $extraItem = $order->items->firstWhere('extra_fee', '>', 0);
     if ($extraItem) {

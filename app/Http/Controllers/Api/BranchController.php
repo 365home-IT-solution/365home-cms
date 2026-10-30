@@ -201,6 +201,24 @@ class BranchController extends Controller
 
         $isSelectable = ! in_array($status, ['pending', 'paid', 'confirmed']);
 
+        // Biến thể phòng: ô chỉ hết khi số phòng đã giữ cùng lúc trong khung giờ chạm sức chứa, còn thì vẫn chọn được.
+        $capacity  = $room->roomCapacity();
+        $remaining = $isSelectable ? $capacity : 0;
+        if ($room->is_variant) {
+            $slotEnd = Carbon::createFromFormat('d-m-Y H:i:s', $date['date'] . ' ' . $rts->timeSlot->end_time);
+            if ($slotEnd->lte($currentDateTime)) {
+                $slotEnd->addDay();
+            }
+
+            $active    = $room->orderItems->filter(fn ($item) => in_array($item->order?->status, ['pending', 'paid', 'confirmed'], true));
+            $remaining = max(0, $capacity - app(\App\Services\RoomInventory::class)->peak($active, $currentDateTime, $slotEnd));
+
+            if ($remaining > 0) {
+                $status       = 'available';
+                $isSelectable = true;
+            }
+        }
+
         $slotDate   = Carbon::createFromFormat('d-m-Y', $date['date'])->startOfDay();
         $yesterday  = now()->subDay()->startOfDay();
         $cutoffTime = now()->startOfDay()->setTime(7, 30, 0);
@@ -260,6 +278,8 @@ class BranchController extends Controller
             'timeslot_id'   => $rts->timeslot_id,
             'status'        => $status,
             'is_selectable' => $isSelectable,
+            // Số phòng còn đặt được ở ô này (phòng đơn: 1 hoặc 0); 0 khi ô bị chặn / đã qua giờ / người khác đang giữ.
+            'remaining'     => $isSelectable ? $remaining : 0,
             'is_blocked'    => $isBlocked,
             'held'          => $held,
             'held_by_me'    => $heldByMe,

@@ -164,6 +164,13 @@ class SlotRealtimeService
      */
     public function broadcastDailyBlocked(string $roomId, array $blockedRanges): void
     {
+        // Client coi mọi khoảng trong blocked_ranges là khoá trọn (🔒). Biến thể phòng khoá một phần số phòng thì vẫn còn
+        // bán được → chỉ đẩy các khoảng khoá trọn; phần khoá bớt đã nằm trong số phòng còn trống (API /rooms/{id}/dates).
+        $room = \Modules\Product\App\Models\Product::find($roomId);
+        if ($room?->is_variant) {
+            $blockedRanges = $room->fullBlockedRanges();
+        }
+
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
         $key = config('services.websocket.internal_key', '');
 

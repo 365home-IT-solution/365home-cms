@@ -119,6 +119,7 @@ class EditOrder extends EditRecord
         // — không được để lỡ xoá order_items cũ rồi mới phát hiện dữ liệu mới không hợp lệ.
         $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($orderItems) ? $orderItems : []);
         $this->assertExpandedItemsHaveDates($expandedItems);
+        $this->assertVariantRoomsAvailable($expandedItems, (int) $record->getKey());
 
         // Đồng bộ lại partner_id nếu admin đổi "Chi nhánh" khi sửa đơn — category LUÔN xác định
         // đúng đối tác sở hữu, giống hệt lý do áp dụng ở CreateOrder::mutateFormDataBeforeCreate().

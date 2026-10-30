@@ -171,6 +171,9 @@ trait BuildsRoomCard
             'rating'          => $room->rating_score !== null ? (float) $room->rating_score : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
+            // Biến thể phòng: 1 phòng đại diện cho variant_quantity phòng giống nhau, khách chọn số lượng khi đặt.
+            'is_variant'       => (bool) $room->is_variant,
+            'variant_quantity' => $room->roomCapacity(),
             'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
             'longitude'       => $room->longitude ? (string) $room->longitude : null,
         ];

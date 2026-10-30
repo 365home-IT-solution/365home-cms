@@ -18,10 +18,14 @@ class BlockTimeslotModal extends Component
     public array $timeslot_ids = [];
     public ?string $date_from = null;
     public ?string $date_to = null;
+    // Biến thể phòng: số phòng khoá trong khoảng ngày (null / = sức chứa → khoá trọn loại phòng như trước).
+    public ?int $block_rooms = null;
 
     // ---- State ----
     public bool $showModal = false;
     public bool $isStyle2  = false;
+    // Sức chứa của biến thể phòng đang chọn (0 = phòng đơn → không hiện ô "Số phòng khoá").
+    public int $variantCapacity = 0;
 
     // true khi modal được mở sẵn cho 1 phòng cụ thể (từ menu ⋮ trên thẻ phòng ở Dashboard) — ẩn
     // dropdown "Chọn phòng" vì đã biết trước, xem openForProduct().
@@ -120,7 +124,7 @@ class BlockTimeslotModal extends Component
     public function resetModal(): void
     {
         $this->reset([
-            'product_id', 'timeslot_ids', 'date_from', 'date_to',
+            'product_id', 'timeslot_ids', 'date_from', 'date_to', 'block_rooms', 'variantCapacity',
             'blockedList', 'timeslotOptions', 'isStyle2', 'lockedToProduct',
             'showConfirmClear', 'showConfirmBulkDelete', 'pendingRangeIndex', 'pendingDateItem',
             'selectedBlockedKeys',
@@ -247,6 +251,8 @@ class BlockTimeslotModal extends Component
         $this->blockedList        = [];
         $this->selectedBlockedKeys = [];
         $this->isStyle2           = false;
+        $this->variantCapacity    = 0;
+        $this->block_rooms        = null;
         $this->cancelConfirm();
 
         if (!$this->product_id) return;
@@ -255,6 +261,10 @@ class BlockTimeslotModal extends Component
         if (!$product) return;
 
         $this->isStyle2 = ((int)($product->styles ?? 1)) === 2;
+        if ($this->isStyle2 && $product->is_variant) {
+            $this->variantCapacity = $product->roomCapacity();
+            $this->block_rooms     = $this->variantCapacity;
+        }
 
         if (!$this->isStyle2) {
             $this->timeslotOptions = RoomTimeSlot::where('room_id', $this->product_id)
@@ -293,12 +303,39 @@ class BlockTimeslotModal extends Component
             $startDisplay = Carbon::parse($this->date_from)->format('d/m/Y');
             $endDisplay   = Carbon::parse($this->date_to)->format('d/m/Y');
 
-            $config = is_array($product->room_config) ? $product->room_config : [];
-            $ranges = $config['blocked_ranges'] ?? [];
-            $ranges[] = [
+            $range = [
                 'start' => Carbon::parse($this->date_from)->toDateString(),
                 'end'   => Carbon::parse($this->date_to)->toDateString(),
             ];
+
+            // Biến thể phòng: khoá một phần số phòng — chỉ bớt số phòng bán được trong khoảng ngày, không khoá cả loại.
+            if ($product->is_variant) {
+                $capacity = $product->roomCapacity();
+                $this->validate(
+                    ['block_rooms' => "required|integer|min:1|max:{$capacity}"],
+                    ['block_rooms.required' => 'Vui lòng nhập số phòng khoá.', 'block_rooms.min' => 'Khoá ít nhất 1 phòng.', 'block_rooms.max' => "Loại phòng này chỉ có {$capacity} phòng."],
+                );
+
+                if ((int) $this->block_rooms < $capacity) {
+                    $free = app(\App\Services\RoomInventory::class)->remaining(
+                        $product,
+                        Carbon::parse($range['start'])->startOfDay(),
+                        Carbon::parse($range['end'])->addDay()->startOfDay(),
+                    );
+
+                    if ((int) $this->block_rooms > $free) {
+                        $this->addError('block_rooms', "Khoảng ngày này chỉ còn {$free} phòng trống (đã có khách đặt) — không khoá được {$this->block_rooms} phòng.");
+
+                        return;
+                    }
+
+                    $range['rooms'] = (int) $this->block_rooms;
+                }
+            }
+
+            $config = is_array($product->room_config) ? $product->room_config : [];
+            $ranges = $config['blocked_ranges'] ?? [];
+            $ranges[] = $range;
             $config['blocked_ranges'] = array_values($ranges);
             $product->update(['room_config' => $config]);
 
@@ -311,7 +348,7 @@ class BlockTimeslotModal extends Component
             );
 
             Notification::make()
-                ->title('Đã khóa khoảng thời gian')
+                ->title(isset($range['rooms']) ? "Đã khóa {$range['rooms']}/{$product->roomCapacity()} phòng" : 'Đã khóa khoảng thời gian')
                 ->body($startDisplay . ' → ' . $endDisplay)
                 ->success()
                 ->send();
@@ -531,6 +568,12 @@ class BlockTimeslotModal extends Component
                     'end'           => $range['end'],
                     'start_display' => Carbon::parse($range['start'])->format('d/m/Y'),
                     'end_display'   => Carbon::parse($range['end'])->format('d/m/Y'),
+                    // Biến thể phòng: "1/5 phòng" khi khoá một phần, null = khoá trọn.
+                    'rooms_label'   => $product->is_variant
+                        ? (! empty($range['rooms']) && (int) $range['rooms'] < $product->roomCapacity()
+                            ? "{$range['rooms']}/{$product->roomCapacity()} phòng"
+                            : "Tất cả {$product->roomCapacity()} phòng")
+                        : null,
                 ];
             }
             return;

@@ -61,7 +61,7 @@ class DailyRoomController extends Controller
         }
 
         $slotsByDate = $this->slotsByDate($room);
-        $bookedDates = $this->bookedDates($room->id, $rangeStart, $rangeEnd);
+        $nightsLeft  = $this->nightsAvailability($room, $rangeStart, $rangeEnd->copy()->addDay(), $slotsByDate);
         $basePrice   = (float) $room->price;
         $defCheckin  = $room->default_checkin  ?? '14:00';
         $defCheckout = $room->default_checkout ?? '12:00';
@@ -91,7 +91,11 @@ class DailyRoomController extends Controller
                 'final_price'        => (int) $promos['final_price'],
                 'promotion_discount' => (int) $disc,
                 'has_override'       => $rts !== null,
-                'available'          => ! in_array($dateStr, $bookedDates),
+                'available'          => $nightsLeft[$dateStr]['remaining'] > 0,
+                // Số phòng còn đặt được đêm này (phòng đơn: 1/0; biến thể phòng: 0..variant_quantity).
+                'remaining'          => $nightsLeft[$dateStr]['remaining'],
+                // Admin khoá trọn đêm này (hiện 🔒) — khác "hết phòng" do khách đã đặt.
+                'is_blocked'         => $nightsLeft[$dateStr]['blocked'],
                 'checkin'            => $rts?->checkin  ?? $defCheckin,
                 'checkout'           => $rts?->checkout ?? $defCheckout,
                 'promotions'         => $promos['applied'],
@@ -106,6 +110,9 @@ class DailyRoomController extends Controller
             'base_price'       => (int) $basePrice,
             'default_checkin'  => $defCheckin,
             'default_checkout' => $defCheckout,
+            // Biến thể phòng: 1 phòng đại diện variant_quantity phòng giống nhau — app hiện "còn X phòng" + cho chọn số lượng.
+            'is_variant'       => (bool) $room->is_variant,
+            'variant_quantity' => $room->roomCapacity(),
             'dates'            => $dates,
         ];
 
@@ -165,8 +172,9 @@ class DailyRoomController extends Controller
     public function pricePreview(Request $request, string $id): JsonResponse
     {
         $request->validate([
-            'checkin'  => 'required|date_format:Y-m-d',
-            'checkout' => 'required|date_format:Y-m-d|after:checkin',
+            'checkin'       => 'required|date_format:Y-m-d',
+            'checkout'      => 'required|date_format:Y-m-d|after:checkin',
+            'room_quantity' => 'sometimes|integer|min:1|max:500',
         ]);
 
         $room = $this->loadRoom($id);
@@ -177,9 +185,11 @@ class DailyRoomController extends Controller
         $checkin  = Carbon::parse($request->checkin);
         $checkout = Carbon::parse($request->checkout);
         $nights   = (int) $checkin->diffInDays($checkout);
+        // Biến thể phòng: tiền nhân theo số phòng khách chọn — cùng cách BookingController tính lúc tạo đơn.
+        $qty      = app(\App\Services\RoomInventory::class)->requestedQuantity($room, $request->input('room_quantity'));
 
         $slotsByDate = $this->slotsByDate($room);
-        $bookedDates = $this->bookedDates($room->id, $checkin, $checkout);
+        $nightsLeft  = $this->nightsAvailability($room, $checkin, $checkout, $slotsByDate);
         $basePrice   = (float) $room->price;
         $defCheckin  = $room->default_checkin  ?? '14:00';
         $defCheckout = $room->default_checkout ?? '12:00';
@@ -199,15 +209,17 @@ class DailyRoomController extends Controller
             $promos = $this->calculator->calculateForDate($rts, $price, $dateStr);
             $disc   = $price - $promos['final_price'];
 
-            $subtotal           += $price;
-            $totalPromoDiscount += $disc;
+            $subtotal           += $price * $qty;
+            $totalPromoDiscount += $disc * $qty;
 
             $breakdown[] = [
                 'date'               => $dateStr,
                 'price'              => (int) $price,
                 'final_price'        => (int) $promos['final_price'],
                 'promotion_discount' => (int) $disc,
-                'available'          => ! in_array($dateStr, $bookedDates),
+                'available'          => $nightsLeft[$dateStr]['remaining'] >= $qty,
+                'remaining'          => $nightsLeft[$dateStr]['remaining'],
+                'is_blocked'         => $nightsLeft[$dateStr]['blocked'],
                 'checkin'            => $rts?->checkin  ?? $defCheckin,
                 'checkout'           => $rts?->checkout ?? $defCheckout,
                 'promotions'         => $promos['applied'],
@@ -227,6 +239,11 @@ class DailyRoomController extends Controller
 
         return response()->json([
             'nights'             => $nights,
+            // Biến thể phòng: số phòng đang tính tiền + số phòng còn trống cho CẢ khoảng ngày (đêm ít phòng nhất).
+            'room_quantity'      => $qty,
+            'remaining_rooms'    => $nights > 0 ? min(array_column($nightsLeft, 'remaining')) : 0,
+            'is_variant'         => (bool) $room->is_variant,
+            'variant_quantity'   => $room->roomCapacity(),
             'checkin_date'       => $checkin->format('Y-m-d'),
             'checkout_date'      => $checkout->format('Y-m-d'),
             'checkin_time'       => $firstRts?->checkin  ?? $defCheckin,
@@ -271,26 +288,63 @@ class DailyRoomController extends Controller
         return $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
     }
 
-    private function bookedDates(string $roomId, Carbon $from, Carbon $to): array
+    /**
+     * Mỗi đêm trong [$from, $to) → ['remaining' => số phòng còn đặt được, 'blocked' => admin khoá trọn đêm].
+     * Phòng đơn: còn 1 nếu đêm chưa có đơn giữ phòng. Biến thể phòng: sức chứa trừ số phòng bị giữ cùng lúc cao nhất
+     * trong đêm (đơn + phần phòng admin khoá bớt), theo giờ nhận/trả phòng thật của đêm đó (RoomInventory).
+     * Đơn chờ thanh toán đã quá hạn không còn giữ phòng.
+     *
+     * @return array<string, array{remaining: int, blocked: bool}>
+     */
+    private function nightsAvailability(Product $room, Carbon $from, Carbon $to, $slotsByDate): array
     {
-        $items = OrderItem::where('product_id', $roomId)
+        $inventory = app(\App\Services\RoomInventory::class);
+        $items     = OrderItem::where('product_id', $room->id)
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')
             ->where('checkout_date', '>', $from)
             ->where('checkin_date', '<', $to->copy()->addDay())
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
-            ->get(['checkin_date', 'checkout_date']);
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed'])->where(fn ($q) => $q
+                ->where('status', '!=', 'pending')
+                ->orWhereNull('expired_at')
+                ->orWhere('expired_at', '>', now())))
+            ->get(['checkin_date', 'checkout_date', 'quantity']);
 
-        $booked  = [];
-        foreach ($items as $item) {
-            $night = Carbon::parse($item->checkin_date)->startOfDay();
-            $end   = Carbon::parse($item->checkout_date)->startOfDay();
-            while ($night->lt($end)) {
-                $booked[] = $night->format('Y-m-d');
-                $night->addDay();
+        $blockedDates = [];
+        foreach ($room->fullBlockedRanges() as $range) {
+            for ($d = Carbon::parse($range['start']); $d->lte(Carbon::parse($range['end'])); $d->addDay()) {
+                $blockedDates[$d->format('Y-m-d')] = true;
             }
         }
 
-        return array_unique($booked);
+        $bookedNights = [];
+        if (! $room->is_variant) {
+            foreach ($items as $item) {
+                for ($night = Carbon::parse($item->checkin_date)->startOfDay(); $night->lt(Carbon::parse($item->checkout_date)->startOfDay()); $night->addDay()) {
+                    $bookedNights[$night->format('Y-m-d')] = true;
+                }
+            }
+        } else {
+            $items = $items->concat($inventory->blockItems($room));
+        }
+
+        $result = [];
+        for ($night = $from->copy()->startOfDay(); $night->lt($to->copy()->startOfDay()); $night->addDay()) {
+            $date    = $night->format('Y-m-d');
+            $blocked = isset($blockedDates[$date]);
+
+            if ($room->is_variant) {
+                $rts    = $slotsByDate->get($date);
+                $start  = Carbon::parse("{$date} " . ($rts?->checkin ?? $room->default_checkin ?? '14:00'));
+                $end    = Carbon::parse($night->copy()->addDay()->format('Y-m-d') . ' ' . ($rts?->checkout ?? $room->default_checkout ?? '12:00'));
+                $remain = max(0, $room->roomCapacity() - $inventory->peak($items, $start, $end));
+            } else {
+                $remain = isset($bookedNights[$date]) ? 0 : 1;
+            }
+
+            $result[$date] = ['remaining' => $blocked ? 0 : $remain, 'blocked' => $blocked];
+        }
+
+        return $result;
     }
 }

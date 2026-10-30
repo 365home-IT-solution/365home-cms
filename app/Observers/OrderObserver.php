@@ -24,6 +24,10 @@ class OrderObserver
     private function send(Order $order, string $title, string $icon, string $color, string $type = 'order_update'): void
     {
         $body    = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
+        // Biến thể phòng: kèm số phòng còn trống trong khoảng ngày của đơn, để đối tác biết còn bán được bao nhiêu.
+        foreach (app(\App\Services\RoomInventory::class)->orderStockLines($order) as $line) {
+            $body .= "\n{$line}";
+        }
         $service = app(AdminNotificationService::class);
 
         $service->notify(

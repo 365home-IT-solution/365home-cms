@@ -298,6 +298,26 @@ class ProductForm
                 ->colors([1 => 'success', 2 => 'info'])
                 ->icons([1 => 'heroicon-o-clock', 2 => 'heroicon-o-calendar-days'])
                 ->inlineLabel(),
+
+            // Biến thể phòng: 1 phòng đại diện cho cả loại phòng (vd "DBL balcony" x5), khách chọn số lượng phòng khi đặt.
+            Toggle::make('is_variant')
+                ->label('Biến thể phòng')
+                ->helperText('Bật khi phòng này là 1 loại phòng gồm nhiều phòng giống nhau — khách chọn số lượng phòng như Booking/Agoda.')
+                ->default(false)
+                ->live()
+                ->inlineLabel(),
+
+            TextInput::make('variant_quantity')
+                ->label('Số phòng của loại phòng')
+                ->numeric()
+                ->integer()
+                ->minValue(1)
+                ->maxValue(500)
+                ->default(1)
+                ->required(fn (Get $get): bool => (bool) $get('is_variant'))
+                ->visible(fn (Get $get): bool => (bool) $get('is_variant'))
+                ->dehydrateStateUsing(fn ($state, Get $get) => $get('is_variant') ? max(1, (int) $state) : 1)
+                ->inlineLabel(),
         ])->columns(1);
     }
 

@@ -384,6 +384,8 @@ class ProductController extends Controller
                 'short_description'   => $data['short_description'] ?? null,
                 'description'         => $data['description'] ?? null,
                 'setting_video_room'  => $data['setting_video_room'] ?? null,
+                'is_variant'          => (bool) ($data['is_variant'] ?? false),
+                'variant_quantity'    => ! empty($data['is_variant']) ? (int) ($data['variant_quantity'] ?? 1) : 1,
             ]);
 
             $product->categories()->sync($data['categories']);
@@ -500,10 +502,24 @@ class ProductController extends Controller
             $data['slug'] = $this->uniqueSlug(Product::class, $data['name'], $product->id);
         }
 
+        // Tắt biến thể → về phòng đơn (sức chứa 1); không giảm số phòng xuống dưới số đang được giữ ở 1 thời điểm tương lai.
+        if (array_key_exists('is_variant', $data) && ! $data['is_variant']) {
+            $data['variant_quantity'] = 1;
+        }
+        if (isset($data['variant_quantity'])) {
+            $newCapacity = ($data['is_variant'] ?? $product->is_variant) ? (int) $data['variant_quantity'] : 1;
+            $peak        = $this->futurePeakBooked($product);
+
+            if ($newCapacity < $peak) {
+                return response()->json(['message' => "Đang có {$peak} phòng được đặt cùng lúc trong thời gian tới — số phòng không được nhỏ hơn {$peak}."], 422);
+            }
+        }
+
         DB::transaction(function () use ($product, $data) {
             $product->update(collect($data)->only([
                 'name', 'slug', 'wifi', 'home_code', 'address', 'latitude', 'longitude', 'hotline',
                 'styles', 'room_type_id', 'short_description', 'description', 'setting_video_room',
+                'is_variant', 'variant_quantity',
             ])->toArray());
 
             if (array_key_exists('categories', $data)) {
@@ -1074,6 +1090,17 @@ class ProductController extends Controller
         );
     }
 
+    /** Số phòng bị giữ cùng lúc cao nhất từ giờ tới hết các đơn đang hiệu lực — sàn khi giảm số phòng của biến thể. */
+    private function futurePeakBooked(Product $product): int
+    {
+        $lastCheckout = \Modules\Payment\Entities\OrderItem::where('product_id', $product->id)
+            ->where('checkout_date', '>', now())
+            ->whereHas('order', fn ($q) => $q->whereIn('status', \App\Services\RoomInventory::ACTIVE_STATUSES))
+            ->max('checkout_date');
+
+        return $lastCheckout ? app(\App\Services\RoomInventory::class)->peakBooked($product, now(), $lastCheckout) : 0;
+    }
+
     private function rules(bool $isUpdate = false, ?string $productId = null): array
     {
         $required = $isUpdate ? 'sometimes|required' : 'required';
@@ -1091,6 +1118,10 @@ class ProductController extends Controller
             'room_type_id'        => 'nullable|integer|exists:room_types,id',
             'short_description'   => 'nullable|string',
             'description'         => 'nullable|string',
+
+            // Biến thể phòng: bật thì phòng này đại diện cho variant_quantity phòng giống nhau, khách chọn số lượng khi đặt.
+            'is_variant'          => 'sometimes|boolean',
+            'variant_quantity'    => 'required_if_accepted:is_variant|nullable|integer|min:1|max:500',
 
             'setting_video_room'         => 'nullable|array',
             'setting_video_room.url'     => 'nullable|string|max:1000',
@@ -1263,6 +1294,9 @@ class ProductController extends Controller
                 ? ($product->price !== null ? (float) $product->price : null)
                 : $firstSlotPrice,
             'status'                 => $product->is_activated,
+            // Biến thể phòng: phòng này là 1 loại phòng gồm variant_quantity phòng giống nhau.
+            'is_variant'             => (bool) $product->is_variant,
+            'variant_quantity'       => $product->roomCapacity(),
             // Duyệt trước khi đăng: approved | pending (chờ 365home duyệt, chưa hiện cho khách) | rejected
             'approval_status'        => $product->approval_status ?? 'approved',
             'occupancy_status'       => $occupancyStatus,
@@ -1428,6 +1462,8 @@ class ProductController extends Controller
                 : null,
             'hotline'             => $product->hotline,
             'styles'              => (int) $product->styles,
+            'is_variant'          => (bool) $product->is_variant,
+            'variant_quantity'    => $product->roomCapacity(),
             'room_type'           => $product->roomType ? [
                 'id'   => $product->roomType->id,
                 'name' => $product->roomType->name,

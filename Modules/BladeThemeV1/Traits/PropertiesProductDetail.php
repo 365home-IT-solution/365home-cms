@@ -46,6 +46,8 @@ trait PropertiesProductDetail
     public array $cccdScanStatus = [];
     public $note = '';
     public $totalAmount = 0;
+    // Biến thể phòng: số phòng còn trống trong khoảng ngày khách đang chọn (null = phòng đơn / chưa chọn đủ ngày).
+    public ?int $variantRemaining = null;
     public $accept1 = false;
     public $accept2 = false;
     public $acceptRefundPolicy = false;

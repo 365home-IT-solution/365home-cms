@@ -129,6 +129,8 @@ class RoomController extends Controller
             'full_day_price'         => $room->full_day_price !== null && (float) $room->full_day_price > 0 ? (int) $room->full_day_price : null,
             'bulk_discount_rules'    => $room->bulk_discount_rules ?? [],
             'total_slots'            => $templateSlots->count(),
+            'is_variant'             => (bool) $room->is_variant,
+            'variant_quantity'       => $room->roomCapacity(),
         ];
 
         // Giữ nguyên shape cũ {date, slots} khi gọi kiểu 1-ngày (?date=) — không phá client hiện có.
@@ -244,7 +246,7 @@ class RoomController extends Controller
             ->where('checkin_date', '<', $date->copy()->addDay())
             ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->with('order:id,status')
-            ->get(['id', 'order_id', 'checkin_date', 'checkout_date']);
+            ->get(['id', 'order_id', 'checkin_date', 'checkout_date', 'quantity']);
 
         // Build a map of timeslot_id => order_status for booked slots on this date
         $bookedMap = [];
@@ -264,7 +266,9 @@ class RoomController extends Controller
             }
         }
 
-        return $templateSlots->map(function ($slot) use ($bookedMap, $dateStr, $holdsForDate, $sessionId) {
+        $inventory = app(\App\Services\RoomInventory::class);
+
+        return $templateSlots->map(function ($slot) use ($bookedMap, $dateStr, $holdsForDate, $sessionId, $room, $activeItems, $inventory) {
             $rts       = $slot['rts'];
             $basePrice = $rts->priceOn($dateStr) ?? $slot['price'];
 
@@ -319,6 +323,14 @@ class RoomController extends Controller
 
             $finalPrice = max(0, (int) $finalPrice);
 
+            // Biến thể phòng: khung giờ chỉ "đã đặt" khi số phòng giữ cùng lúc chạm sức chứa.
+            $orderStatus = $bookedMap[$slot['timeslot_id']] ?? null;
+            $remaining   = $orderStatus === null ? $room->roomCapacity() : 0;
+            if ($room->is_variant) {
+                $remaining   = max(0, $room->roomCapacity() - $inventory->peak($activeItems, $slotStart, $slotEnd));
+                $orderStatus = $remaining > 0 ? null : $orderStatus;
+            }
+
             $promotionData = collect($activePromos)->map(fn ($p) => [
                 'id'    => $p->id,
                 'name'  => $p->name,
@@ -335,7 +347,8 @@ class RoomController extends Controller
                 'final_price'  => $finalPrice !== $basePrice ? $finalPrice : null,
                 'over_night'   => $slot['over_night'],
                 'is_blocked'   => $isBlocked,
-                'order_status' => $bookedMap[$slot['timeslot_id']] ?? null,
+                'order_status' => $orderStatus,
+                'remaining'    => $isBlocked ? 0 : $remaining,
                 'holding'      => $holding,
                 'held_by_me'   => $heldByMe,
                 'promotions'   => $promotionData,
@@ -404,7 +417,9 @@ class RoomController extends Controller
 
         $config    = $room->room_config ?? [];
         $fee       = (int) ($config['extra_guest_fee'] ?? 0);
-        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        // Biến thể phòng: mỗi phòng đặt thêm được miễn phí max_free_guests người (?room_quantity=, giống BookingController).
+        $threshold = (int) ($config['max_free_guests'] ?? 2)
+            * app(\App\Services\RoomInventory::class)->requestedQuantity($room, $request->query('room_quantity'));
 
         $guestSurcharge = null;
         if ($fee > 0 && $guestCount > $threshold) {

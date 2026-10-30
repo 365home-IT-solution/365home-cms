@@ -60,13 +60,7 @@ class RoomItemBuilder
                 $checkout->addDay();
             }
 
-            $conflict = OrderItem::where('product_id', $room->id)
-                ->whereNotNull('checkin_date')
-                ->whereNotNull('checkout_date')
-                ->where('checkin_date', '<', $checkout)
-                ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                ->exists();
+            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit']);
 
             if ($conflict) {
                 $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
@@ -132,13 +126,7 @@ class RoomItemBuilder
             ]);
         }
 
-        $conflict = OrderItem::where('product_id', $room->id)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date')
-            ->where('checkin_date', '<', $checkout)
-            ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
-            ->exists();
+        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit', 'confirmed']);
 
         if ($conflict) {
             throw ValidationException::withMessages([

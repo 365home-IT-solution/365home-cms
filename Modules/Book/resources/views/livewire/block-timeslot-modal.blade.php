@@ -150,6 +150,26 @@
                         </div>
                     </div>
 
+                    {{-- Biến thể phòng: khoá một phần số phòng (vd 1 phòng đang sửa) thay vì cả loại phòng --}}
+                    @if ($isStyle2 && $variantCapacity > 0)
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Số phòng khóa <span class="text-danger-500">*</span>
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" wire:model="block_rooms" min="1" max="{{ $variantCapacity }}"
+                                    class="w-28 rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <span class="text-sm text-gray-500">/ {{ $variantCapacity }} phòng</span>
+                            </div>
+                            @error('block_rooms')
+                                <p class="mt-1 text-xs text-danger-500">{{ $message }}</p>
+                            @enderror
+                            <p class="mt-1 text-xs text-gray-400">
+                                Khóa đủ {{ $variantCapacity }} phòng = khóa cả loại phòng. Khóa ít hơn thì khách vẫn đặt được số phòng còn lại.
+                            </p>
+                        </div>
+                    @endif
+
                     {{-- Nút lưu --}}
                     <div class="flex justify-end pt-1">
                         <x-filament::button wire:click="saveBlock" wire:loading.attr="disabled" wire:target="saveBlock"
@@ -285,6 +305,9 @@
                                                 <x-heroicon-o-calendar class="h-3.5 w-3.5 flex-shrink-0" />
                                                 {{ $item['end_display'] }}
                                             </span>
+                                            @if (!empty($item['rooms_label']))
+                                                <span class="mt-0.5 block text-xs font-medium text-gray-500">Khóa {{ $item['rooms_label'] }}</span>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-2.5 text-center">
                                             @if ($pendingRangeIndex === $item['index'])

@@ -404,13 +404,7 @@ class BookingController extends Controller
                 if (empty($itemData['checkin_date'])) {
                     continue;
                 }
-                $conflict = OrderItem::where('product_id', $room->id)
-                    ->whereNotNull('checkin_date')
-                    ->whereNotNull('checkout_date')
-                    ->where('checkin_date', '<', $itemData['checkout_date'])
-                    ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                    ->exists();
+                $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $itemData['checkin_date'], $itemData['checkout_date'], 1, ['pending', 'paid', 'deposit']);
 
                 if ($conflict) {
                     throw ValidationException::withMessages([

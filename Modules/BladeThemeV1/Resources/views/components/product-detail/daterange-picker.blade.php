@@ -34,6 +34,12 @@ function dateRangePicker(pricePerNight) {
         // Tổng tiền THẬT của cả chuyến (phòng + phụ thu khách + dịch vụ thêm - coupon),
         // do server tính (calculateDateRangeTotal) — luôn đồng bộ dù widget này có wire:ignore.
         serverTotalAmount: @entangle('totalAmount'),
+        // Giờ nhận / trả phòng thật của khoảng ngày đang chọn (server tính theo bảng giá từng ngày, mặc định 14:00 / 12:00).
+        checkinTime: @entangle('style2CheckinTime'),
+        checkoutTime: @entangle('style2CheckoutTime'),
+        // Biến thể phòng: số phòng còn trống cho khoảng ngày đang chọn (server tính), null với phòng đơn.
+        variantRemaining: @entangle('variantRemaining'),
+        variantCapacity: {{ $product->is_variant ? $product->roomCapacity() : 'null' }},
         extraFeeAmount: @entangle('extraFee'),
         guestsCount: @entangle('guests'),
         selectedServicesQty: @entangle('selectedServices'),
@@ -391,6 +397,14 @@ function dateRangePicker(pricePerNight) {
      "
      class="w-full">
 
+    {{-- Biến thể phòng: số phòng còn trống cho khoảng ngày khách đã chọn (kiểu Booking "Chúng tôi còn 1 phòng") --}}
+    <template x-if="variantCapacity !== null && variantRemaining !== null && startDate && endDate">
+        <p class="mb-2 flex items-center gap-1.5 text-[15px] font-bold text-red-600">
+            <span class="inline-block w-3 h-3 rounded-full bg-red-600"></span>
+            <span x-text="variantRemaining > 0 ? 'Chúng tôi còn ' + variantRemaining + ' phòng' : 'Đã hết phòng cho khoảng ngày này'"></span>
+        </p>
+    </template>
+
     {{-- Layout 2 cột: Calendar (trái 60%) + Info panel (phải 40%) --}}
     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-gray-100">
@@ -469,7 +483,7 @@ function dateRangePicker(pricePerNight) {
                     <span class="text-[12px] text-gray-400 italic" x-show="startDate && !endDate">Chọn ngày trả phòng</span>
                     <span class="text-[12px] font-bold" style="color:var(--color-primary)"
                           x-show="startDate && endDate"
-                          x-text="nightCount + ' đêm · ' + formatDisplay(startDate) + ' → ' + formatDisplay(endDate)"></span>
+                          x-text="nightCount + ' đêm · ' + (checkinTime || '14:00') + ' ' + formatDisplay(startDate) + ' → ' + (checkoutTime || '12:00') + ' ' + formatDisplay(endDate)"></span>
                 </div>
             </div>
 
@@ -495,6 +509,20 @@ function dateRangePicker(pricePerNight) {
                 <div x-show="startDate && endDate"
                      class="flex-1 overflow-y-auto px-3 py-3 space-y-2 md:max-h-[580px]">
 
+                    {{-- Giờ nhận / trả phòng của khoảng ngày đã chọn --}}
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="rounded-xl border border-gray-200 bg-white px-3 py-2">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400">Nhận phòng</p>
+                            <p class="text-lg font-extrabold leading-tight text-gray-900" x-text="checkinTime || '14:00'"></p>
+                            <p class="text-[11px] text-gray-500" x-text="dayLabelForIso(startDate) + ', ' + formatDisplay(startDate)"></p>
+                        </div>
+                        <div class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-right">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400">Trả phòng</p>
+                            <p class="text-lg font-extrabold leading-tight text-gray-900" x-text="checkoutTime || '12:00'"></p>
+                            <p class="text-[11px] text-gray-500" x-text="dayLabelForIso(endDate) + ', ' + formatDisplay(endDate)"></p>
+                        </div>
+                    </div>
+
                     {{-- Giá phòng tạm tính (chưa gồm dịch vụ thêm / phụ thu khách) --}}
                     <div class="rounded-xl p-3" style="background:rgba(var(--color-primary-rgb),0.08); border:1px solid rgba(var(--color-primary-rgb),0.2)">
                         <p class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--color-primary)">Giá phòng tạm tính</p>
@@ -519,6 +547,7 @@ function dateRangePicker(pricePerNight) {
                             </div>
                         </div>
                     </div>
+
 
                     {{-- Tổng cộng cho cả chuyến — số THẬT từ server, luôn cập nhật ngay khi đổi dịch vụ/số khách,
                          không cần bấm "Đặt phòng" mới thấy --}}
@@ -612,14 +641,6 @@ function dateRangePicker(pricePerNight) {
                         </div>
                     </template>
 
-                    {{-- Không có khuyến mãi --}}
-                    <template x-if="rangePromos.length === 0">
-                        <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 flex items-center gap-2 text-gray-400">
-                            <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8.01"/></svg>
-                            <p class="text-xs italic">Không có khuyến mãi cho khoảng ngày này</p>
-                        </div>
-                    </template>
-
                     {{-- Mã giảm giá đã áp dụng --}}
                     <template x-if="couponSavingsTotal > 0">
                         <div class="flex items-start gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
@@ -632,46 +653,6 @@ function dateRangePicker(pricePerNight) {
                             </div>
                         </div>
                     </template>
-
-                    {{-- Chi tiết từng đêm (accordion - mặc định đóng) --}}
-                    <div x-data="{ openNights: false }" class="space-y-1">
-                        <button type="button" @click="openNights = !openNights"
-                                class="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors">
-                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Chi tiết từng đêm</span>
-                            <svg class="w-3.5 h-3.5 text-gray-400 transition-transform duration-200"
-                                 :class="openNights ? 'rotate-180' : ''"
-                                 xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-                        </button>
-                        <div x-show="openNights" x-collapse class="space-y-2 pt-1">
-                            <template x-for="(item, i) in rangeBreakdown" :key="item.iso">
-                                <div class="rounded-xl border border-gray-100 bg-white px-3 py-2.5 shadow-sm">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0 flex-1">
-                                            <div class="flex items-center gap-2 flex-wrap">
-                                                <p class="text-xs font-bold text-gray-800" x-text="item.dayLabel + ', ' + item.displayDate"></p>
-                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                                                      :class="item.sourceType === 'override' ? 'bg-emerald-50 text-emerald-700' : (item.sourceType === 'weekday' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600')"
-                                                      x-text="item.sourceLabel"></span>
-                                            </div>
-                                            <p class="mt-1 text-[11px] text-gray-500" x-show="item.discount > 0">
-                                                <span>Giá gốc: </span>
-                                                <span class="line-through" x-text="item.basePrice.toLocaleString('vi-VN') + 'đ'"></span>
-                                            </p>
-                                            <div class="mt-1" x-show="item.promoLabel">
-                                                <p class="text-[11px] font-medium text-rose-600" x-text="item.promoLabel"></p>
-                                                <p class="text-[10px] text-rose-400" x-text="'-' + item.promoDiscount + '%'"></p>
-                                            </div>
-                                        </div>
-                                        <div class="text-right shrink-0">
-                                            <p class="text-sm font-extrabold text-gray-900" x-text="item.finalPrice.toLocaleString('vi-VN') + 'đ'"></p>
-                                            <p class="text-[10px] text-rose-500 font-semibold" x-show="item.discount > 0"
-                                               x-text="'Tiết kiệm ' + item.discount.toLocaleString('vi-VN') + 'đ'"></p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
 
                     {{-- Giá theo ngày trong tuần (nếu có) --}}
                     <template x-if="rangeDayPrices.length > 0">
