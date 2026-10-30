@@ -109,7 +109,7 @@ class OverviewService
      */
     public static function frontDesk(array $productIds, Carbon $start, Carbon $end): array
     {
-        $totalRooms = count($productIds);
+        $totalRooms = static::totalRoomCount($productIds);
         if ($totalRooms === 0) {
             return ['period' => static::periodMeta($start, $end), 'checked_in_count' => 0, 'checked_out_count' => 0, 'occupied_rooms' => 0, 'total_rooms' => 0, 'overstay_rooms' => 0, 'needs_cleaning_rooms' => 0];
         }
@@ -152,7 +152,7 @@ class OverviewService
     /** CÔNG SUẤT PHÒNG: tỉ lệ lấp đầy tổng + theo ngày/tháng trong kỳ (không gồm top 5 — xem occupancyTop) */
     private static function occupancyTrend(array $productIds, Carbon $start, Carbon $end): array
     {
-        $totalRooms = count($productIds);
+        $totalRooms = static::totalRoomCount($productIds);
         $rangeEnd   = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;
 
         if ($totalRooms === 0 || $rangeEnd->lt($start)) {
@@ -163,8 +163,8 @@ class OverviewService
 
         $dailyCounts = [];
         foreach ($occupiedDays as $days) {
-            foreach (array_keys($days) as $date) {
-                $dailyCounts[$date] = ($dailyCounts[$date] ?? 0) + 1;
+            foreach ($days as $date => $units) {
+                $dailyCounts[$date] = ($dailyCounts[$date] ?? 0) + $units;
             }
         }
 
@@ -221,7 +221,7 @@ class OverviewService
      */
     public static function occupancyTop(array $productIds, Carbon $start, Carbon $end, bool $descending = true): array
     {
-        $totalRooms = count($productIds);
+        $totalRooms = static::totalRoomCount($productIds);
         $rangeEnd   = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;
 
         if ($totalRooms === 0 || $rangeEnd->lt($start)) {
@@ -238,7 +238,9 @@ class OverviewService
         $roomTypeAgg = [];
         $areaAgg = [];
         foreach ($productMeta as $productId => $product) {
-            $occupiedDayCount = count($occupiedDays[$productId] ?? []);
+            // Số đêm-phòng đã có khách (biến thể phòng: cộng số phòng có khách từng ngày) và số phòng của product này.
+            $occupiedDayCount = array_sum($occupiedDays[$productId] ?? []);
+            $roomUnits        = $product->roomCapacity();
 
             // Phòng CHƯA gán hạng phòng (room_type_id=null) — bỏ hẳn khỏi top_by_room_type thay vì
             // gộp vào nhóm "Khác", khớp ảnh mẫu chỉ hiển thị đúng 5 hạng phòng thật (Homestay/Khách
@@ -246,7 +248,7 @@ class OverviewService
             if ($product->roomType) {
                 $roomTypeName = $product->roomType->name;
                 $roomTypeAgg[$roomTypeName]['occupied'] = ($roomTypeAgg[$roomTypeName]['occupied'] ?? 0) + $occupiedDayCount;
-                $roomTypeAgg[$roomTypeName]['rooms']     = ($roomTypeAgg[$roomTypeName]['rooms'] ?? 0) + 1;
+                $roomTypeAgg[$roomTypeName]['rooms']     = ($roomTypeAgg[$roomTypeName]['rooms'] ?? 0) + $roomUnits;
             }
 
             // Khu vực = category CHA (chi nhánh gốc) của phòng, hoặc chính category đó nếu đã là gốc
@@ -260,7 +262,7 @@ class OverviewService
             // coi như active để không bị lọc nhầm bởi rule status=false bên dưới.
             $areaAgg[$areaKey]['status']   = $areaCategory ? (bool) $areaCategory->status : true;
             $areaAgg[$areaKey]['occupied'] = ($areaAgg[$areaKey]['occupied'] ?? 0) + $occupiedDayCount;
-            $areaAgg[$areaKey]['rooms']    = ($areaAgg[$areaKey]['rooms'] ?? 0) + 1;
+            $areaAgg[$areaKey]['rooms']    = ($areaAgg[$areaKey]['rooms'] ?? 0) + $roomUnits;
         }
 
         $buildTop = function (array $agg) use ($totalDays, $descending) {
@@ -294,6 +296,28 @@ class OverviewService
     }
 
     /**
+     * Số phòng thật của từng product: biến thể phòng = variant_quantity, phòng đơn = 1.
+     *
+     * @return array<string, int> product_id => số phòng
+     */
+    public static function roomCapacities(array $productIds): array
+    {
+        if (empty($productIds)) {
+            return [];
+        }
+
+        return Product::whereIn('id', $productIds)->get(['id', 'is_variant', 'variant_quantity'])
+            ->mapWithKeys(fn (Product $p) => [(string) $p->id => $p->roomCapacity()])
+            ->all();
+    }
+
+    /** Tổng số phòng thật (biến thể phòng tính đủ variant_quantity phòng, không phải 1). */
+    public static function totalRoomCount(array $productIds): int
+    {
+        return array_sum(static::roomCapacities($productIds));
+    }
+
+    /**
      * Tính tập ngày mỗi phòng đã có khách trong [$start, $rangeEnd].
      *
      * @return array{0: array<int, array<string, bool>>, 1: int} [occupiedDays[product_id][Y-m-d]=true, totalDays]
@@ -307,18 +331,31 @@ class OverviewService
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $rangeEnd)
             ->where('checkout_date', '>', $start)
-            ->get(['product_id', 'checkin_date', 'checkout_date']);
+            ->get(['product_id', 'checkin_date', 'checkout_date', 'quantity']);
 
-        // occupiedDays[product_id][Y-m-d] = true — dùng để loại trùng ngày cùng 1 phòng bị đặt nhiều lần.
+        // occupiedDays[product_id][Y-m-d] = số phòng có khách ngày đó — phòng đơn tối đa 1 (loại trùng nhiều lần đặt
+        // cùng ngày); biến thể phòng = số phòng giữ cùng lúc cao nhất trong ngày (RoomInventory::peak), tối đa = sức chứa.
+        $capacities   = static::roomCapacities($productIds);
+        $inventory    = app(\App\Services\RoomInventory::class);
         $occupiedDays = [];
-        foreach ($items as $item) {
-            $from = $item->checkin_date->max($start)->startOfDay();
-            $to   = $item->checkout_date->min($rangeEnd->copy()->addDay())->startOfDay();
-            if ($to->lte($from)) {
-                continue;
-            }
-            foreach (CarbonPeriod::create($from, '1 day', $to->copy()->subDay()) as $day) {
-                $occupiedDays[$item->product_id][$day->toDateString()] = true;
+        foreach ($items->groupBy('product_id') as $productId => $productItems) {
+            $capacity = $capacities[$productId] ?? 1;
+
+            foreach ($productItems as $item) {
+                $from = $item->checkin_date->max($start)->startOfDay();
+                $to   = $item->checkout_date->min($rangeEnd->copy()->addDay())->startOfDay();
+                if ($to->lte($from)) {
+                    continue;
+                }
+                foreach (CarbonPeriod::create($from, '1 day', $to->copy()->subDay()) as $day) {
+                    $date = $day->toDateString();
+
+                    if ($capacity === 1) {
+                        $occupiedDays[$productId][$date] = 1;
+                    } elseif (! isset($occupiedDays[$productId][$date])) {
+                        $occupiedDays[$productId][$date] = min($capacity, $inventory->peak($productItems, $day->copy(), $day->copy()->addDay()));
+                    }
+                }
             }
         }
 

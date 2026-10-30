@@ -907,7 +907,10 @@ window.rcCalRenderGrid = function() {
             + '</div>';
 
         return '<div class="ta-rc-cal-room-block">'
-            + '<h4 class="ta-rc-cal-room-name">' + window._escAttr(r.room_name) + '</h4>'
+            + '<h4 class="ta-rc-cal-room-name">' + window._escAttr(r.room_name)
+            // Biến thể phòng: số phòng đang có khách / tổng số phòng của loại.
+            + (r.is_variant ? ' <span class="ta-rc-cal-variant-badge" style="margin-left:6px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#ecfdf5;color:#047857;">' + (r.rooms_in_use || 0) + '/' + r.variant_quantity + ' phòng có khách</span>' : '')
+            + '</h4>'
             + actionsHtml
             + '<div class="ta-rc-cal-slot-head-row">' + slotHeadHtml + '</div>'
             + rowsHtml

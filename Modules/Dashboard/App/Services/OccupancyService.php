@@ -47,7 +47,7 @@ class OccupancyService
             ? [[
                 'id'          => null,
                 'name'        => 'all',
-                'total_rooms' => count($productIds),
+                'total_rooms' => OverviewService::totalRoomCount($productIds),
                 'rate_pct'    => $trend['rate_pct'],
             ]]
             : static::byBranch($user, $branchCategoryIds, $start, $end);
@@ -55,7 +55,7 @@ class OccupancyService
         return [
             'filter'      => $period,
             'date_range'  => ['start' => $start->toDateString(), 'end' => $end->toDateString()],
-            'total_rooms' => count($productIds),
+            'total_rooms' => OverviewService::totalRoomCount($productIds),
             'rate_pct'    => $trend['rate_pct'],
             'series'      => $trend['series'],
             'by_branch'   => $byBranch,
@@ -69,7 +69,9 @@ class OccupancyService
      */
     private static function occupancyByOrderCount(array $productIds, Carbon $start, Carbon $end): array
     {
-        $totalRooms = count($productIds);
+        // Biến thể phòng tính đủ variant_quantity phòng; "phòng có đơn" của biến thể = số phòng giữ cùng lúc cao nhất.
+        $capacities = OverviewService::roomCapacities($productIds);
+        $totalRooms = array_sum($capacities);
         if ($totalRooms === 0) {
             return ['rate_pct' => 0, 'series' => []];
         }
@@ -90,10 +92,12 @@ class OccupancyService
             ->where('checkout_date', '>', $start)
             ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false)
                 ->whereNotIn('status', self::EXCLUDED_STATUSES))
-            ->get(['id', 'product_id', 'checkin_date', 'checkout_date']);
+            ->get(['id', 'product_id', 'checkin_date', 'checkout_date', 'quantity']);
 
-        $allRoomIds    = [];
-        $bucketRoomIds = []; // [bucketKey => [product_id => true]]
+        $inventory     = app(\App\Services\RoomInventory::class);
+        $itemsByRoom   = $items->groupBy('product_id');
+        $allRoomIds    = [];  // [product_id => số phòng có đơn cao nhất trong kỳ]
+        $bucketRoomIds = []; // [bucketKey => [product_id => số phòng có đơn]]
         $byMonth       = max(1, (int) $start->diffInDays($rangeEnd) + 1) > self::MAX_DAYS_FOR_DAILY_BREAKDOWN;
 
         foreach ($items as $item) {
@@ -110,11 +114,16 @@ class OccupancyService
                 $to = $from->copy()->addDay();
             }
 
-            $allRoomIds[$item->product_id] = true;
+            $capacity = $capacities[$item->product_id] ?? 1;
 
             foreach (CarbonPeriod::create($from, '1 day', $to->copy()->subDay()) as $day) {
                 $bucketKey = $byMonth ? $day->format('Y-m') : $day->toDateString();
-                $bucketRoomIds[$bucketKey][$item->product_id] = true;
+                $units     = $capacity === 1
+                    ? 1
+                    : min($capacity, $inventory->peak($itemsByRoom[$item->product_id], $day->copy()->startOfDay(), $day->copy()->startOfDay()->addDay()));
+
+                $bucketRoomIds[$bucketKey][$item->product_id] = max($bucketRoomIds[$bucketKey][$item->product_id] ?? 0, $units);
+                $allRoomIds[$item->product_id]                = max($allRoomIds[$item->product_id] ?? 0, $units);
             }
         }
 
@@ -127,23 +136,23 @@ class OccupancyService
         if ($byMonth) {
             foreach (CarbonPeriod::create($start->copy()->startOfMonth(), '1 month', $rangeEnd) as $m) {
                 $key = $m->format('Y-m');
-                foreach ($bucketRoomIds[$key] ?? [] as $productId => $_) {
-                    $cumulativeRoomIds[$productId] = true;
+                foreach ($bucketRoomIds[$key] ?? [] as $productId => $units) {
+                    $cumulativeRoomIds[$productId] = max($cumulativeRoomIds[$productId] ?? 0, $units);
                 }
-                $series[] = ['date' => $key, 'pct' => round((count($cumulativeRoomIds) / $totalRooms) * 100, 2)];
+                $series[] = ['date' => $key, 'pct' => round((array_sum($cumulativeRoomIds) / $totalRooms) * 100, 2)];
             }
         } else {
             foreach (CarbonPeriod::create($start, '1 day', $rangeEnd) as $day) {
                 $key = $day->toDateString();
-                foreach ($bucketRoomIds[$key] ?? [] as $productId => $_) {
-                    $cumulativeRoomIds[$productId] = true;
+                foreach ($bucketRoomIds[$key] ?? [] as $productId => $units) {
+                    $cumulativeRoomIds[$productId] = max($cumulativeRoomIds[$productId] ?? 0, $units);
                 }
-                $series[] = ['date' => $key, 'pct' => round((count($cumulativeRoomIds) / $totalRooms) * 100, 2)];
+                $series[] = ['date' => $key, 'pct' => round((array_sum($cumulativeRoomIds) / $totalRooms) * 100, 2)];
             }
         }
 
         return [
-            'rate_pct' => round((count($allRoomIds) / $totalRooms) * 100, 2),
+            'rate_pct' => round((array_sum($allRoomIds) / $totalRooms) * 100, 2),
             'series'   => $series,
         ];
     }
@@ -187,7 +196,7 @@ class OccupancyService
             // Truyền $catIds làm branchCategoryIds để scopedProductIds() tự thu hẹp đúng phòng
             // của riêng chi nhánh này (đã gồm sẵn logic phân quyền super_admin/partner/allowed).
             $productIds = OverviewService::scopedProductIds($user, $catIds);
-            $totalRooms = count($productIds);
+            $totalRooms = OverviewService::totalRoomCount($productIds);
 
             $ratePct = $totalRooms > 0 ? static::occupancyByOrderCount($productIds, $start, $end)['rate_pct'] : 0;
 

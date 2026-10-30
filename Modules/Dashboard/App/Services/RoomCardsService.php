@@ -352,6 +352,12 @@ class RoomCardsService
                 'latest_time'         => $latestTime,
                 'housekeeping_status' => $product->housekeeping_status ?? 'available',
                 'pending_refund'      => $pendingRefundsByProduct->get($product->id),
+                // Biến thể phòng: 1 thẻ = cả loại phòng → kèm số phòng đang có khách ngay lúc này / tổng số phòng.
+                'is_variant'          => (bool) $product->is_variant,
+                'variant_quantity'    => $product->roomCapacity(),
+                'rooms_in_use'        => $product->is_variant
+                    ? $product->roomCapacity() - app(\App\Services\RoomInventory::class)->remaining($product, now(), now()->addMinute())
+                    : null,
             ];
         })->toArray();
 
