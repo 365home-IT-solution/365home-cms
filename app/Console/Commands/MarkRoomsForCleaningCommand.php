@@ -47,7 +47,9 @@ class MarkRoomsForCleaningCommand extends Command
                 ->where('checkout_date', '>', $item->checkout_date)
                 ->exists();
 
-            if (! $hasLaterItemSameStay && $product && $product->housekeeping_status === 'available') {
+            // Biến thể phòng: 1 trạng thái dọn phòng không đại diện được cho N phòng cùng loại (khách trả 1 phòng sẽ
+            // đánh dấu cả loại "đang dọn") → không tự đánh dấu, lễ tân quản lý dọn từng phòng.
+            if (! $hasLaterItemSameStay && $product && ! $product->is_variant && $product->housekeeping_status === 'available') {
                 $product->markForCleaning($item->id);
                 $markedCount++;
             }

@@ -355,6 +355,8 @@ class OrderController extends Controller
             'cccd_qr_image'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests.*.qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guest_count'            => 'sometimes|integer|min:1',
+            // Biến thể phòng: số phòng của đơn (bỏ trống = giữ nguyên số phòng hiện có).
+            'room_quantity'          => 'sometimes|integer|min:1|max:500',
             'type'                   => 'sometimes|in:slot,daily,monthly',
             'room_id'                => 'sometimes|string',
             'payment_type'           => 'sometimes|in:full,deposit',
@@ -596,6 +598,13 @@ class OrderController extends Controller
 
             $newSlotSummary = [];
 
+            // Biến thể phòng: giữ nguyên số phòng của đơn khi dựng lại items (trước đây luôn tạo lại 1 phòng), trừ khi
+            // admin gửi room_quantity mới.
+            $this->roomQuantity = app(\App\Services\RoomInventory::class)->requestedQuantity(
+                $room,
+                $request->input('room_quantity') ?? $order->items->where('product_id', $room->id)->where('extra_fee', 0)->max('quantity'),
+            );
+
             DB::transaction(function () use ($request, $room, $order, $data, &$updates, &$newSlotSummary) {
                 Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -623,22 +632,7 @@ class OrderController extends Controller
 
                 [$guestSurcharge] = $this->buildGuestSurcharge($request, $room, $slotSummary);
 
-                $promotionDiscount = 0;
-                $systemDiscount    = 0;
-                $hasFullBooking    = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
-
-                if ($hasFullBooking) {
-                    [$systemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
-                } else {
-                    if ($rtsCollection->isNotEmpty()) {
-                        [$promotionDiscount] = $request->input('type') === 'daily'
-                            ? $this->applyDailyPromotions($rtsCollection, $slotSummary)
-                            : $this->applyPromotions($rtsCollection, $slotSummary);
-                    }
-                    if (! empty($slotSummary)) {
-                        [$systemDiscount] = $this->applyBulkDiscount(count($slotSummary), $room, $basePrice - $promotionDiscount);
-                    }
-                }
+                [$promotionDiscount, $systemDiscount] = $this->roomDiscounts($request, $room, (float) $basePrice, $rtsCollection, $slotSummary);
 
                 $slotFinalPrice = max(0, $basePrice - $promotionDiscount - $systemDiscount);
 
@@ -827,6 +821,8 @@ class OrderController extends Controller
             'type'                   => 'required|in:slot,daily,monthly',
             'room_id'                => 'sometimes|string',
             'guest_count'            => 'sometimes|integer|min:1',
+            // Biến thể phòng: số phòng của đơn (bỏ trống = giữ nguyên số phòng hiện có).
+            'room_quantity'          => 'sometimes|integer|min:1|max:500',
             'payment_type'           => 'sometimes|in:full,deposit',
             'services'               => 'sometimes|nullable|array',
             'services.*.service_id'  => 'required_with:services|integer',
@@ -881,6 +877,12 @@ class OrderController extends Controller
         if (! $request->filled('guest_count')) {
             $request->merge(['guest_count' => $order->guest_count]);
         }
+
+        // Biến thể phòng: xem trước theo số phòng hiện có của đơn (hoặc room_quantity mới), giống update().
+        $this->roomQuantity = app(\App\Services\RoomInventory::class)->requestedQuantity(
+            $room,
+            $request->input('room_quantity') ?? $order->items->where('product_id', $room->id)->where('extra_fee', 0)->max('quantity'),
+        );
 
         return response()->json($this->computeBookingPreview($request, $room, $order->id, $order->payment_method));
     }
@@ -1258,7 +1260,8 @@ class OrderController extends Controller
 
         $config    = $product->room_config ?? [];
         $fee       = (int) ($config['extra_guest_fee'] ?? 0);
-        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        // Biến thể phòng: mỗi phòng của đơn được miễn phí max_free_guests người.
+        $threshold = (int) ($config['max_free_guests'] ?? 2) * $order->roomQuantity();
         $guests    = (int) $order->guest_count;
         $extra     = max(0, $guests - $threshold);
 

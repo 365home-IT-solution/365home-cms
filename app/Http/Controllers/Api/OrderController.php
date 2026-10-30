@@ -248,7 +248,7 @@ class OrderController extends Controller
             $guestRoom      = $order->items->first()?->product;
             $guestConfig    = $guestRoom?->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2) * $order->roomQuantity();
 
             if ($guestFee > 0) {
                 $itemsSum       = (int) $order->items->sum('price');
@@ -508,7 +508,7 @@ class OrderController extends Controller
         if ($product) {
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2) * $order->roomQuantity();
             $isSlotType     = (int) $product->styles === 1;
             $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
@@ -1173,7 +1173,7 @@ class OrderController extends Controller
         if ($product) {
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2) * $order->roomQuantity();
             $isSlotType     = (int) $product->styles === 1;
             $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;

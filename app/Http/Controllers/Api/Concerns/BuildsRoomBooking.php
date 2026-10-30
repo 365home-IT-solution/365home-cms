@@ -26,6 +26,10 @@ use PayOS\PayOS;
  */
 trait BuildsRoomBooking
 {
+    // Số phòng của đơn — chỉ > 1 với biến thể phòng (Product::is_variant), xem RoomInventory. Controller đặt giá trị này
+    // (từ room_quantity của request, hoặc số phòng hiện có của đơn khi sửa) TRƯỚC khi gọi các build*() bên dưới.
+    private int $roomQuantity = 1;
+
     // ── Slot (nhiều khung giờ) ────────────────────────────────────────────────
 
     // $excludeOrderId: bỏ qua chính đơn này khi kiểm tra trùng khung giờ — dùng cho preview() sửa
@@ -73,7 +77,7 @@ trait BuildsRoomBooking
                 $checkout->addDay();
             }
 
-            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit'], $excludeOrderId);
+            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit'], $excludeOrderId);
 
             if ($conflict) {
                 $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
@@ -86,12 +90,13 @@ trait BuildsRoomBooking
             $label       = $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
             $price       = (int) $rts->priceOn($dateStr);
 
-            $totalPrice  += $price;
+            $totalPrice  += $price * $this->roomQuantity;
             $itemsData[]  = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $label,
-                'price'         => $price,
-                'quantity'      => 1,
+                // Biến thể phòng: price là tiền của CẢ quantity phòng.
+                'price'         => $price * $this->roomQuantity,
+                'quantity'      => $this->roomQuantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkin,
                 'checkout_date' => $checkout,
@@ -160,7 +165,7 @@ trait BuildsRoomBooking
             }
         }
 
-        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit', 'confirmed'], $excludeOrderId);
+        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit', 'confirmed'], $excludeOrderId);
 
         if ($conflict) {
             throw ValidationException::withMessages([
@@ -194,13 +199,13 @@ trait BuildsRoomBooking
             $checkinDt   = Carbon::parse("{$dateStr} {$checkinTime}");
             $checkoutDt  = Carbon::parse("{$nextDate} {$chkoutTime}");
 
-            $totalPrice += $nightPrice;
+            $totalPrice += $nightPrice * $this->roomQuantity;
 
             $itemsData[] = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $current->format('d/m/Y'),
-                'price'         => (int) $nightPrice,
-                'quantity'      => 1,
+                'price'         => (int) $nightPrice * $this->roomQuantity,
+                'quantity'      => $this->roomQuantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkinDt,
                 'checkout_date' => $checkoutDt,
@@ -224,6 +229,38 @@ trait BuildsRoomBooking
         return [(int) $totalPrice, $summaryName, $itemsData, $rtsCollection, $nightSummary];
     }
 
+    /**
+     * Giảm giá phòng tính trên $slotSummary (giá 1 phòng) → nhân theo số phòng. Quy tắc "đặt cả ngày" có thể là số
+     * tiền cố định nên phải tính cho 1 phòng ($basePrice / số phòng) rồi mới nhân, giống BookingController::store().
+     *
+     * @return array{0: float, 1: float} [$promotionDiscount, $systemDiscount]
+     */
+    private function roomDiscounts(Request $request, Product $room, float $basePrice, Collection $rtsCollection, array $slotSummary): array
+    {
+        $qty               = $this->roomQuantity;
+        $promotionDiscount = 0;
+        $systemDiscount    = 0;
+
+        if (! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room)) {
+            [$systemDiscount] = $this->applyFullBookingDiscount($basePrice / $qty, $room);
+
+            return [0, $systemDiscount * $qty];
+        }
+
+        if ($rtsCollection->isNotEmpty()) {
+            [$promotionDiscount] = $request->input('type') === 'daily'
+                ? $this->applyDailyPromotions($rtsCollection, $slotSummary)
+                : $this->applyPromotions($rtsCollection, $slotSummary);
+            $promotionDiscount *= $qty;
+        }
+
+        if (! empty($slotSummary)) {
+            [$systemDiscount] = $this->applyBulkDiscount(count($slotSummary), $room, $basePrice - $promotionDiscount);
+        }
+
+        return [$promotionDiscount, $systemDiscount];
+    }
+
     // ── Monthly (thuê tháng) ─────────────────────────────────────────────────
 
     private function buildMonthlyItem(Request $request, Product $room, ?int $excludeOrderId = null): array
@@ -231,7 +268,7 @@ trait BuildsRoomBooking
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
 
-        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit'], $excludeOrderId);
+        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit'], $excludeOrderId);
 
         if ($conflict) {
             throw ValidationException::withMessages([
@@ -240,14 +277,14 @@ trait BuildsRoomBooking
         }
 
         $months   = max(1, (int) $checkin->diffInMonths($checkout));
-        $price    = (int) ($room->price * $months);
+        $price    = (int) ($room->price * $months) * $this->roomQuantity;
         $itemName = $room->name . ' - Thuê tháng (' . $months . ' tháng)';
 
         return [$price, $itemName, [[
             'product_id'    => $room->id,
             'name'          => $itemName,
             'price'         => $price,
-            'quantity'      => 1,
+            'quantity'      => $this->roomQuantity,
             'is_shipped'    => true,
             'checkin_date'  => $checkin,
             'checkout_date' => $checkout,
@@ -464,7 +501,8 @@ trait BuildsRoomBooking
 
         $config    = $room->room_config ?? [];
         $fee       = (int) ($config['extra_guest_fee'] ?? 0);
-        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        // Biến thể phòng: mỗi phòng đặt thêm được miễn phí max_free_guests người.
+        $threshold = (int) ($config['max_free_guests'] ?? 2) * $this->roomQuantity;
         $guests    = (int) $request->guest_count;
 
         if ($fee <= 0 || $guests <= $threshold) {
@@ -534,27 +572,15 @@ trait BuildsRoomBooking
         [$servicesTotal] = $this->buildServices($request, $room);
         [$guestSurcharge, $guestSurchargeInfo] = $this->buildGuestSurcharge($request, $room, $slotSummary);
 
-        $promotionDiscount     = 0;
-        $systemDiscount        = 0;
+        // Số tiền giảm tính theo số phòng của đơn (roomDiscounts()); thông tin quy tắc áp dụng (nhãn, %) lấy từ quy tắc gốc.
+        [$promotionDiscount, $systemDiscount] = $this->roomDiscounts($request, $room, (float) $basePrice, $rtsCollection, $slotSummary);
+
         $appliedSystemDiscount = null;
-
-        $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
-
-        if ($hasFullBooking) {
-            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
-        } else {
-            if ($rtsCollection->isNotEmpty()) {
-                [$promotionDiscount] = $type === 'daily'
-                    ? $this->applyDailyPromotions($rtsCollection, $slotSummary)
-                    : $this->applyPromotions($rtsCollection, $slotSummary);
-            }
-            if (! empty($slotSummary)) {
-                [$systemDiscount, $appliedSystemDiscount] = $this->applyBulkDiscount(
-                    count($slotSummary),
-                    $room,
-                    $basePrice - $promotionDiscount
-                );
-            }
+        if ($systemDiscount > 0) {
+            [, $appliedSystemDiscount] = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room)
+                ? $this->applyFullBookingDiscount($basePrice / $this->roomQuantity, $room)
+                : $this->applyBulkDiscount(count($slotSummary), $room, $basePrice - $promotionDiscount);
+            $appliedSystemDiscount['discount_amount'] = (int) $systemDiscount;
         }
 
         $discountAmount = $promotionDiscount + $systemDiscount;

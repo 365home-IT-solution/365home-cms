@@ -217,12 +217,19 @@ class OrderExtraBookingService
                 $order->refresh();
                 $currentGuestCount = (int) $order->guest_count;
 
+                // Biến thể phòng: đặt thêm cho CÙNG số phòng đơn đang giữ (đơn 3 phòng đặt thêm 1 đêm = thêm 1 đêm cho cả 3 phòng).
+                $roomQty = app(\App\Services\RoomInventory::class)->requestedQuantity(
+                    $roomAdditionRoom,
+                    $order->items()->where('product_id', $roomAdditionRoom->id)->where('extra_fee', 0)->max('quantity'),
+                );
+
                 if ($roomAddition['type'] === 'slot') {
                     [$roomAddedPrice, , $itemsData, $rtsCollection, $slotSummary] = $this->roomItemBuilder->buildSlotItems(
                         $roomAddition['slots'],
                         null,
                         $roomAdditionRoom,
                         $currentGuestCount,
+                        $roomQty,
                     );
                     $roomAddedItems = $slotSummary;
                 } else {
@@ -231,6 +238,7 @@ class OrderExtraBookingService
                         $roomAddition['checkout_date'],
                         $roomAdditionRoom,
                         $currentGuestCount,
+                        $roomQty,
                     );
                     $roomAddedItems = $nightSummary;
                 }
@@ -241,7 +249,12 @@ class OrderExtraBookingService
                 $hasFullBooking = ! empty($roomAddedItems) && $this->discountCalculator->checkFullDayBooking($roomAddedItems, $roomAdditionRoom);
 
                 if ($hasFullBooking) {
-                    [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyFullBookingDiscount($roomAddedPrice, $roomAdditionRoom);
+                    // Quy tắc có thể là số tiền cố định → tính cho 1 phòng rồi nhân theo số phòng.
+                    [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyFullBookingDiscount($roomAddedPrice / $roomQty, $roomAdditionRoom);
+                    $systemDiscount                         *= $roomQty;
+                    if ($appliedSystemDiscount) {
+                        $appliedSystemDiscount['discount_amount'] = $systemDiscount;
+                    }
                     $promotionDiscount    = 0;
                     $appliedPromotions    = [];
                 } else {
@@ -250,6 +263,9 @@ class OrderExtraBookingService
                     if ($rtsCollection->isNotEmpty()) {
                         $promotionMethod = $roomAddition['type'] === 'daily' ? 'applyDailyPromotions' : 'applyPromotions';
                         [$promotionDiscount, $appliedPromotions] = $this->discountCalculator->$promotionMethod($rtsCollection, $roomAddedItems);
+                        // $roomAddedItems giữ giá 1 phòng → khuyến mãi nhân theo số phòng.
+                        $promotionDiscount *= $roomQty;
+                        $appliedPromotions  = array_map(fn ($p) => ['discount_amount' => ($p['discount_amount'] ?? 0) * $roomQty] + $p, $appliedPromotions);
                     }
 
                     $systemDiscount        = 0;

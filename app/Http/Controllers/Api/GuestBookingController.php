@@ -1808,7 +1808,7 @@ class GuestBookingController extends Controller
         if ($room) {
             $config    = $room->room_config ?? [];
             $fee       = (int) ($config['extra_guest_fee'] ?? 0);
-            $threshold = (int) ($config['max_free_guests'] ?? 2);
+            $threshold = (int) ($config['max_free_guests'] ?? 2) * $order->roomQuantity();
             $guests    = (int) $order->guest_count;
 
             if ($fee > 0 && $guests > $threshold) {
@@ -2011,7 +2011,7 @@ class GuestBookingController extends Controller
         if ($product) {
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2) * $order->roomQuantity();
             $isSlotType     = (int) $product->styles === 1;
             $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;

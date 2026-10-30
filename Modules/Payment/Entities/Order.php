@@ -405,6 +405,13 @@ class Order extends Model implements Eventable
         return $this->hasMany(OrderItem::class);
     }
 
+    // Số phòng của đơn (biến thể phòng: order_items.quantity của dòng phòng, phòng đơn luôn 1) — dùng để nhân ngưỡng khách
+    // miễn phụ thu (max_free_guests mỗi phòng) khi tính lại tiền đơn đã lưu.
+    public function roomQuantity(): int
+    {
+        return max(1, (int) $this->items->where('extra_fee', 0)->max('quantity'));
+    }
+
     // Khách thứ 2 trở đi (đặt qua đêm) — xem migration 2026_07_20_000001_create_order_guest_cccds_table.
     public function guestCccds()
     {

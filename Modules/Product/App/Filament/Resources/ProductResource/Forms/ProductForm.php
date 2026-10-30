@@ -302,7 +302,8 @@ class ProductForm
             // Biến thể phòng: 1 phòng đại diện cho cả loại phòng (vd "DBL balcony" x5), khách chọn số lượng phòng khi đặt.
             Toggle::make('is_variant')
                 ->label('Biến thể phòng')
-                ->helperText('Bật khi phòng này là 1 loại phòng gồm nhiều phòng giống nhau — khách chọn số lượng phòng như Booking/Agoda.')
+                ->helperText('Bật khi phòng này là 1 loại phòng gồm nhiều phòng giống nhau — khách chọn số lượng phòng như Booking/Agoda. '
+                    . 'Khoá TTLock của phòng biến thể nên là cổng/cửa chính dùng chung (mỗi đơn nhận mã riêng mở cổng); số phòng cụ thể và chìa khoá do lễ tân giao khi nhận phòng, trạng thái dọn phòng không tự cập nhật.')
                 ->default(false)
                 ->live()
                 ->inlineLabel(),

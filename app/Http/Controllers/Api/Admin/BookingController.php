@@ -55,6 +55,8 @@ class BookingController extends Controller
             'type'                    => 'required|in:slot,monthly,daily',
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
+            // Biến thể phòng: số phòng cùng loại đặt hộ (mặc định 1, phòng đơn luôn bị ép về 1).
+            'room_quantity'           => 'sometimes|integer|min:1|max:500',
             // customers.id là UUID (char 36), KHÔNG phải số nguyên — xem migration create_customers_table.
             'customer_id'             => 'sometimes|nullable|string|size:36|exists:customers,id',
             'customer_phone'          => 'sometimes|nullable|string|max:20',
@@ -170,6 +172,8 @@ class BookingController extends Controller
         if (! $admin->isSuperAdmin() && ! $admin->belongsToPlatformPartner() && $room->partner_id !== $admin->partner_id) {
             return response()->json(['message' => 'Bạn không có quyền đặt phòng của đối tác khác.'], 403);
         }
+
+        $this->roomQuantity = app(\App\Services\RoomInventory::class)->requestedQuantity($room, $request->input('room_quantity'));
 
         // ── 4. Xây dựng items đặt phòng ──────────────────────────────────────
         $rtsCollection = collect();
@@ -310,7 +314,10 @@ class BookingController extends Controller
         $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
 
         if ($hasFullBooking) {
-            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
+            // Quy tắc có thể là số tiền cố định → tính cho 1 phòng rồi nhân theo số phòng đặt.
+            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice / $this->roomQuantity, $room);
+            $systemDiscount                           *= $this->roomQuantity;
+            $appliedSystemDiscount['discount_amount']  = $systemDiscount;
         } else {
             if ($rtsCollection->isNotEmpty()) {
                 if ($request->input('type') === 'daily') {
@@ -318,6 +325,10 @@ class BookingController extends Controller
                 } else {
                     [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $slotSummary);
                 }
+
+                // $slotSummary giữ giá 1 phòng → khuyến mãi nhân theo số phòng đặt.
+                $promotionDiscount *= $this->roomQuantity;
+                $appliedPromotions  = array_map(fn ($p) => ['discount_amount' => ($p['discount_amount'] ?? 0) * $this->roomQuantity] + $p, $appliedPromotions);
             }
 
             if (! empty($slotSummary)) {
@@ -404,7 +415,7 @@ class BookingController extends Controller
                 if (empty($itemData['checkin_date'])) {
                     continue;
                 }
-                $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $itemData['checkin_date'], $itemData['checkout_date'], 1, ['pending', 'paid', 'deposit']);
+                $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $itemData['checkin_date'], $itemData['checkout_date'], $this->roomQuantity, ['pending', 'paid', 'deposit']);
 
                 if ($conflict) {
                     throw ValidationException::withMessages([
@@ -419,7 +430,7 @@ class BookingController extends Controller
                 'discounts'       => $roomDiscountLines ?: null,
                 'deposit_percent' => $depositPercentToSave,
                 // Admin có thể tự nhập mô tả; không gửi thì fallback về mô tả tự sinh như trước.
-                'description'       => $request->input('description') ?: ('Đặt phòng (admin) - ' . $room->name),
+                'description'       => $request->input('description') ?: ('Đặt phòng (admin) - ' . $room->name . ($this->roomQuantity > 1 ? " ({$this->roomQuantity} phòng)" : '')),
                 'short_description' => $request->input('short_description'),
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
@@ -583,6 +594,7 @@ class BookingController extends Controller
             'type'                   => 'required|in:slot,monthly,daily',
             'room_id'                => 'required|string',
             'guest_count'            => 'required|integer|min:1',
+            'room_quantity'          => 'sometimes|integer|min:1|max:500',
             'payment_method'         => 'sometimes|in:PayOS,cod',
             'payment_type'           => 'sometimes|in:full,deposit',
             'services'               => 'sometimes|nullable|array',
@@ -624,6 +636,8 @@ class BookingController extends Controller
         if (! $admin->isSuperAdmin() && ! $admin->belongsToPlatformPartner() && $room->partner_id !== $admin->partner_id) {
             return response()->json(['message' => 'Bạn không có quyền đặt phòng của đối tác khác.'], 403);
         }
+
+        $this->roomQuantity = app(\App\Services\RoomInventory::class)->requestedQuantity($room, $request->input('room_quantity'));
 
         return response()->json($this->computeBookingPreview($request, $room));
     }

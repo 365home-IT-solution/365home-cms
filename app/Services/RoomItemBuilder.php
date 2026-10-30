@@ -21,7 +21,8 @@ class RoomItemBuilder
      * @param  array{timeslot_id:int, date?:string}[]  $slots
      * @return array{0:int, 1:string, 2:array, 3:\Illuminate\Support\Collection, 4:array}
      */
-    public function buildSlotItems(array $slots, ?string $defaultDate, Product $room, int $guestCount): array
+    // $quantity: số phòng (biến thể phòng) — mỗi dòng giữ $quantity phòng, price là tiền của cả $quantity phòng.
+    public function buildSlotItems(array $slots, ?string $defaultDate, Product $room, int $guestCount, int $quantity = 1): array
     {
         $totalPrice    = 0;
         $itemsData     = [];
@@ -60,10 +61,10 @@ class RoomItemBuilder
                 $checkout->addDay();
             }
 
-            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit']);
+            $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $quantity, ['pending', 'paid', 'deposit']);
 
             if ($conflict) {
-                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                $errors["slots.{$index}.timeslot_id"] = [$room->is_variant ? 'Khung giờ này không còn đủ số phòng của đơn.' : 'Khung giờ này đã được đặt rồi.'];
                 continue;
             }
 
@@ -73,12 +74,12 @@ class RoomItemBuilder
             $label       = $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
             $price       = (int) ($rts->priceOn($checkin) ?? $rts->price);
 
-            $totalPrice  += $price;
+            $totalPrice  += $price * $quantity;
             $itemsData[]  = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $label,
-                'price'         => $price,
-                'quantity'      => 1,
+                'price'         => $price * $quantity,
+                'quantity'      => $quantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkin,
                 'checkout_date' => $checkout,
@@ -114,7 +115,7 @@ class RoomItemBuilder
     /**
      * @return array{0:int, 1:string, 2:array, 3:\Illuminate\Support\Collection, 4:array}
      */
-    public function buildDailyItems(string $checkinDate, string $checkoutDate, Product $room, int $guestCount): array
+    public function buildDailyItems(string $checkinDate, string $checkoutDate, Product $room, int $guestCount, int $quantity = 1): array
     {
         $checkin  = Carbon::parse($checkinDate)->startOfDay();
         $checkout = Carbon::parse($checkoutDate)->startOfDay();
@@ -126,13 +127,18 @@ class RoomItemBuilder
             ]);
         }
 
-        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, 1, ['pending', 'paid', 'deposit', 'confirmed']);
-
-        if ($conflict) {
-            throw ValidationException::withMessages([
-                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
-            ]);
+        // Khoảng admin khoá trọn phòng — luồng đặt thêm trước đây bỏ sót (khoá một phần đã trừ vào tồn phòng).
+        foreach ($room->fullBlockedRanges() as $range) {
+            if ($checkin->lte(Carbon::parse($range['end'])->startOfDay()) && $checkout->gt(Carbon::parse($range['start'])->startOfDay())) {
+                throw ValidationException::withMessages([
+                    'checkin_date' => ['Khoảng ngày này hiện không nhận đặt.'],
+                ]);
+            }
         }
+
+        app(\App\Services\RoomInventory::class)->assertAvailable(
+            $room, $checkin, $checkout, $quantity, 'checkin_date', 'Phòng đã được đặt trong khoảng thời gian này.', ['pending', 'paid', 'deposit', 'confirmed']
+        );
 
         $slotsByDate = $room->roomTimeSlots
             ->filter(fn ($rts) => $rts->timeSlot?->type === 'date')
@@ -161,13 +167,13 @@ class RoomItemBuilder
             $checkinDt    = Carbon::parse("{$dateStr} {$checkinTime}");
             $checkoutDt   = Carbon::parse("{$nextDate} {$checkoutTime}");
 
-            $totalPrice += $nightPrice;
+            $totalPrice += $nightPrice * $quantity;
 
             $itemsData[] = [
                 'product_id'    => $room->id,
                 'name'          => $room->name . ' - ' . $current->format('d/m/Y'),
-                'price'         => (int) $nightPrice,
-                'quantity'      => 1,
+                'price'         => (int) $nightPrice * $quantity,
+                'quantity'      => $quantity,
                 'is_shipped'    => true,
                 'checkin_date'  => $checkinDt,
                 'checkout_date' => $checkoutDt,
