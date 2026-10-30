@@ -48,6 +48,8 @@ trait PropertiesProductDetail
     public $totalAmount = 0;
     // Biến thể phòng: số phòng còn trống trong khoảng ngày khách đang chọn (null = phòng đơn / chưa chọn đủ ngày).
     public ?int $variantRemaining = null;
+    // Biến thể phòng: số phòng khách chọn (1..số phòng còn trống); phòng đơn luôn 1.
+    public int $roomQuantity = 1;
     public $accept1 = false;
     public $accept2 = false;
     public $acceptRefundPolicy = false;

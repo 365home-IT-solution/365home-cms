@@ -985,6 +985,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($this->bookingStyle == 2) $this->calculateDateRangeTotal();
     }
 
+    public function updatedRoomQuantity()
+    {
+        if ($this->bookingStyle == 2) $this->calculateDateRangeTotal();
+    }
+
     public function updatedGuests()
     {
         // Cắt bớt CCCD người đi cùng dư ra khi giảm số khách (giữ đúng thứ tự index 0..N-1).
@@ -1031,6 +1036,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($this->product?->is_variant) {
             $this->variantRemaining = app(\App\Services\RoomInventory::class)->remaining($this->product, $checkin, $checkout);
         }
+
+        // Biến thể phòng: kẹp số phòng khách chọn trong [1, số phòng còn trống] — đổi ngày làm ít phòng hơn thì tự giảm theo.
+        $qty = $this->product?->is_variant
+            ? max(1, min((int) $this->roomQuantity, $this->variantRemaining ?: 1, $this->product->roomCapacity()))
+            : 1;
+        $this->roomQuantity = $qty;
 
         $dayPriceMap = ['mon'=>1,'tue'=>2,'wed'=>3,'thu'=>4,'fri'=>5,'sat'=>6,'sun'=>0];
         $dayPrices = [];
@@ -1086,6 +1097,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $current->addDay();
         }
 
+        // Giá trên là của 1 phòng → nhân theo số phòng (cùng cách BookingController tính lúc tạo đơn qua API).
+        $totalBeforePromo *= $qty;
+        $totalAfterPromo  *= $qty;
+        $totalIncrease    *= $qty;
+        $totalDiscount    *= $qty;
+
         $this->originalTotalAmount = $totalBeforePromo;
         $this->increaseAmount      = $totalIncrease;
         $this->promoDiscountAmount = $totalDiscount;
@@ -1101,7 +1118,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         // Phụ thu khách — nhân theo số đêm (đồng bộ API)
         $cfg2    = $this->product ? ($this->product->room_config ?? []) : [];
-        $maxFree = (int) ($cfg2['max_free_guests'] ?? 2);
+        $maxFree = (int) ($cfg2['max_free_guests'] ?? 2) * $qty; // mỗi phòng được miễn phí max_free_guests người
         $feePer  = (int) ($cfg2['extra_guest_fee'] ?? 50000);
         $this->extraFee = $this->guests > $maxFree
             ? ($this->guests - $maxFree) * $feePer * $nights
@@ -1258,6 +1275,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         if ($this->bookingStyle == 2) {
             $conflict = $this->checkDateRangeConflicts();
+            if ($conflict && isset($conflict['variant_left'])) {
+                $this->dispatch('notify', ['message' => $this->variantSoldOutMessage($conflict), 'type' => 'error']);
+                return;
+            }
             if ($conflict) {
                 $statusLabel = match($conflict['order_status']) {
                     'paid'      => 'đã thanh toán',
@@ -1679,9 +1700,10 @@ public function confirmBooking()
 
                 $order->items()->create([
                     'product_id'    => $this->product->id,
-                    'name'          => $this->product->name,
+                    'name'          => $this->product->name . ($this->product->is_variant && $this->roomQuantity > 1 ? " ({$this->roomQuantity} phòng)" : ''),
                     'price'         => max(0, $orderTotal - $extraFee),
-                    'quantity'      => 1,
+                    // Biến thể phòng: số phòng khách chọn (price đã là tiền của cả số phòng).
+                    'quantity'      => $this->product->is_variant ? max(1, (int) $this->roomQuantity) : 1,
                     'extra_fee'     => 0,
                     'checkin_date'  => $checkinDateTime,
                     'checkout_date' => $checkoutDateTime,
@@ -1808,6 +1830,12 @@ public function confirmBooking()
         if (str_starts_with($e->getMessage(), 'DATE_CONFLICT:')) {
             $conflict = json_decode(substr($e->getMessage(), 14), true);
 
+            if (isset($conflict['variant_left'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', ['message' => $this->variantSoldOutMessage($conflict), 'type' => 'error']);
+                return;
+            }
+
             if (! empty($conflict['is_blocked'])) {
                 $this->dispatch('close-booking-modal');
                 $this->dispatch('notify', [
@@ -1848,6 +1876,13 @@ public function confirmBooking()
      * Overlap: newStart < existingEnd AND newEnd > existingStart (strict cả 2 chiều).
      * Cho phép checkout cùng ngày checkin của đơn khác (không block ngày turnover).
      */
+    protected function variantSoldOutMessage(array $conflict): string
+    {
+        return $conflict['variant_left'] > 0
+            ? "Rất tiếc! Ngày {$conflict['checkin']} – {$conflict['checkout']} chỉ còn {$conflict['variant_left']} phòng trống. Vui lòng giảm số phòng hoặc chọn ngày khác."
+            : "Rất tiếc! Ngày {$conflict['checkin']} – {$conflict['checkout']} đã hết phòng. Vui lòng chọn ngày khác.";
+    }
+
     protected function checkDateRangeConflicts(bool $lockForUpdate = false): ?array
     {
         if (empty($this->startTime) || empty($this->endTime) || !$this->product) {
@@ -1887,8 +1922,15 @@ public function confirmBooking()
         }
 
         // Biến thể phòng: còn ít nhất 1 phòng trống trong khoảng ngày thì không tính là trùng (web đặt 1 phòng/đơn).
-        if ($this->product->is_variant && app(\App\Services\RoomInventory::class)->hasRoom($this->product, $newStart, $newEnd)) {
-            return null;
+        if ($this->product->is_variant) {
+            $left = app(\App\Services\RoomInventory::class)->remaining($this->product, $newStart, $newEnd);
+
+            // Không đủ phòng: báo số phòng còn lại thay vì tên khách của 1 đơn bất kỳ (biến thể có nhiều đơn cùng ngày).
+            return $left >= max(1, (int) $this->roomQuantity) ? null : [
+                'checkin'      => $newStart->format('d/m/Y'),
+                'checkout'     => $newEnd->format('d/m/Y'),
+                'variant_left' => $left,
+            ];
         }
 
         $query = OrderItem::with('order')

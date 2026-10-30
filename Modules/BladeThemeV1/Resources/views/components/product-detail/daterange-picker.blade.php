@@ -39,6 +39,8 @@ function dateRangePicker(pricePerNight) {
         checkoutTime: @entangle('style2CheckoutTime'),
         // Biến thể phòng: số phòng còn trống cho khoảng ngày đang chọn (server tính), null với phòng đơn.
         variantRemaining: @entangle('variantRemaining'),
+        // Biến thể phòng: số phòng khách chọn — giá tạm tính bên dưới (tính cho 1 phòng) nhân theo số này.
+        roomQty: @entangle('roomQuantity'),
         variantCapacity: {{ $product->is_variant ? $product->roomCapacity() : 'null' }},
         extraFeeAmount: @entangle('extraFee'),
         guestsCount: @entangle('guests'),
@@ -275,7 +277,7 @@ function dateRangePicker(pricePerNight) {
             if (!this.startDate || !this.endDate) return 0;
             var total = 0, d = new Date(this.startDate + 'T00:00:00'), end = new Date(this.endDate + 'T00:00:00');
             while (d < end) { total += this.priceForDate(this.isoDate(d.getFullYear(), d.getMonth(), d.getDate())); d.setDate(d.getDate() + 1); }
-            return total;
+            return total * Math.max(1, Number(this.roomQty || 1));
         },
         get originalSubtotal() {
             if (!this.startDate || !this.endDate) return 0;
@@ -285,7 +287,7 @@ function dateRangePicker(pricePerNight) {
                 total += this.basePriceForDate(iso) + this.surchargeAmountForDate(iso);
                 d.setDate(d.getDate() + 1);
             }
-            return total;
+            return total * Math.max(1, Number(this.roomQty || 1));
         },
         get promoSavingsTotal() {
             return Math.max(0, this.originalSubtotal - this.totalPrice);
@@ -544,6 +546,10 @@ function dateRangePicker(pricePerNight) {
                             <div class="flex items-center justify-between text-gray-400">
                                 <span>Số đêm</span>
                                 <span class="font-semibold" x-text="nightCount + ' đêm'"></span>
+                            </div>
+                            <div class="flex items-center justify-between text-gray-400" x-show="variantCapacity !== null && roomQty > 1" x-cloak>
+                                <span>Số phòng</span>
+                                <span class="font-semibold" x-text="'× ' + roomQty + ' phòng'"></span>
                             </div>
                         </div>
                     </div>

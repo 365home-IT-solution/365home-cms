@@ -128,6 +128,55 @@
         </div>
     
 
+        {{-- Biến thể phòng (đặt theo ngày): chọn số phòng cùng loại, tối đa = số phòng còn trống của khoảng ngày đã chọn --}}
+        @if ($bookingStyle == 2 && $product?->is_variant)
+            <div class="space-y-1.5" x-data="{
+                rooms: $wire.entangle('roomQuantity'),
+                left: $wire.entangle('variantRemaining'),
+                get max() { return this.left === null ? {{ $product->roomCapacity() }} : Math.max(1, this.left); },
+                dec() { if (this.rooms > 1) { this.rooms--; $wire.set('roomQuantity', this.rooms); } },
+                inc() { if (this.rooms < this.max) { this.rooms++; $wire.set('roomQuantity', this.rooms); } }
+            }">
+                <label class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Số phòng</label>
+                <div class="flex items-center justify-between rounded-lg border border-[#DDDDDD] h-10 px-2.5">
+                    <div class="flex items-center gap-1.5 text-sm text-[#222222]">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 text-[#717171] shrink-0">
+                            <path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"></path>
+                            <path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"></path>
+                            <path d="M12 4v6"></path>
+                            <path d="M2 18h20"></path>
+                        </svg>
+                        <span>Phòng</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="dec()" :disabled="rooms <= 1"
+                            class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white disabled:opacity-40 disabled:pointer-events-none shrink-0"
+                            style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;padding:0;line-height:1;font-size:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:block;">
+                                <path d="M5 12h14"></path>
+                            </svg>
+                        </button>
+                        <span class="text-sm font-semibold text-[#222222] w-3 text-center tabular-nums" x-text="rooms"></span>
+                        <button type="button" @click="inc()" :disabled="rooms >= max"
+                            class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white disabled:opacity-40 disabled:pointer-events-none shrink-0"
+                            style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;padding:0;line-height:1;font-size:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:block;">
+                                <path d="M5 12h14"></path>
+                                <path d="M12 5v14"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <p class="text-[11px] text-[#717171]" x-show="left === null">Chọn ngày nhận &amp; trả phòng để xem số phòng còn trống.</p>
+                <p class="text-[11px] text-[#717171]" x-show="left !== null && left > 0" x-cloak>
+                    Tối đa <span x-text="max"></span> phòng cho khoảng ngày đã chọn · mỗi phòng miễn phí {{ (int) (($product->room_config ?? [])['max_free_guests'] ?? 2) }} khách.
+                </p>
+            </div>
+        @endif
+
         {{-- Số lượng khách (gọn, ngay dưới số điện thoại) --}}
         <div class="space-y-1.5">
             <label class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Số lượng
