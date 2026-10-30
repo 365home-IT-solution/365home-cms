@@ -474,6 +474,9 @@ class RoomController extends Controller
             // Luồng đặt phòng app phải đi: 'slot' → GET /api/slots + POST /api/orders type=slot;
             // 'daily' → GET /api/rooms/{id}/dates + price-preview + hold + POST /api/orders type=daily.
             'booking_type'      => (int) ($room->styles ?? 1) === 2 ? 'daily' : 'slot',
+            // Biến thể phòng: 1 phòng đại diện variant_quantity phòng giống nhau — app hiện ô chọn số phòng khi đặt.
+            'is_variant'        => (bool) $room->is_variant,
+            'variant_quantity'  => $room->roomCapacity(),
             'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
             'video'               => $this->buildVideo($room),
             'amenities'           => $this->buildAmenities($room),

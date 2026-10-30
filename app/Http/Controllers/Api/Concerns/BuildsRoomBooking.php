@@ -80,7 +80,7 @@ trait BuildsRoomBooking
             $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit'], $excludeOrderId);
 
             if ($conflict) {
-                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                $errors["slots.{$index}.timeslot_id"] = [$room->is_variant ? 'Khung giờ này không còn đủ số phòng bạn chọn.' : 'Khung giờ này đã được đặt rồi.'];
                 continue;
             }
 
@@ -165,13 +165,10 @@ trait BuildsRoomBooking
             }
         }
 
-        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit', 'confirmed'], $excludeOrderId);
-
-        if ($conflict) {
-            throw ValidationException::withMessages([
-                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
-            ]);
-        }
+        // Biến thể phòng không đủ phòng → báo rõ "chỉ còn X phòng" (assertAvailable), phòng đơn giữ câu cũ.
+        app(\App\Services\RoomInventory::class)->assertAvailable(
+            $room, $checkin, $checkout, $this->roomQuantity, 'checkin_date', 'Phòng đã được đặt trong khoảng thời gian này.', ['pending', 'paid', 'deposit', 'confirmed'], $excludeOrderId
+        );
 
         $slotsByDate = $room->roomTimeSlots
             ->filter(fn ($rts) => $rts->timeSlot?->type === 'date')
@@ -268,13 +265,10 @@ trait BuildsRoomBooking
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
 
-        $conflict = ! app(\App\Services\RoomInventory::class)->hasRoom($room, $checkin, $checkout, $this->roomQuantity, ['pending', 'paid', 'deposit'], $excludeOrderId);
-
-        if ($conflict) {
-            throw ValidationException::withMessages([
-                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
-            ]);
-        }
+        // Biến thể phòng không đủ phòng → báo rõ "chỉ còn X phòng" (assertAvailable), phòng đơn giữ câu cũ.
+        app(\App\Services\RoomInventory::class)->assertAvailable(
+            $room, $checkin, $checkout, $this->roomQuantity, 'checkin_date', 'Phòng đã được đặt trong khoảng thời gian này.', ['pending', 'paid', 'deposit'], $excludeOrderId
+        );
 
         $months   = max(1, (int) $checkin->diffInMonths($checkout));
         $price    = (int) ($room->price * $months) * $this->roomQuantity;
