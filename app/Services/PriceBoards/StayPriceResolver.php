@@ -77,9 +77,11 @@ class StayPriceResolver
             return (int) $this->sync->applyAdjustment($base, $type, $value);
         }
 
-        $slot = $item->timeSlots->firstWhere('timeslot_id', $rts->timeslot_id);
+        $slot  = $item->timeSlots->firstWhere('timeslot_id', $rts->timeslot_id);
+        $price = $slot && $slot->price !== null ? (int) $slot->price : $base;
 
-        return $slot && $slot->price !== null ? (int) $slot->price : $base;
+        // Tăng/giảm theo thứ + ngày lễ của bộ giá (phòng theo giờ): trên giá của khung này.
+        return (int) $item->adjustSlotPrice((float) $price, $date);
     }
 
     /** Giá một đêm của phòng theo ngày vào ngày nhận $date; $legacy = giá hiện tại của phòng. */

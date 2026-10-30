@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\Book\App\Filament\Resources\PriceBoardResource\Forms;
 
+use App\Models\Holiday;
 use App\Models\Partner;
 use App\Models\User;
 use App\Services\RoomSlotRandomizer;
+use App\Support\HolidayPrices;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
@@ -24,6 +27,7 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
+use Modules\Book\App\Filament\Resources\HolidayResource;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardSheet;
@@ -118,6 +122,12 @@ class PriceBoardSheetsForm
 
                     Textarea::make('note')->label('Ghi chú')->rows(2)->columnSpanFull(),
                 ])->columns(2),
+
+            Section::make('Ngày lễ, Tết dùng chung')
+                ->description('Khai báo ngày lễ 1 lần, áp cho mọi bộ giá của bảng (cần giai đoạn 2). Bộ giá nào cần giá lễ khác thì thêm dòng riêng ở bộ giá đó.')
+                ->schema([static::holidayGroup(true)])
+                ->collapsible()
+                ->visible(fn (Get $get) => PriceBoard::phase2Enabled() && ! $get('is_template')),
 
             Section::make('Bộ giá')
                 ->description('Mỗi bộ giá là một cách tính giá cho một nhóm phòng. Phòng nào có tên trong "Phòng áp dụng" của bộ thì nhận bộ đó; phòng còn lại nhận bộ MẶC ĐỊNH cùng loại (theo giờ / theo ngày).')
@@ -324,6 +334,7 @@ class PriceBoardSheetsForm
                 ))
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => PriceBoard::phase2Enabled() && $get('price_mode') === 'weekday'),
+
                 TimePicker::make('default_checkin')->label('Giờ nhận')->seconds(false)->default('14:00'),
                 TimePicker::make('default_checkout')->label('Giờ trả')->seconds(false)->default('12:00'),
                 TextInput::make('deposit_min_nights')->label('Cọc từ số đêm')->numeric()->integer()->minValue(1),
@@ -332,6 +343,30 @@ class PriceBoardSheetsForm
                 ->columns(3)
                 ->columnSpanFull()
                 ->visible(fn (Get $get) => $get('pricing_mode') === PriceBoard::MODE_OVERRIDE && (int) $get('room_style') === 2),
+
+            // ── Tăng giá cuối tuần + ngày lễ, Tết (phòng theo ngày lẫn theo giờ; cần giai đoạn 2) ──
+            Group::make([
+                Repeater::make('weekday_adjustments')
+                    ->defaultItems(0)
+                    ->label('Tăng/giảm giá theo thứ')
+                    ->helperText('Giữ nguyên giá gốc theo loại phòng, chỉ cộng thêm vào các thứ chọn. VD: Thứ 7 + Chủ nhật tăng 10%. Phòng theo giờ áp cho giá từng khung giờ.')
+                    ->addActionLabel('Thêm tăng/giảm theo thứ')
+                    ->collapsible()
+                    ->schema([
+                        CheckboxList::make('days')->label('Các thứ')->options(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS)->columns(4)->required()->columnSpanFull(),
+                        Select::make('mode')->label('Kiểu')->options(static::ADJUST_MODES)->default('percent')->selectablePlaceholder(false)->required()->live(),
+                        TextInput::make('value')->label(fn (Get $get) => $get('mode') === 'fixed' ? 'Số tiền (+/- VNĐ)' : 'Phần trăm (+/- %)')
+                            ->numeric()->required()->helperText('Số âm là giảm. Làm tròn 1.000đ, không bao giờ âm.'),
+                    ])
+                    ->columns(2)
+                    ->visible(fn (Get $get) => $get('price_mode') !== 'weekday'),
+
+                static::holidayGroup(),
+            ])
+                ->columnSpanFull()
+                ->visible(fn (Get $get) => PriceBoard::phase2Enabled()
+                    && $get('pricing_mode') === PriceBoard::MODE_OVERRIDE
+                    && in_array((int) $get('room_style'), [1, 2], true)),
 
             // ── Điều chỉnh ──────────────────────────────────────────────────
             Group::make([
@@ -385,6 +420,11 @@ class PriceBoardSheetsForm
             'sheets'      => [],
         ];
 
+        // Ngày lễ dùng chung của bảng: danh sách trống = xoá hết. Giai đoạn 2 tắt: không gửi để giữ nguyên.
+        if (PriceBoard::phase2Enabled()) {
+            $req['holiday_prices'] = static::holidayRequestRows((array) ($data['holiday_prices'] ?? []));
+        }
+
         foreach (array_values($data['sheets'] ?? []) as $i => $sheet) {
             $mode = $sheet['pricing_mode'] ?? PriceBoard::MODE_OVERRIDE;
 
@@ -419,6 +459,10 @@ class PriceBoardSheetsForm
                 // Giai đoạn 2 tắt: form không có ô giá theo thứ nên KHÔNG gửi trường này (giữ nguyên giá theo thứ đã lưu, không xoá nhầm).
                 if (PriceBoard::phase2Enabled()) {
                     $row['weekday_prices'] = $weekday;
+
+                    // Giá ngày lễ + tăng/giảm theo thứ: danh sách trống = xoá hết. Tăng/giảm theo thứ chỉ đi với "một giá" (loại trừ giá riêng từng thứ).
+                    $row['holiday_prices']      = static::holidayRequestRows((array) ($sheet['holiday_prices'] ?? []));
+                    $row['weekday_adjustments'] = $weekday === null ? static::weekdayAdjustRequestRows((array) ($sheet['weekday_adjustments'] ?? [])) : [];
                 }
 
                 $row += [
@@ -442,6 +486,12 @@ class PriceBoardSheetsForm
 
                 // Giá cả ngày: có số (0 = xoá giá cả ngày của phòng) thì khai báo; để trống thì gửi null = bỏ khai báo.
                 $row['full_day_price'] = filled($sheet['full_day_price'] ?? null) ? (int) $sheet['full_day_price'] : null;
+
+                // Tăng giá cuối tuần + ngày lễ (giai đoạn 2): áp cho giá từng khung giờ. Giai đoạn 2 tắt: không gửi để giữ nguyên giá đã lưu.
+                if (PriceBoard::phase2Enabled()) {
+                    $row['holiday_prices']      = static::holidayRequestRows((array) ($sheet['holiday_prices'] ?? []));
+                    $row['weekday_adjustments'] = static::weekdayAdjustRequestRows((array) ($sheet['weekday_adjustments'] ?? []));
+                }
 
                 if (! empty($sheet['bulk_discount_rules'])) {
                     $row['bulk_discount_rules'] = array_values(array_map(
@@ -484,6 +534,7 @@ class PriceBoardSheetsForm
             'end_date'    => $spec['end_date'],
             'priority'     => (int) ($spec['priority'] ?? 0),
             'days_of_week' => array_map('strval', $spec['days_of_week'] ?? []),
+            'holiday_prices' => static::holidayFormRows((array) ($spec['holiday_prices'] ?? [])),
             'is_template'    => (bool) $board->is_template,
             'code'           => $board->code,
             'default_scope'  => $board->default_scope,
@@ -508,6 +559,8 @@ class PriceBoardSheetsForm
                 'price_mode'          => PriceBoard::phase2Enabled() && ! empty($s['weekday_prices']) ? 'weekday' : 'single',
                 ...collect(\App\Services\PriceBoards\PriceBoardV2Service::WEEKDAY_LABELS)
                     ->mapWithKeys(fn ($label, $day) => ['weekday_price_' . $day => $s['weekday_prices'][$day] ?? null])->all(),
+                'holiday_prices'      => static::holidayFormRows((array) ($s['holiday_prices'] ?? [])),
+                'weekday_adjustments' => static::weekdayAdjustFormRows((array) ($s['weekday_adjustments'] ?? [])),
                 'default_checkin'     => $s['default_checkin'],
                 'default_checkout'    => $s['default_checkout'],
                 'deposit_min_nights'  => $s['deposit_min_nights'],
@@ -517,6 +570,236 @@ class PriceBoardSheetsForm
                 'adjustment_timeslot_ids' => $s['adjustment_timeslot_ids'],
             ], array_values($spec['sheets'])),
         ];
+    }
+
+    /** Kiểu tăng/giảm cho "theo thứ" và dòng lễ. */
+    private const ADJUST_MODES = ['percent' => 'Tăng/giảm theo %', 'fixed' => 'Cộng/trừ số tiền'];
+
+    /**
+     * Mục "Giá ngày lễ, Tết": chọn ngày lễ từ DANH MỤC (hoặc thêm tay) + danh sách dòng lễ.
+     * $boardLevel = true: giá lễ DÙNG CHUNG của cả bảng (áp cho mọi bộ giá); false: của riêng 1 bộ giá (ghi đè dòng chung cùng ngày).
+     */
+    private static function holidayGroup(bool $boardLevel = false): Group
+    {
+        $nightly = fn (Get $get) => ! $boardLevel && (int) $get('room_style') === 2;
+
+        return Group::make([
+            Select::make('_catalog_holidays')
+                ->label('Thêm từ danh mục ngày lễ')
+                ->multiple()
+                ->searchable()
+                ->dehydrated(false)
+                ->live()
+                ->options(fn ($livewire) => static::catalogOptions(static::partnerId($livewire)))
+                ->placeholder('Chọn một hoặc nhiều ngày lễ để thêm vào bảng giá')
+                ->helperText('Quản lý danh mục ở menu "Ngày lễ, Tết". Thêm xong nhập giá / mức tăng cho từng dòng; sửa danh mục sau không đổi bảng giá đã thêm.')
+                ->afterStateUpdated(function ($state, Get $get, Set $set, $livewire) use ($boardLevel, $nightly) {
+                    $ids = array_values(array_filter((array) $state));
+
+                    if (! $ids) {
+                        return;
+                    }
+
+                    $set('holiday_prices', static::mergeHolidayRows(
+                        (array) ($get('holiday_prices') ?? []),
+                        static::catalogRows(Holiday::query()->usableBy(static::partnerId($livewire))->whereIn('id', $ids)->orderBy('sort_order')->orderBy('id')->get(), $nightly($get), static::holidayDefaultPrice($get, $boardLevel)),
+                    ));
+                    $set('_catalog_holidays', []);
+                }),
+            Actions::make([
+                Action::make('add_all_holidays')
+                    ->label('Thêm tất cả ngày lễ trong danh mục')
+                    ->icon('heroicon-o-calendar-days')
+                    ->color('gray')
+                    ->action(function (Get $get, Set $set, $livewire) use ($boardLevel, $nightly) {
+                        $holidays = Holiday::query()->usableBy(static::partnerId($livewire))->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get();
+                        $rows     = static::catalogRows($holidays, $nightly($get), static::holidayDefaultPrice($get, $boardLevel));
+
+                        // Danh mục trống: dùng các dịp dựng sẵn (Giáng sinh, Tết Dương lịch, 30/4-1/5, Quốc khánh, Tết Âm lịch).
+                        if (! $rows) {
+                            $rows = static::holidayFormRows($nightly($get)
+                                ? HolidayPrices::presets(static::holidayDefaultPrice($get, $boardLevel))
+                                : HolidayPrices::presets(null, 'percent'));
+                        }
+
+                        $set('holiday_prices', static::mergeHolidayRows((array) ($get('holiday_prices') ?? []), $rows));
+                    }),
+            ]),
+            Repeater::make('holiday_prices')
+                ->defaultItems(0)
+                ->label($boardLevel ? 'Ngày lễ, Tết dùng chung cho mọi bộ giá' : 'Giá ngày lễ, Tết riêng của bộ giá này')
+                ->helperText(($boardLevel
+                    ? 'Khai báo 1 lần, áp cho MỌI bộ giá của bảng (theo ngày lẫn theo giờ). Bộ giá nào cần giá lễ khác thì thêm dòng riêng cùng ngày ở bộ giá đó. Phòng theo giờ chỉ nhận dòng tăng/giảm % hoặc số tiền. '
+                    : 'Dòng riêng của bộ giá ghi đè dòng dùng chung của bảng cùng ngày. ')
+                    . 'Ngày thuộc dòng lễ thì tính giá lễ (thắng giá theo thứ). Giá cố định thay hẳn giá; tăng/giảm % hoặc cộng/trừ số tiền tính trên giá đang áp dụng của đúng ngày đó (lễ rơi vào cuối tuần → tính trên giá cuối tuần).')
+                ->addActionLabel('Thêm ngày lễ')
+                ->itemLabel(fn (array $state) => $state['name'] ?? null)
+                ->collapsible()
+                ->schema([
+                    TextInput::make('name')->label('Tên dịp lễ')->maxLength(100)->placeholder('Tết, 30/4 - 1/5...')->live(onBlur: true),
+                    Toggle::make('recurring')->label('Lặp hàng năm')->inline(false)->default(false)->live(),
+                    DatePicker::make('from')->label('Từ ngày')->native(false)->required()
+                        ->displayFormat(fn (Get $get) => $get('recurring') ? 'd/m' : 'd/m/Y'),
+                    DatePicker::make('to')->label('Đến ngày')->native(false)->required()
+                        ->displayFormat(fn (Get $get) => $get('recurring') ? 'd/m' : 'd/m/Y'),
+                    Select::make('mode')->label('Kiểu giá')
+                        ->options(fn (Get $get) => $boardLevel || (int) $get('../../room_style') === 2 ? ['price' => 'Giá cố định'] + static::ADJUST_MODES : static::ADJUST_MODES)
+                        ->default(fn (Get $get) => ! $boardLevel && (int) $get('../../room_style') === 2 ? 'price' : 'percent')
+                        ->selectablePlaceholder(false)->required()->live(),
+                    TextInput::make('value')
+                        ->label(fn (Get $get) => match ($get('mode')) {
+                            'percent' => 'Phần trăm (+/- %)',
+                            'fixed'   => 'Số tiền (+/- VNĐ)',
+                            default   => 'Giá lễ / đêm',
+                        })
+                        ->numeric()->required()
+                        ->suffix(fn (Get $get) => match ($get('mode')) {
+                            'percent' => '%',
+                            default   => '₫',
+                        })
+                        ->minValue(fn (Get $get) => $get('mode') === 'price' ? 0 : null),
+                ])
+                ->columns(6),
+        ])->columnSpanFull();
+    }
+
+    /** Ngày lễ dùng được trong danh mục (đang dùng): id → "Tên (khoảng ngày)". */
+    public static function catalogOptions(?string $partnerId): array
+    {
+        return Holiday::query()->usableBy($partnerId)->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get()
+            ->mapWithKeys(fn (Holiday $h) => [$h->id => $h->name . ' (' . HolidayResource::dayLabel($h->from_day, $h->recurring) . ' → ' . HolidayResource::dayLabel($h->to_day, $h->recurring) . ')'])
+            ->all();
+    }
+
+    /**
+     * Ngày lễ trong danh mục → dòng form. Phòng theo ngày: giá cố định (điền sẵn $price nếu có); còn lại (theo giờ / dùng chung): tăng %.
+     *
+     * @param \Illuminate\Support\Collection<int,Holiday> $holidays
+     * @return list<array<string,mixed>>
+     */
+    public static function catalogRows($holidays, bool $nightly, ?int $price): array
+    {
+        return static::holidayFormRows($holidays->map(fn (Holiday $h) => [
+            'name' => $h->name, 'recurring' => $h->recurring, 'from' => $h->from_day, 'to' => $h->to_day,
+            'mode' => $nightly ? 'price' : 'percent', 'value' => $nightly ? $price : null,
+        ])->all());
+    }
+
+    /** Giá điền sẵn cho dòng lễ mới của bộ giá theo ngày: giá cao nhất của bộ giá (cấp bảng: không điền sẵn). */
+    private static function holidayDefaultPrice(Get $get, bool $boardLevel): ?int
+    {
+        if ($boardLevel) {
+            return null;
+        }
+
+        $prices = array_filter(array_merge(
+            [(int) $get('price')],
+            array_map(fn ($day) => (int) $get('weekday_price_' . $day), range(1, 7)),
+        ));
+
+        return $prices ? max($prices) : null;
+    }
+
+    /**
+     * Thêm các dòng lễ mới vào danh sách hiện có, bỏ dòng trùng khoảng ngày với dòng đã có.
+     *
+     * @param array<int,mixed> $current
+     * @param list<array<string,mixed>> $added
+     * @return list<array<string,mixed>>
+     */
+    public static function mergeHolidayRows(array $current, array $added): array
+    {
+        $key = fn (array $r) => (! empty($r['recurring']) ? 'r' : 'y')
+            . static::holidayDayFromForm($r['from'] ?? null, ! empty($r['recurring'])) . '|'
+            . static::holidayDayFromForm($r['to'] ?? null, ! empty($r['recurring']));
+
+        $current = array_values(array_filter($current, 'is_array'));
+        $have    = array_map($key, $current);
+
+        return array_merge($current, array_values(array_filter($added, fn (array $r) => ! in_array($key($r), $have, true))));
+    }
+
+    /**
+     * Dòng ngày lễ của spec → dòng form. Ngày lặp hàng năm ("MM-DD") được đưa về năm nhuận 2024 chỉ để
+     * ô chọn ngày hiển thị "dd/mm"; năm không bao giờ được lưu.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    public static function holidayFormRows(array $rows): array
+    {
+        return array_values(array_map(function (array $h) {
+            $recurring = ! empty($h['recurring']);
+
+            return [
+                'name'      => $h['name'] ?? null,
+                'recurring' => $recurring,
+                'from'      => $recurring ? '2024-' . $h['from'] : $h['from'],
+                'to'        => $recurring ? '2024-' . $h['to'] : $h['to'],
+                'mode'      => $h['mode'] ?? 'price',
+                'value'     => $h['value'] ?? ($h['price'] ?? null),
+            ];
+        }, array_filter($rows, 'is_array')));
+    }
+
+    /**
+     * Dòng tăng/giảm theo thứ của spec → dòng form (thứ dạng chuỗi cho CheckboxList).
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    public static function weekdayAdjustFormRows(array $rows): array
+    {
+        return array_values(array_map(fn (array $a) => [
+            'days'  => array_map('strval', (array) ($a['days'] ?? [])),
+            'mode'  => $a['mode'] ?? 'percent',
+            'value' => $a['value'] ?? null,
+        ], array_filter($rows, 'is_array')));
+    }
+
+    /** Số từ ô nhập (chuỗi) → int/float để service kiểm tra. */
+    private static function formNumber(mixed $value): int|float|null
+    {
+        return filled($value) && is_numeric($value) ? $value + 0 : null;
+    }
+
+    /**
+     * @param array<int,mixed> $rows dòng tăng/giảm theo thứ từ form
+     * @return list<array<string,mixed>>
+     */
+    private static function weekdayAdjustRequestRows(array $rows): array
+    {
+        return array_values(array_map(fn (array $a) => [
+            'days'  => array_values(array_map('intval', (array) ($a['days'] ?? []))),
+            'mode'  => $a['mode'] ?? null,
+            'value' => static::formNumber($a['value'] ?? null),
+        ], array_filter($rows, 'is_array')));
+    }
+
+    /**
+     * @param array<int,mixed> $rows dòng lễ từ form
+     * @return list<array<string,mixed>>
+     */
+    private static function holidayRequestRows(array $rows): array
+    {
+        return array_values(array_map(fn (array $h) => [
+            'name'      => filled($h['name'] ?? null) ? $h['name'] : null,
+            'recurring' => ! empty($h['recurring']),
+            'from'      => static::holidayDayFromForm($h['from'] ?? null, ! empty($h['recurring'])),
+            'to'        => static::holidayDayFromForm($h['to'] ?? null, ! empty($h['recurring'])),
+            'mode'      => $h['mode'] ?? 'price',
+            'value'     => static::formNumber($h['value'] ?? null),
+        ], array_filter($rows, 'is_array')));
+    }
+
+    /** Ngày từ ô chọn ngày → "MM-DD" (lặp hàng năm) hoặc "YYYY-MM-DD". */
+    public static function holidayDayFromForm(mixed $value, bool $recurring): ?string
+    {
+        if (! filled($value)) {
+            return null;
+        }
+
+        return \Illuminate\Support\Carbon::parse($value)->format($recurring ? 'm-d' : 'Y-m-d');
     }
 
     // ════════════════════════════════════════════════════════════════════

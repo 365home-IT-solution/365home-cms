@@ -1007,6 +1007,22 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-boards')->
 
 /*
 |--------------------------------------------------------------------------
+| Danh mục NGÀY LỄ, TẾT (ngoài bảng giá) — khai báo 1 lần rồi thêm vào bảng giá / bộ giá bằng holiday_prices[].holiday_id.
+| GET /api/admin/holidays · GET|PUT|PATCH|DELETE /api/admin/holidays/{id} · POST /api/admin/holidays
+| Chi tiết: App\Http\Controllers\Api\Admin\HolidayController. Ngày lễ dùng chung (shared) chỉ super_admin sửa.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/holidays')->name('api.admin.holidays.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'index'])->name('index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'store'])->name('store');
+    Route::get('/{id}', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'update'])->name('update')->whereNumber('id');
+    Route::patch('/{id}', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'update'])->name('update.patch')->whereNumber('id');
+    Route::delete('/{id}', [\App\Http\Controllers\Api\Admin\HolidayController::class, 'destroy'])->name('destroy')->whereNumber('id');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Sample Data — "Tạo dữ liệu mẫu" cho đối tác: tạo đồng bộ tiện ích, dịch vụ của chi nhánh, phòng theo
 | khung giờ đã có giá + điều kiện giảm giá (đặt được ngay) và 1 bảng giá của chi nhánh. Không có xoá:
 | dữ liệu sinh ra là của đối tác, họ sửa/xoá từng mục như dữ liệu thật. Bắt buộc có đối tác + chi

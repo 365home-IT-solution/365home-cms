@@ -1087,6 +1087,7 @@ class GuestBookingController extends Controller
                 'order_code' => $order->order_code,
                 'qr_code'    => $order->remaining_qr_code,
                 'amount'     => $remaining,
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
             ]);
         }
 
@@ -1138,6 +1139,7 @@ class GuestBookingController extends Controller
                 'qr_code'    => $qrCode,
                 'amount'       => $remaining,
                 'expired_at'   => $expiredAt->toIso8601String(),
+                ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
             ]);
 
         } catch (\Throwable $e) {

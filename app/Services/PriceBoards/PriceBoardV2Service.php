@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Services\PriceBoards;
 
 use App\Models\User;
+use App\Models\Holiday;
 use App\Services\PriceBoardConflictException;
 use App\Services\PriceBoardSyncService;
 use App\Services\RoomSlotRandomizer;
+use App\Support\HolidayPrices;
+use App\Support\WeekdayAdjustments;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -85,7 +88,7 @@ class PriceBoardV2Service
         $base = $existing ? $this->specFromBoard($existing) : [
             'id' => null, 'partner_id' => $partnerId, 'name' => null, 'note' => null,
             'scope' => PriceBoard::SCOPE_ROOMS, 'branch_ids' => [], 'product_ids' => [], 'category_id' => null,
-            'is_active' => $isV1, 'start_date' => null, 'end_date' => null, 'sheets' => [], 'source_preset' => null,
+            'is_active' => $isV1, 'start_date' => null, 'end_date' => null, 'sheets' => [], 'source_preset' => null, 'holiday_prices' => null,
         ];
 
         $spec = $base;
@@ -108,6 +111,26 @@ class PriceBoardV2Service
 
         if (array_key_exists('is_active', $data)) {
             $spec['is_active'] = (bool) $data['is_active'];
+        }
+
+        // Giá ngày lễ DÙNG CHUNG của cả bảng (áp cho mọi bộ giá; bộ giá có dòng riêng cùng ngày thì ghi đè). null/[] = không có.
+        if (array_key_exists('holiday_prices', $data)) {
+            $sharedHoliday = null;
+
+            if (! empty($data['holiday_prices'])) {
+                if (! $phase2) {
+                    throw ValidationException::withMessages(['holiday_prices' => ['Giá ngày lễ chỉ dùng được khi bật giai đoạn 2 của bảng giá (PRICE_BOARDS_PHASE2).']]);
+                }
+
+                [$rawShared, $catalogErrors] = $this->resolveHolidayCatalog($data['holiday_prices'], $partnerId, 'holiday_prices');
+                [$sharedHoliday, $holidayErrors] = HolidayPrices::normalize($rawShared, 'holiday_prices', true);
+
+                if ($errors = $catalogErrors + $holidayErrors) {
+                    throw ValidationException::withMessages($errors);
+                }
+            }
+
+            $spec['holiday_prices'] = $sharedHoliday;
         }
 
         // ── Phạm vi ────────────────────────────────────────────────────────
@@ -271,6 +294,48 @@ class PriceBoardV2Service
             }
         }
 
+        // Giá ngày lễ, Tết (bộ giá override, theo ngày lẫn theo giờ): thắng cả giá theo thứ. null/[] = không có ngày lễ.
+        // Phòng theo giờ chỉ dùng tăng/giảm % hoặc số tiền (áp cho giá từng khung), không dùng giá cố định.
+        $holiday    = null;
+        $rawHoliday = array_key_exists('holiday_prices', $raw) ? $raw['holiday_prices'] : ($current['holiday_prices'] ?? null);
+        $dayStyle   = $mode === PriceBoard::MODE_OVERRIDE && in_array($style, [1, 2], true);
+
+        if (! array_key_exists('holiday_prices', $raw) && ! empty($rawHoliday) && $dayStyle) {
+            // Request không nhắc tới giá ngày lễ: giữ đúng giá đã lưu (đã chuẩn hoá), kể cả khi giai đoạn 2 đang tắt.
+            $holiday = array_values((array) $rawHoliday);
+        } elseif (! empty($rawHoliday)) {
+            if (! $dayStyle) {
+                $errors["sheets.{$index}.holiday_prices"] = ['Giá ngày lễ chỉ dùng cho bộ giá thay thế giá cụ thể (pricing_mode = override, room_style = 1 hoặc 2).'];
+            } elseif (! PriceBoard::phase2Enabled()) {
+                $errors["sheets.{$index}.holiday_prices"] = ['Giá ngày lễ chỉ dùng được khi bật giai đoạn 2 của bảng giá (PRICE_BOARDS_PHASE2).'];
+            } else {
+                [$rawHoliday, $catalogErrors] = $this->resolveHolidayCatalog($rawHoliday, $partnerId, "sheets.{$index}.holiday_prices");
+                [$holiday, $holidayErrors]    = HolidayPrices::normalize($rawHoliday, "sheets.{$index}.holiday_prices", $style === 2);
+                $errors += $catalogErrors + $holidayErrors;
+            }
+        }
+
+        // Tăng/giảm giá theo thứ (VD +10% Thứ 7, Chủ nhật): giữ nguyên giá gốc theo loại phòng. Loại trừ với giá riêng từng thứ.
+        $adjust    = null;
+        $rawAdjust = array_key_exists('weekday_adjustments', $raw) ? $raw['weekday_adjustments'] : ($current['weekday_adjustments'] ?? null);
+
+        if (! array_key_exists('weekday_adjustments', $raw) && ! empty($rawAdjust) && $dayStyle) {
+            $adjust = array_values((array) $rawAdjust);
+        } elseif (! empty($rawAdjust)) {
+            if (! $dayStyle) {
+                $errors["sheets.{$index}.weekday_adjustments"] = ['Tăng/giảm theo thứ chỉ dùng cho bộ giá thay thế giá cụ thể (pricing_mode = override, room_style = 1 hoặc 2).'];
+            } elseif (! PriceBoard::phase2Enabled()) {
+                $errors["sheets.{$index}.weekday_adjustments"] = ['Tăng/giảm theo thứ chỉ dùng được khi bật giai đoạn 2 của bảng giá (PRICE_BOARDS_PHASE2).'];
+            } else {
+                [$adjust, $adjustErrors] = WeekdayAdjustments::normalize($rawAdjust, "sheets.{$index}.weekday_adjustments");
+                $errors += $adjustErrors;
+            }
+        }
+
+        if ($adjust && $weekday) {
+            $errors["sheets.{$index}.weekday_adjustments"] = ['Chỉ dùng một trong hai: giá riêng từng thứ (weekday_prices) hoặc tăng/giảm theo thứ (weekday_adjustments). Gửi cái còn lại là null.'];
+        }
+
         if ($errors) {
             throw ValidationException::withMessages($errors);
         }
@@ -304,6 +369,8 @@ class PriceBoardV2Service
             // Giai đoạn 2 TẮT: giá theo thứ chỉ được giữ lại (chưa có tác dụng), price là một giá cho mọi ngày do người dùng nhập — không bị đè.
             'price'         => ($weekday && PriceBoard::phase2Enabled()) ? min($weekday) : $pick('price'),
             'weekday_prices' => $weekday,
+            'holiday_prices' => $holiday,
+            'weekday_adjustments' => $adjust,
             'default_checkin'  => $pick('default_checkin'),
             'default_checkout' => $pick('default_checkout'),
             'deposit_1_night'     => $pick('deposit_1_night'),
@@ -318,6 +385,67 @@ class PriceBoardV2Service
             'adjustment_value'      => $pick('adjustment_value'),
             'adjustment_timeslot_ids' => array_map('intval', $pick('adjustment_timeslot_ids', []) ?: []),
         ];
+    }
+
+    /**
+     * Dòng lễ có holiday_id → điền tên + khoảng ngày từ DANH MỤC ngày lễ (dùng chung + của đối tác). Bộ giá SAO CHÉP
+     * khoảng ngày (sửa danh mục sau đó không đổi bảng giá đang chạy). Dòng không có holiday_id giữ nguyên.
+     *
+     * @return array{0: mixed, 1: array<string,list<string>>}
+     */
+    private function resolveHolidayCatalog(mixed $rows, string $partnerId, string $path): array
+    {
+        if (! is_array($rows)) {
+            return [$rows, []];
+        }
+
+        $rows = array_values($rows);
+        $ids  = array_values(array_unique(array_filter(array_map(fn ($r) => is_array($r) ? ($r['holiday_id'] ?? null) : null, $rows))));
+
+        if (! $ids) {
+            return [$rows, []];
+        }
+
+        $found  = Holiday::query()->usableBy($partnerId)->whereIn('id', $ids)->get()->keyBy('id');
+        $errors = [];
+
+        foreach ($rows as $i => $row) {
+            if (! is_array($row) || empty($row['holiday_id'])) {
+                continue;
+            }
+
+            $holiday = $found->get((int) $row['holiday_id']);
+
+            if (! $holiday) {
+                $errors["{$path}.{$i}.holiday_id"][] = 'Không tìm thấy ngày lễ trong danh mục.';
+
+                continue;
+            }
+
+            $rows[$i] = array_merge($row, ['name' => $row['name'] ?? $holiday->name, 'recurring' => $holiday->recurring, 'from' => $holiday->from_day, 'to' => $holiday->to_day]);
+            unset($rows[$i]['holiday_id']);
+        }
+
+        return [$rows, $errors];
+    }
+
+    /**
+     * Dòng lễ có hiệu lực của 1 bộ giá: dòng riêng của bộ giá + dòng DÙNG CHUNG của bảng (dòng riêng cùng khoảng ngày thì
+     * ghi đè). Phòng theo giờ bỏ dòng giá cố định (không có nghĩa với nhiều khung giờ).
+     *
+     * @return list<array<string,mixed>>|null
+     */
+    private function effectiveHolidayRows(PriceBoardSheet $sheet, bool $nightly): ?array
+    {
+        $own    = array_values((array) ($sheet->holiday_prices ?: []));
+        $shared = array_values((array) ($sheet->board?->holiday_prices ?: []));
+        $key    = fn (array $r) => (! empty($r['recurring']) ? 'r' : 'y') . ($r['from'] ?? '') . '|' . ($r['to'] ?? '');
+        $taken  = array_map($key, $own);
+
+        $shared = array_values(array_filter($shared, fn (array $r) => ! in_array($key($r), $taken, true)
+            && ($nightly || ($r['mode'] ?? 'price') !== 'price')));
+
+        return array_merge($own, $shared) ?: null;
     }
 
     /** Tên thứ theo ISO (1 = Thứ 2 … 7 = Chủ nhật) để báo lỗi dễ đọc. */
@@ -578,6 +706,7 @@ class PriceBoardV2Service
             'source_preset' => $board->source_preset,
             'priority'      => (int) $board->priority,
             'days_of_week'  => array_values(array_map('intval', (array) $board->days_of_week)),
+            'holiday_prices' => $board->holiday_prices ?: null,
             'sheets'        => $board->sheets->map(fn (PriceBoardSheet $s) => [
                 'id'            => $s->id,
                 'name'          => $s->name,
@@ -592,6 +721,8 @@ class PriceBoardV2Service
                 ])->all(),
                 'price'            => $s->price === null ? null : (float) $s->price,
                 'weekday_prices'   => $s->weekday_prices ?: null,
+                'holiday_prices'   => $s->holiday_prices ?: null,
+                'weekday_adjustments' => $s->weekday_adjustments ?: null,
                 'default_checkin'  => $s->default_checkin,
                 'default_checkout' => $s->default_checkout,
                 'deposit_1_night'     => $s->deposit_1_night,
@@ -798,6 +929,8 @@ class PriceBoardV2Service
                 $attrs['days_of_week'] = $spec['days_of_week'] ?? [];
             }
 
+            $attrs['holiday_prices'] = $spec['holiday_prices'] ?? null;
+
             if ($templateAttrs) {
                 $attrs = array_merge($attrs, $templateAttrs);
             }
@@ -918,6 +1051,8 @@ class PriceBoardV2Service
                 'sort_order'   => $sheet['sort_order'] ?? $i,
                 'price'        => $sheet['price'],
                 'weekday_prices' => $sheet['weekday_prices'] ?? null,
+                'holiday_prices' => $sheet['holiday_prices'] ?? null,
+                'weekday_adjustments' => $sheet['weekday_adjustments'] ?? null,
                 'default_checkin'  => $this->hm($sheet['default_checkin']),
                 'default_checkout' => $this->hm($sheet['default_checkout']),
                 'deposit_1_night'     => $sheet['deposit_1_night'],
@@ -1064,6 +1199,8 @@ class PriceBoardV2Service
             return [$fields + [
                 'price'               => $sheet->price,
                 'weekday_prices'      => $sheet->weekday_prices ?: null,
+                'holiday_prices'      => $this->effectiveHolidayRows($sheet, true),
+                'weekday_adjustments' => $sheet->weekday_adjustments ?: null,
                 'default_checkin'     => $sheet->default_checkin ?: '14:00',
                 'default_checkout'    => $sheet->default_checkout ?: '12:00',
                 'deposit_min_nights'  => $sheet->deposit_min_nights ?? 2,
@@ -1075,6 +1212,10 @@ class PriceBoardV2Service
         // Giá cả ngày (phòng theo giờ): bộ giá khai báo thì lấy giá của bộ (0 = xoá), không thì giữ giá hiện tại của phòng. 0 = "không dùng".
         $fullDay = $sheet->declares('full_day_price') ? $sheet->full_day_price : $product->full_day_price;
         $fields['full_day_price'] = $fullDay !== null && (float) $fullDay > 0 ? (float) $fullDay : 0;
+
+        // Tăng/giảm theo thứ + ngày lễ: áp cho giá từng khung giờ khi tính giá theo ngày khách ở (StayPriceResolver::slotPrice).
+        $fields['holiday_prices']      = $this->effectiveHolidayRows($sheet, false);
+        $fields['weekday_adjustments'] = $sheet->weekday_adjustments ?: null;
 
         return [$fields, $sheet->slots->map(fn ($s) => [
             'timeslot_id' => (int) $s->timeslot_id, 'price' => (int) $s->price,

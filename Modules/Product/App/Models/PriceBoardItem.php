@@ -45,6 +45,8 @@ class PriceBoardItem extends Model
         'baseline_time_slots',
         'sheet_id',
         'weekday_prices',
+        'holiday_prices',
+        'weekday_adjustments',
     ];
 
     protected $casts = [
@@ -55,6 +57,8 @@ class PriceBoardItem extends Model
         'baseline_fields'     => 'array',
         'baseline_time_slots' => 'array',
         'weekday_prices'      => 'array',
+        'holiday_prices'      => 'array',
+        'weekday_adjustments' => 'array',
     ];
 
     public function sheet()
@@ -62,20 +66,52 @@ class PriceBoardItem extends Model
         return $this->belongsTo(PriceBoardSheet::class, 'sheet_id');
     }
 
-    /** Giá 1 đêm bắt đầu ngày $date: giá theo thứ (nếu có) hoặc một giá cho mọi ngày (price); null = không khai báo. */
+    /**
+     * Giá 1 đêm bắt đầu ngày $date, tính tuần tự:
+     *  1. giá nền: giá riêng của thứ đó (weekday_prices) hoặc một giá cho mọi ngày (price) + tăng/giảm theo thứ (weekday_adjustments);
+     *  2. ngày thuộc 1 dòng lễ: cố định thì thay hẳn, % / số tiền thì tính TRÊN giá nền của đúng ngày đó (lễ rơi vào cuối tuần → tính trên giá cuối tuần).
+     * null = không khai báo giá.
+     */
     public function priceForDate(\Carbon\Carbon|string $date): ?float
     {
+        $holiday = \App\Support\HolidayPrices::match($this->holiday_prices, $date);
+
+        if ($holiday !== null && $holiday['mode'] === 'price') {
+            return \App\Support\HolidayPrices::apply($holiday, 0.0);
+        }
+
+        $base    = null;
         $weekday = (array) $this->weekday_prices;
 
         if ($weekday !== []) {
             $day = \Carbon\Carbon::parse($date)->dayOfWeekIso;
 
             if (isset($weekday[$day]) && $weekday[$day] !== null && $weekday[$day] !== '') {
-                return (float) $weekday[$day];
+                $base = (float) $weekday[$day];
             }
         }
 
-        return $this->price === null ? null : (float) $this->price;
+        if ($base === null && $this->price !== null) {
+            $base = \App\Support\WeekdayAdjustments::apply($this->weekday_adjustments, $date, (float) $this->price);
+        }
+
+        if ($base === null) {
+            return null;
+        }
+
+        return $holiday !== null ? \App\Support\HolidayPrices::apply($holiday, $base) : $base;
+    }
+
+    /**
+     * Giá 1 khung giờ (phòng theo giờ) sau khi tăng/giảm theo thứ rồi theo ngày lễ — cùng thứ tự với priceForDate().
+     * Dòng lễ "giá cố định" không có nghĩa với khung giờ nên bị bỏ qua.
+     */
+    public function adjustSlotPrice(float $base, \Carbon\Carbon|string $date): float
+    {
+        $price   = \App\Support\WeekdayAdjustments::apply($this->weekday_adjustments, $date, $base);
+        $holiday = \App\Support\HolidayPrices::match($this->holiday_prices, $date);
+
+        return $holiday !== null && $holiday['mode'] !== 'price' ? \App\Support\HolidayPrices::apply($holiday, $price) : $price;
     }
 
     public function priceBoard()
