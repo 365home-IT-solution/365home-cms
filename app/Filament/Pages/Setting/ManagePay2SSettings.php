@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\Setting;
 
 use App\Services\Payment\Pay2SService;
+use App\Services\Payment\PaymentGatewaySettingsService;
 use App\Settings\Pay2SSettings;
 use App\Support\Pay2SConfig;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -109,13 +110,8 @@ class ManagePay2SSettings extends SettingsPage
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $current = app(Pay2SSettings::class);
-
-        $data['enabled'] = (bool) ($data['enabled'] ?? false);
-        // Để trống = giữ nguyên token cũ (token đã lưu không hiện lại nên không thể "lưu lại nguyên giá trị").
-        $data['api_token'] = filled($data['api_token'] ?? null) ? trim((string) $data['api_token']) : $current->api_token;
-
-        return $data;
+        // Cùng một bộ chuẩn hoá với API admin (PaymentGatewaySettingsService): token để trống = giữ nguyên token cũ.
+        return app(PaymentGatewaySettingsService::class)->normalize('pay2s', $data, app(Pay2SSettings::class));
     }
 
     public function getSavedNotification(): ?Notification

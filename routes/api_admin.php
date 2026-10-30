@@ -153,6 +153,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
     Route::get('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'show'])->name('partners.sepay-account.show');
     Route::post('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'store'])->name('partners.sepay-account.store');
+    // SePay / Pay2S — cùng chức năng với các trang CMS (Super Admin): danh sách tài khoản mọi đối tác, cấu hình chung từng cổng, nhật ký giao dịch.
+    Route::get('sepay-accounts', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'index'])->name('sepay-accounts.index');
+    Route::get('payment-gateways', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'index'])->name('payment-gateways.index');
+    Route::get('payment-gateways/{provider}', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'show'])->name('payment-gateways.show');
+    Route::put('payment-gateways/{provider}', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'update'])->name('payment-gateways.update');
+    Route::post('payment-gateways/{provider}/test-connection', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'testConnection'])->middleware('throttle:10,1')->name('payment-gateways.test-connection');
+    Route::get('sepay-transactions', [\App\Http\Controllers\Api\Admin\SePayTransactionController::class, 'index'])->name('sepay-transactions.index');
+    Route::get('sepay-transactions/{transaction}', [\App\Http\Controllers\Api\Admin\SePayTransactionController::class, 'show'])->whereNumber('transaction')->name('sepay-transactions.show');
     // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.
     Route::prefix('partners/{partner}/escrow')->name('partners.escrow.')->controller(\App\Http\Controllers\Api\Admin\PartnerEscrowController::class)->group(function () {
         Route::get('/', 'show')->name('show');
