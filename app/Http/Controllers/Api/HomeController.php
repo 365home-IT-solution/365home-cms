@@ -80,6 +80,22 @@ class HomeController extends Controller
                 && empty($section['rooms']))
             ->values();
 
+        // Trang chủ app (không tab): các khối danh sách phòng KHÔNG theo cấu hình Trang App nữa mà giống web —
+        // mỗi chi nhánh của khu vực tối đa 2 hàng "Phòng theo giờ…" / "Phòng theo ngày…", phòng rẻ trước, thứ tự
+        // chi nhánh theo "Thứ tự" (sort_order) của chi nhánh. Banner / Flash Sale / gợi ý vẫn theo Trang App. Giữ
+        // display_mode 'fixed' như các khối cũ để app không phải xử lý giá trị mới.
+        if ($tabRoomTypeId === null && ! $tabPage) {
+            $branchProvince = $province ?? $this->defaultHomeProvince();
+            $branchRows     = $branchProvince
+                ? collect($this->getBranchRows($branchProvince, $wishlistedIds))->map(fn ($row) => ['display_mode' => 'fixed'] + $row)
+                : collect();
+
+            $sections = $sections
+                ->reject(fn ($section) => $section['type'] === 'room_list')
+                ->concat($branchRows)
+                ->values();
+        }
+
         // Lịch đặt phòng trực tuyến (component riêng, không nằm trong $sections — luôn render
         // trước vòng lặp sections ở flash-sale.blade.php) → Flash Sale → Gợi ý theo phòng luôn
         // đứng NGAY SAU nó theo đúng thứ tự này, bất kể admin sắp xếp block thế nào trong CMS —
