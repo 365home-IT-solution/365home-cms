@@ -2300,21 +2300,6 @@ html {
         .home-book-scope .book-panel { margin-left: -24px; margin-right: -24px; }
     }
 
-    /* Tắt hẳn viền glow cầu vồng của .selectable.promo (::before) và lớp phủ trắng đi kèm
-       (::after) CHỈ ở trang chủ (.home-book-scope) — section "Lịch đặt phòng trực tuyến" ở đây
-       được nhúng trong flash-sale.blade.php, tức hầu hết mọi ô hiển thị đều đang có khuyến mãi
-       (đó là mục đích của trang Flash Sale), nên hiệu ứng vốn thiết kế để làm NỔI BẬT 1-2 ô hiếm
-       hoi lại bung ra hàng loạt cùng lúc, nhìn như lỗi hiển thị thay vì thu hút. Badge góc/nhãn
-       giữa ô (.promotion-corner-image/.promotion-center-label, nếu admin có cấu hình ảnh/nhãn
-       cho khuyến mãi đó) vẫn hiển thị bình thường — chỉ tắt phần glow toàn ô. Các trang khác dùng
-       chung Book.php (branch/{slug}, ?view=branches, trang chi tiết phòng) không có class
-       .home-book-scope nên không bị ảnh hưởng, khuyến mãi ở đó vẫn hiếm và glow vẫn có tác dụng
-       làm nổi bật như thiết kế ban đầu. */
-    .home-book-scope .selectable.promo::before,
-    .home-book-scope .selectable.promo::after {
-        content: none !important;
-    }
-
 /* --- final block --- */
     /* Same fix as hs-skel-shimmer in flash-sale.blade.php — transform-based sweep instead of
          animating background-position, so the animation runs on the GPU compositor instead of
