@@ -2504,7 +2504,8 @@ public function confirmBooking()
         $result['has_promotion']        = true;
         $result['promotions']           = array_merge($result['promotions'] ?? [], [(object) [
             'id' => null, 'name' => $board['name'], 'type' => 'fixed', 'value' => $extra,
-            'lable_client' => $board['label'], 'image' => null, 'is_active' => true,
+            // Không có nhãn: ô khung giờ chỉ hiện hiệu ứng khuyến mãi (viền, gạch giá gốc), không in chữ "Giảm …" giữa ô.
+            'lable_client' => null, 'image' => null, 'is_active' => true,
         ]]);
 
         return $result;
