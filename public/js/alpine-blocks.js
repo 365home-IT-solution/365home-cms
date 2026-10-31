@@ -399,7 +399,7 @@ return {
         //      đủ nội dung trước (Googlebot render/chụp trang sớm hơn mốc này nên không thấy popup che),
         //      lúc mở kiểm tra lại — khách đã chọn/tắt/tự mở trong lúc chờ thì thôi.
         // Bot/crawler bỏ qua hết. Khách vẫn mở modal thủ công qua nút 'Chọn khu vực' ở header.
-        AUTO_OPEN_DELAY_MS: 12000,
+        AUTO_OPEN_DELAY_MS: 15000,
 
         autoOpen() {
             if (/bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent) || navigator.webdriver) return;
