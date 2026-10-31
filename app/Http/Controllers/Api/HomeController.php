@@ -347,26 +347,37 @@ class HomeController extends Controller
                 continue;
             }
 
-            $rows[] = [
-                'type'         => 'room_list',
-                'title'        => 'Phòng tại chi nhánh ' . trim((string) $category->name),
-                'subtitle'     => null,
-                'view_all_url' => '/s/' . $category->slug,
-                'show_arrow'   => true,
-                'layout'       => 'horizontal_scroll',
-                'display_mode' => 'by_branch',
-                'content_type' => 'rooms',
-                'branch'       => ['id' => $category->id, 'name' => $category->name, 'slug' => $category->slug],
-                'rooms'        => $rooms
-                    ->map(function ($room) use ($branchLookup) {
-                        $card = $this->mapRoom($room, null);
-                        $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+            // Mỗi chi nhánh tách 2 hàng: phòng theo giờ rồi phòng theo ngày (không trộn chung), mỗi hàng
+            // phòng rẻ trước (giá khung đầu / giá đêm của card); cùng giá thì giữ thứ tự đánh giá + số đơn ở trên.
+            $groups = $rooms->partition(fn ($room) => (int) $room->styles === 1);
 
-                        return $card;
-                    })
-                    ->values()
-                    ->toArray(),
-            ];
+            foreach ([['Phòng theo giờ', $groups[0]], ['Phòng theo ngày', $groups[1]]] as [$label, $groupRooms]) {
+                if ($groupRooms->isEmpty()) {
+                    continue;
+                }
+
+                $rows[] = [
+                    'type'         => 'room_list',
+                    'title'        => $label . ' tại chi nhánh ' . trim((string) $category->name),
+                    'subtitle'     => null,
+                    'view_all_url' => '/s/' . $category->slug,
+                    'show_arrow'   => true,
+                    'layout'       => 'horizontal_scroll',
+                    'display_mode' => 'by_branch',
+                    'content_type' => 'rooms',
+                    'branch'       => ['id' => $category->id, 'name' => $category->name, 'slug' => $category->slug],
+                    'rooms'        => $groupRooms
+                        ->map(function ($room) use ($branchLookup) {
+                            $card = $this->mapRoom($room, null);
+                            $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+
+                            return $card;
+                        })
+                        ->sortBy(fn ($card) => $card['price']['amount'] ?? PHP_FLOAT_MAX)
+                        ->values()
+                        ->toArray(),
+                ];
+            }
         }
 
         return $rows;
