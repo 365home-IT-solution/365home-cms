@@ -542,7 +542,47 @@ class Book extends Component
      * @param int|null $roomId - ID của phòng
      * @return array
      */
+    // Bảng giá kiểu giảm % / giảm tiền chỉ đổi giá, không phải khuyến mãi — web vẫn hiển thị như khuyến mãi (viền "Khuyến mãi",
+    // gạch giá gốc, nhãn "Giảm 8%"). Giá cuối cùng (final_price) không đổi. API (BranchController) tắt bằng hideBoardDiscountPromo().
+    protected bool $showBoardDiscountAsPromo = true;
+
+    public function hideBoardDiscountPromo(): static
+    {
+        $this->showBoardDiscountAsPromo = false;
+
+        return $this;
+    }
+
     public function calculateSlotPrice($slot, $dateString, $slotStartTime = null, $selectedSlots = [], $roomId = null)
+    {
+        $result = $this->rawSlotPrice($slot, $dateString, $slotStartTime, $selectedSlots, $roomId);
+
+        if (! $this->showBoardDiscountAsPromo || ! ($slot instanceof \Modules\Product\App\Models\RoomTimeSlot)) {
+            return $result;
+        }
+
+        $board = app(\App\Services\PriceBoards\StayPriceResolver::class)
+            ->boardDiscountForSlot($slot, Carbon::createFromFormat('d-m-Y', $dateString));
+
+        if (! $board || (int) round($result['original_price']) !== $board['price']) {
+            return $result;
+        }
+
+        $extra = $board['base'] - $board['price'];
+
+        $result['original_price']       = $board['base'];
+        $result['price_after_increase'] = ($result['price_after_increase'] ?? $board['price']) + $extra;
+        $result['total_discount']       = ($result['total_discount'] ?? 0) + $extra;
+        $result['has_promotion']        = true;
+        $result['promotions']           = array_merge($result['promotions'] ?? [], [(object) [
+            'id' => null, 'name' => $board['name'], 'type' => 'fixed', 'value' => $extra,
+            'lable_client' => $board['label'], 'image' => null, 'is_active' => true,
+        ]]);
+
+        return $result;
+    }
+
+    protected function rawSlotPrice($slot, $dateString, $slotStartTime = null, $selectedSlots = [], $roomId = null)
     {
         $originalPrice = (float) ($slot instanceof \Modules\Product\App\Models\RoomTimeSlot
             ? ($slot->priceOn(Carbon::createFromFormat('d-m-Y', $dateString)) ?? $slot->price)

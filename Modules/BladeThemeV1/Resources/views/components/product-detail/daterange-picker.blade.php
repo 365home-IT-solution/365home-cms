@@ -641,7 +641,7 @@ function dateRangePicker(pricePerNight) {
                                         <p class="text-[10px] text-red-400 mt-0.5">Áp dụng cho ngày trong khoảng đã chọn</p>
                                     </div>
                                     <span class="shrink-0 text-[10px] font-bold text-white bg-red-500 rounded-full px-2 py-0.5"
-                                          x-text="'-' + promo.discount + '%'"></span>
+                                          x-text="'-' + (Math.round(promo.discount * 10) / 10) + '%'"></span>
                                 </div>
                             </template>
                         </div>

@@ -112,6 +112,77 @@ class StayPriceResolver
         return $item->priceForDate($date) ?? $base;
     }
 
+    /**
+     * Bảng giá kiểu "điều chỉnh" đang GIẢM giá khung $rts vào ngày $date — chỉ để web hiển thị như khuyến mãi (gạch giá gốc,
+     * nhãn "Giảm 8%"); tiền khách trả vẫn là slotPrice(). null = không có bảng giảm giá nào đang áp.
+     *
+     * @return array{base: int, price: int, label: string, name: string}|null
+     */
+    public function boardDiscountForSlot(RoomTimeSlot $rts, Carbon|string $date): ?array
+    {
+        if (! $this->enabled() || $rts->price === null) {
+            return null;
+        }
+
+        $item = $this->winner((string) $rts->room_id, $date);
+        $adj  = $item ? $this->discountAdjustment($item) : null;
+
+        if (! $adj || ($adj['only'] && ! in_array((int) $rts->timeslot_id, $adj['only'], true))) {
+            return null;
+        }
+
+        $base = $this->baseSlotPrice((string) $rts->room_id, (int) $rts->timeslot_id, (int) $rts->price);
+
+        return $this->discountResult($base, $adj, $item);
+    }
+
+    /** Như boardDiscountForSlot() cho 1 đêm của phòng theo ngày. */
+    public function boardDiscountForNight(Product $room, Carbon|string $date, float $legacy): ?array
+    {
+        if (! $this->enabled()) {
+            return null;
+        }
+
+        $item = $this->winner((string) $room->id, $date);
+        $adj  = $item ? $this->discountAdjustment($item) : null;
+
+        return $adj ? $this->discountResult((int) round($this->baseNight((string) $room->id, $legacy)), $adj, $item) : null;
+    }
+
+    /** Điều chỉnh GIẢM (giá trị âm) của item thắng — từ bộ giá, không có bộ giá thì từ bảng. */
+    private function discountAdjustment(PriceBoardItem $item): ?array
+    {
+        $sheet = $item->sheet;
+
+        if (! ($sheet && $sheet->isAdjustment() || (! $sheet && $item->priceBoard?->isAdjustment()))) {
+            return null;
+        }
+
+        $value = (float) ($sheet?->adjustment_value ?? $item->priceBoard?->adjustment_value ?? 0);
+
+        return $value < 0 ? [
+            'type'  => $sheet?->adjustment_type ?? $item->priceBoard?->adjustment_type,
+            'value' => $value,
+            'only'  => collect((array) ($sheet?->adjustment_timeslot_ids ?? []))->map(fn ($v) => (int) $v)->all(),
+        ] : null;
+    }
+
+    private function discountResult(int $base, array $adj, PriceBoardItem $item): ?array
+    {
+        $price = (int) $this->sync->applyAdjustment($base, $adj['type'], $adj['value']);
+
+        if ($price >= $base) {
+            return null;
+        }
+
+        $amount = abs($adj['value']);
+        $label  = $adj['type'] === 'fixed'
+            ? 'Giảm ' . number_format($amount, 0, ',', '.') . 'đ'
+            : 'Giảm ' . rtrim(rtrim(number_format($amount, 2, '.', ''), '0'), '.') . '%';
+
+        return ['base' => $base, 'price' => $price, 'label' => $label, 'name' => (string) ($item->priceBoard?->name ?? $label)];
+    }
+
     /** Bảng thắng của phòng vào ngày $date (null = giá gốc). */
     public function winningBoard(string $productId, Carbon|string $date): ?PriceBoard
     {

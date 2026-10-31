@@ -95,7 +95,15 @@ class DailyRoomCalendar
 
                 $price = (int) round($resolver->nightPrice($product, $iso, $base));
 
-                if ($price !== (int) $base) {
+                // Bảng giá kiểu giảm % / giảm tiền đang áp đêm này → hiện như khuyến mãi: giá gốc + % giảm THỰC TẾ (để lịch tính
+                // ra đúng giá đã làm tròn của server) + nhãn. Ngày đã có khuyến mãi thật thì giữ khuyến mãi đó.
+                $board = isset($promoDiscounts[$iso]) ? null : $resolver->boardDiscountForNight($product, $iso, $base);
+
+                if ($board && $board['price'] === $price) {
+                    $stayPrices[$iso]     = $board['base'];
+                    $promoDiscounts[$iso] = ($board['base'] - $board['price']) / $board['base'] * 100;
+                    $promoLabels[$iso]    = $board['label'];
+                } elseif ($price !== (int) $base) {
                     $stayPrices[$iso] = $price;
                 }
             }

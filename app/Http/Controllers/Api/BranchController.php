@@ -99,7 +99,8 @@ class BranchController extends Controller
 
         // Instance thuần (không mount qua Livewire) — chỉ dùng các method tính toán thuần PHP
         // (calculateSlotPrice/getDatesForOneMonth), không đụng tới vòng đời request Livewire.
-        $book = new Book();
+        // API cho app: giữ nguyên giá như cũ, không hiện bảng giá giảm giá thành khuyến mãi (chỉ web cần hiệu ứng này).
+        $book = (new Book())->hideBoardDiscountPromo();
         $book->visibleDaysCount = $days;
         $dates = $book->getDatesForOneMonth();
         $today = Carbon::today();
