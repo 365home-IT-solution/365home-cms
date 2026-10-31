@@ -837,14 +837,20 @@ class HomeController extends Controller
 
         $this->attachMinihouseData($rooms);
 
-        return $rooms
-            ->map(function ($room) use ($branchLookup) {
-                $card = $this->mapRoom($room, null);
-                $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+        $cards = $rooms->map(function ($room) use ($branchLookup) {
+            $card = $this->mapRoom($room, null);
+            $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
 
-                return $card;
-            })
-            ->toArray();
+            return $card;
+        });
+
+        // Giống trang chủ web (fetchBranchRows()): phòng rẻ trước theo giá hiện trên card (giá khung đầu / giá đêm),
+        // cùng giá thì giữ thứ tự query ở trên. Trừ khi admin chủ động cấu hình khối là "giá giảm dần".
+        if (($data['order_by'] ?? null) !== 'price_desc') {
+            $cards = $cards->sortBy(fn ($card) => $card['price']['amount'] ?? PHP_FLOAT_MAX);
+        }
+
+        return $cards->values()->toArray();
     }
 
     // ─── Promotion list ──────────────────────────────────────────────────────
