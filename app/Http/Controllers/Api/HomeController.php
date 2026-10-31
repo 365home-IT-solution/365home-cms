@@ -369,6 +369,10 @@ class HomeController extends Controller
             // 2 hàng thì tiêu đề trùng nhau → phụ đề "Đặt theo giờ" / "Đặt theo ngày" để phân biệt.
             $groups   = $rooms->partition(fn ($room) => (int) $room->styles === 1);
             $bothRows = $groups[0]->isNotEmpty() && $groups[1]->isNotEmpty();
+            // Chi nhánh gắn tài khoản TTLock đang bật → hàng nào có phòng đã gán khoá thì thêm "tự check in" sau loại hình.
+            $hasTtlock = \App\Models\TtlockAccount::where('is_active', true)
+                ->whereHas('categories', fn ($q) => $q->where('categories.id', $category->id))
+                ->exists();
 
             foreach ([['Đặt theo giờ', $groups[0]], ['Đặt theo ngày', $groups[1]]] as [$label, $groupRooms]) {
                 if ($groupRooms->isEmpty()) {
@@ -376,6 +380,10 @@ class HomeController extends Controller
                 }
 
                 $typeName = $groupRooms->map(fn ($room) => $room->roomType?->name)->filter()->unique()->implode(', ') ?: 'Phòng';
+
+                if ($hasTtlock && $groupRooms->contains(fn ($room) => filled($room->lock_id))) {
+                    $typeName .= ' tự check in';
+                }
 
                 $rows[] = [
                     'type'         => 'room_list',
