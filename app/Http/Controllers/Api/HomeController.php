@@ -365,17 +365,22 @@ class HomeController extends Controller
 
             // Mỗi chi nhánh tách 2 hàng: phòng theo giờ rồi phòng theo ngày (không trộn chung), mỗi hàng
             // phòng rẻ trước (giá khung đầu / giá đêm của card); cùng giá thì giữ thứ tự đánh giá + số đơn ở trên.
-            $groups = $rooms->partition(fn ($room) => (int) $room->styles === 1);
+            // Tiêu đề "{loại hình} tại chi nhánh …" (vd "Khách sạn tại chi nhánh Trung Đông Hotel"); chi nhánh có đủ
+            // 2 hàng thì tiêu đề trùng nhau → phụ đề "Đặt theo giờ" / "Đặt theo ngày" để phân biệt.
+            $groups   = $rooms->partition(fn ($room) => (int) $room->styles === 1);
+            $bothRows = $groups[0]->isNotEmpty() && $groups[1]->isNotEmpty();
 
-            foreach ([['Phòng theo giờ', $groups[0]], ['Phòng theo ngày', $groups[1]]] as [$label, $groupRooms]) {
+            foreach ([['Đặt theo giờ', $groups[0]], ['Đặt theo ngày', $groups[1]]] as [$label, $groupRooms]) {
                 if ($groupRooms->isEmpty()) {
                     continue;
                 }
 
+                $typeName = $groupRooms->map(fn ($room) => $room->roomType?->name)->filter()->unique()->implode(', ') ?: 'Phòng';
+
                 $rows[] = [
                     'type'         => 'room_list',
-                    'title'        => $label . ' tại chi nhánh ' . trim((string) $category->name),
-                    'subtitle'     => null,
+                    'title'        => $typeName . ' tại chi nhánh ' . trim((string) $category->name),
+                    'subtitle'     => $bothRows ? $label : null,
                     'view_all_url' => '/s/' . $category->slug,
                     'show_arrow'   => true,
                     'layout'       => 'horizontal_scroll',
