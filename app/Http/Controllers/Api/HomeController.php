@@ -369,20 +369,37 @@ class HomeController extends Controller
             // 2 hàng thì tiêu đề trùng nhau → phụ đề "Đặt theo giờ" / "Đặt theo ngày" để phân biệt.
             $groups   = $rooms->partition(fn ($room) => (int) $room->styles === 1);
             $bothRows = $groups[0]->isNotEmpty() && $groups[1]->isNotEmpty();
-            // Chi nhánh gắn tài khoản TTLock đang bật → hàng nào có phòng đã gán khoá thì thêm "tự check in" sau loại hình.
+            // "tự check in" sau loại hình khi khách tự vào phòng được: phòng đã gán khoá TTLock (chi nhánh gắn tài khoản
+            // TTLock đang bật), phòng có mã thủ công (has_manual_lock), hoặc chi nhánh có bộ mã thủ công áp cả chi nhánh
+            // (không chọn phòng nào — cùng cách khớp với ManualLockPassword::getForProductAndDate()).
             $hasTtlock = \App\Models\TtlockAccount::where('is_active', true)
                 ->whereHas('categories', fn ($q) => $q->where('categories.id', $category->id))
                 ->exists();
+            $branchManualCode = \Modules\Product\App\Models\ManualLockPassword::active()
+                ->whereIn('category_id', $filterIds)
+                ->doesntHave('products')
+                ->where(fn ($q) => $q->whereNull('valid_until')->orWhere('valid_until', '>=', now()))
+                ->exists();
 
-            foreach ([['Đặt theo giờ', $groups[0]], ['Đặt theo ngày', $groups[1]]] as [$label, $groupRooms]) {
+            foreach ([['Đặt theo giờ', $groups[0], true], ['Đặt theo ngày', $groups[1], false]] as [$label, $groupRooms, $isHourly]) {
                 if ($groupRooms->isEmpty()) {
                     continue;
                 }
 
-                $typeName = $groupRooms->map(fn ($room) => $room->roomType?->name)->filter()->unique()->implode(', ') ?: 'Phòng';
+                $selfCheckin = $branchManualCode || $groupRooms->contains(
+                    fn ($room) => $room->has_manual_lock || ($hasTtlock && filled($room->lock_id))
+                );
 
-                if ($hasTtlock && $groupRooms->contains(fn ($room) => filled($room->lock_id))) {
-                    $typeName .= ' tự check in';
+                // Phòng khách sạn mà bán theo khung giờ không gọi là "Khách sạn" → "Check in tại chi nhánh …"
+                // (tự check in được thì "Tự check in tại chi nhánh …").
+                $typeName = $groupRooms
+                    ->map(fn ($room) => $isHourly && $room->roomType?->slug === 'hotel' ? null : $room->roomType?->name)
+                    ->filter()->unique()->implode(', ');
+
+                if ($typeName === '' && $isHourly && $groupRooms->contains(fn ($room) => $room->roomType?->slug === 'hotel')) {
+                    $typeName = $selfCheckin ? 'Tự check in' : 'Check in';
+                } else {
+                    $typeName = ($typeName ?: 'Phòng') . ($selfCheckin ? ' tự check in' : '');
                 }
 
                 $rows[] = [
