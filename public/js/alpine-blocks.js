@@ -395,8 +395,12 @@ return {
         // kiếm), Googlebot lại không có localStorage nên LẦN NÀO cũng gặp. Thay vào đó tự lấy khu vực:
         //   1. Chỉ có 1 tỉnh/thành đang hoạt động → chọn luôn, khỏi hỏi.
         //   2. Khách đã cho phép định vị từ trước (permissions = granted) → định vị ngầm.
-        //   3. Còn lại → thanh gợi ý nhỏ ở cạnh dưới (không che nội dung), bấm mới mở modal.
+        //   3. Còn lại → đợi AUTO_OPEN_DELAY_MS rồi mới tự mở modal chọn khu vực: trang đã hiển thị
+        //      đủ nội dung trước (Googlebot render/chụp trang sớm hơn mốc này nên không thấy popup che),
+        //      lúc mở kiểm tra lại — khách đã chọn/tắt/tự mở trong lúc chờ thì thôi.
         // Bot/crawler bỏ qua hết. Khách vẫn mở modal thủ công qua nút 'Chọn khu vực' ở header.
+        AUTO_OPEN_DELAY_MS: 5000,
+
         autoOpen() {
             if (/bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent) || navigator.webdriver) return;
             if (localStorage.getItem('home_province_id') || localStorage.getItem('home_location_popup_dismissed')) return;
@@ -406,7 +410,12 @@ return {
                 return;
             }
 
-            const showPrompt = () => { this.prompt = true; };
+            const showPrompt = () => {
+                setTimeout(() => {
+                    if (this.open || localStorage.getItem('home_province_id') || localStorage.getItem('home_location_popup_dismissed')) return;
+                    this.openFromPrompt();
+                }, this.AUTO_OPEN_DELAY_MS);
+            };
             if (!navigator.geolocation || !navigator.permissions || !navigator.permissions.query) {
                 showPrompt();
                 return;
