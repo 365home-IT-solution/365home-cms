@@ -185,7 +185,8 @@ class OrderCommissionService
             return false;
         }
 
-        return ($order->status === 'paid' && ($order->order_status === 'checked_out' || $this->stayEnded($order)))
+        // Đơn đã đặt và thanh toán là tính vào đối soát ngay, không chờ trả phòng. Sau đó nếu bị huỷ/hoàn thì recalculateAfterChange tính lại.
+        return $order->status === 'paid'
             || ($order->status === 'refunded' && $this->retainedAmount($order) > 0);
     }
 
@@ -238,13 +239,18 @@ class OrderCommissionService
         }
     }
 
-    /** Chạy định kỳ: chốt hoa hồng các đơn đã thanh toán, đã quá giờ trả phòng mà chưa được đánh dấu trả phòng. @return int số đơn đã chốt */
-    public function finalizeEndedStays(): int
+    /**
+     * Quét chốt hoa hồng các đơn ĐỦ ĐIỀU KIỆN mà chưa được chốt: đã trả phòng, quá giờ trả phòng mà chưa đánh dấu, hoặc bị hoàn mà đối tác vẫn giữ một phần
+     * tiền (xem isFinalizable). Trước đây quét bỏ sót đơn đã "checked_out" và đơn hoàn một phần — chỉ chốt được qua OrderObserver, nên đơn nào đổi trạng thái
+     * bằng cập nhật hàng loạt (không bắn sự kiện) sẽ không bao giờ vào đối soát. $partnerId = chỉ quét đơn của đối tác đó (SettlementService::generate gọi
+     * trước khi sinh bảng để đơn vừa đủ điều kiện được tính ngay thay vì chờ lệnh chạy đêm). @return int số đơn đã chốt
+     */
+    public function finalizeEndedStays(?string $partnerId = null): int
     {
         $count = 0;
 
-        Order::withoutGlobalScopes()->whereNotNull('collected_by')->whereNull('commission_finalized_at')->where('status', 'paid')
-            ->where(fn ($q) => $q->whereNull('order_status')->orWhere('order_status', '!=', 'checked_out'))
+        Order::withoutGlobalScopes()->whereNotNull('collected_by')->whereNull('commission_finalized_at')->whereIn('status', ['paid', 'refunded'])
+            ->when($partnerId, fn ($q) => $q->where('partner_id', $partnerId))
             ->orderBy('id')->chunkById(200, function ($orders) use (&$count) {
                 foreach ($orders as $order) {
                     if ($this->isFinalizable($order)) {

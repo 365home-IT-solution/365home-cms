@@ -87,9 +87,14 @@ class PartnerSettlementController extends Controller
             (bool) ($data['only_in_period'] ?? true),
         );
 
-        return $settlement
-            ? response()->json(['message' => 'Đã sinh bảng đối soát.', 'data' => $this->settlements->toArray($settlement, withOrders: true)], 201)
-            : response()->json(['message' => $this->settlements->whyNoSettlement($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay())], 422);
+        if ($settlement) {
+            return response()->json(['message' => 'Đã sinh bảng đối soát.', 'data' => $this->settlements->toArray($settlement, withOrders: true)], 201);
+        }
+
+        // 422 kèm mã lý do + số liệu (reason, details) để app hiển thị đúng thay vì chỉ một câu: xem SettlementService::noSettlementReason().
+        $why = $this->settlements->noSettlementReason($partner, Carbon::parse($data['period_start'])->startOfDay(), Carbon::parse($data['period_end'])->startOfDay());
+
+        return response()->json(['message' => $why['message'], 'reason' => $why['code'], 'details' => $why['details']], 422);
     }
 
     // POST …/settlements/commission-reprice/preview — Super Admin XEM TRƯỚC việc áp lại tỷ lệ hoa hồng cho đơn đã phát sinh (không ghi gì).
