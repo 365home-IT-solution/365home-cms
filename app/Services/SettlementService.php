@@ -86,23 +86,43 @@ class SettlementService
      */
     public function whyNoSettlement(Partner $partner, Carbon $start, Carbon $end): string
     {
+        return $this->noSettlementReason($partner, $start, $end)['message'];
+    }
+
+    /**
+     * Như whyNoSettlement() nhưng trả cả mã lý do + số liệu để app hiển thị chính xác thay vì chỉ một câu:
+     *  code: already_exists | not_snapshotted | outside_period | awaiting_checkout | none_left
+     *  details.awaiting_checkout = số đơn đã thanh toán, lưu trú CHƯA kết thúc (sẽ tự chốt hoa hồng sau khi trả phòng / quá giờ trả phòng);
+     *  details.awaiting_payment  = số đơn đang đặt cọc, chưa thanh toán đủ; details.next_checkout_at = ngày kết thúc lưu trú sớm nhất của nhóm đầu.
+     * Chỉ đếm đơn CÒN CÓ THỂ chốt (đã thanh toán / đặt cọc): đơn chờ thanh toán, đã huỷ, thất bại, hết hạn, hoàn toàn bộ KHÔNG bao giờ chốt hoa hồng nên
+     * không được tính vào "đơn chưa trả phòng" (trước đây đếm mọi đơn đã chụp hoa hồng chưa chốt nên số này bị thổi phồng).
+     *
+     * @return array{code: string, message: string, details: array<string, mixed>}
+     */
+    public function noSettlementReason(Partner $partner, Carbon $start, Carbon $end): array
+    {
         $existing = Settlement::query()->where('partner_id', $partner->id)
             ->whereDate('period_start', $start)->whereDate('period_end', $end)->first();
 
         if ($existing) {
-            return "Kỳ này đã có bảng đối soát {$existing->code} (" . (Settlement::STATUSES[$existing->status] ?? $existing->status) . ') — xem trong danh sách bảng, không sinh lại.';
+            return $this->reason('already_exists', "Kỳ này đã có bảng đối soát {$existing->code} (" . (Settlement::STATUSES[$existing->status] ?? $existing->status) . ') — xem trong danh sách bảng, không sinh lại.',
+                ['settlement_id' => $existing->id, 'settlement_code' => $existing->code]);
+        }
+
+        $overlap = $this->overlapping($partner, $start, $end);
+        if ($overlap->isNotEmpty()) {
+            return $this->reason('overlaps_existing', 'Kỳ này trùng với bảng đối soát ' . $overlap->pluck('code')->implode(', ')
+                . ' — bảng mới chỉ có các đơn còn sót nên số liệu sẽ thiếu. Dùng "gộp bảng" để sinh một bảng cả kỳ, hoặc chọn kỳ không trùng.',
+                ['overlap_codes' => $overlap->pluck('code')->all()]);
         }
 
         $notSnapshotted = Order::withoutGlobalScopes()->where('partner_id', $partner->id)
             ->whereNull('collected_by')->whereNull('settlement_id')->whereIn('status', ['paid', 'deposit', 'refunded'])->count();
 
         if (! $partner->usesDirectPayment() || $notSnapshotted > 0) {
-            return ($notSnapshotted > 0 ? "Có {$notSnapshotted} đơn chưa được chụp hoa hồng" : 'Đối tác chưa bật luồng đối soát')
-                . ' — cần đưa đơn cũ vào đối soát trước rồi mới sinh bảng.';
+            return $this->reason('not_snapshotted', ($notSnapshotted > 0 ? "Có {$notSnapshotted} đơn chưa được chụp hoa hồng" : 'Đối tác chưa bật luồng đối soát')
+                . ' — cần đưa đơn cũ vào đối soát trước rồi mới sinh bảng.', ['not_snapshotted' => $notSnapshotted]);
         }
-
-        $awaiting = Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNull('settlement_id')
-            ->whereNotNull('collected_by')->whereNull('commission_finalized_at')->count();
 
         $outside = Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNull('settlement_id')
             ->whereNotNull('commission_finalized_at')->whereNull('subsidy_held_at');
@@ -110,14 +130,57 @@ class SettlementService
         if ((clone $outside)->exists()) {
             $range = (clone $outside)->selectRaw('count(*) c, min(commission_finalized_at) a, max(commission_finalized_at) b')->first();
 
-            return "Có {$range->c} đơn đã chốt chưa đối soát nhưng nằm ngoài kỳ này (chốt từ "
+            return $this->reason('outside_period', "Có {$range->c} đơn đã chốt chưa đối soát nhưng nằm ngoài kỳ này (chốt từ "
                 . Carbon::parse($range->a)->format('d/m/Y') . ' đến ' . Carbon::parse($range->b)->format('d/m/Y')
-                . ') — chọn kỳ khác hoặc tắt "Chỉ lấy đơn trong kỳ".';
+                . ') — chọn kỳ khác hoặc tắt "Chỉ lấy đơn trong kỳ".', ['outside_count' => (int) $range->c, 'finalized_from' => $range->a, 'finalized_to' => $range->b]);
         }
 
-        return $awaiting > 0
-            ? "Có {$awaiting} đơn chưa trả phòng nên chưa chốt hoa hồng — sẽ vào kỳ sau khi hoàn thành."
-            : 'Không còn đơn nào cần đối soát: các đơn đã chốt đều nằm trong bảng đối soát khác.';
+        $pending = fn (string $status) => Order::withoutGlobalScopes()->where('partner_id', $partner->id)->whereNull('settlement_id')
+            ->whereNotNull('collected_by')->whereNull('commission_finalized_at')->where('status', $status);
+
+        $awaitingCheckout = (clone $pending('paid'))->count();
+        $awaitingPayment  = (clone $pending('deposit'))->count();
+
+        if ($awaitingCheckout + $awaitingPayment > 0) {
+            // Ngày lưu trú kết thúc sớm nhất trong nhóm "chưa trả phòng" — cho biết bao giờ mới có đơn để đối soát.
+            $nextCheckout = $awaitingCheckout > 0
+                ? \Modules\Payment\Entities\OrderItem::query()->whereIn('order_id', (clone $pending('paid'))->select('id'))->selectRaw('order_id, max(checkout_date) as co')->groupBy('order_id')->get()->min('co')
+                : null;
+
+            $parts = [];
+            if ($awaitingCheckout > 0) {
+                $parts[] = "Có {$awaitingCheckout} đơn chưa trả phòng nên chưa chốt hoa hồng — sẽ vào kỳ sau khi hoàn thành"
+                    . ($nextCheckout ? ' (đơn sớm nhất kết thúc lưu trú ' . Carbon::parse($nextCheckout)->format('d/m/Y') . ')' : '') . '.';
+            }
+            if ($awaitingPayment > 0) {
+                $parts[] = "Có {$awaitingPayment} đơn đang đặt cọc, chưa thanh toán đủ.";
+            }
+            if ($end->copy()->endOfDay()->isFuture()) {
+                $parts[] = 'Kỳ này chưa kết thúc (đến ' . $end->format('d/m/Y') . ') — nên sinh bảng sau khi kỳ đã đóng.';
+            }
+
+            return $this->reason('awaiting_checkout', implode(' ', $parts), [
+                'awaiting_checkout' => $awaitingCheckout,
+                'awaiting_payment'  => $awaitingPayment,
+                'next_checkout_at'  => $nextCheckout ? Carbon::parse($nextCheckout)->toIso8601String() : null,
+                'period_open'       => $end->copy()->endOfDay()->isFuture(),
+            ]);
+        }
+
+        return $this->reason('none_left', 'Không còn đơn nào cần đối soát: các đơn đã chốt đều nằm trong bảng đối soát khác.');
+    }
+
+    /** @return array{code: string, message: string, details: array<string, mixed>} */
+    private function reason(string $code, string $message, array $details = []): array
+    {
+        return ['code' => $code, 'message' => $message, 'details' => $details];
+    }
+
+    /** Bảng của đối tác có khoảng ngày giao với [$start, $end] (không tính bảng trùng khớp — đã có lý do riêng). */
+    private function overlapping(Partner $partner, Carbon $start, Carbon $end)
+    {
+        return Settlement::query()->where('partner_id', $partner->id)
+            ->whereDate('period_start', '<', $end->toDateString())->whereDate('period_end', '>', $start->toDateString())->get();
     }
 
     /** Sinh bảng đối soát 1 kỳ cho 1 đối tác. null = không có đơn nào hoặc kỳ này đã có bảng (xem whyNoSettlement). */
@@ -125,6 +188,20 @@ class SettlementService
     {
         if (Settlement::query()->where('partner_id', $partner->id)->whereDate('period_start', $start)->whereDate('period_end', $end)->exists()) {
             return null;
+        }
+
+        // Kỳ giao với bảng đã có (vd 01/10–01/11 khi đã có 01/10–15/10 và 15/10–31/10) → bảng mới chỉ chứa đơn sót, đối tác thấy doanh thu thiếu. Muốn cả kỳ thì gộp.
+        // Lệnh tự động dùng các kỳ liền nhau nên không bị chặn; gộp (generateMerged) xoá bảng cũ trước khi gọi nên cũng không bị chặn.
+        if ($this->overlapping($partner, $start, $end)->isNotEmpty()) {
+            return null;
+        }
+
+        // Chốt trước các đơn của đối tác đã đủ điều kiện (đã trả phòng / quá giờ trả phòng) mà chưa kịp được chốt — lệnh chạy đêm (01:00) mới quét, nên sinh bảng
+        // thủ công giữa ngày không được bỏ sót đơn vừa đủ điều kiện (và báo nhầm "chưa trả phòng").
+        try {
+            $this->commission->finalizeEndedStays((string) $partner->id);
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         return DB::transaction(function () use ($partner, $start, $end, $by, $onlyInPeriod) {
