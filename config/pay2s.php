@@ -11,4 +11,11 @@ return [
     'api_url' => env('PAY2S_API_URL', 'https://api.pay2s.vn'),
     // Pay2S giới hạn 60 request / phút: mọi lần hỏi từ trang QR dùng chung một nhịp tối thiểu giữa 2 lần gọi.
     'pull_throttle_seconds' => (int) env('PAY2S_PULL_THROTTLE', 3),
+    // Partner API (BankHub — Hosted Link): đối tác tự liên kết ngân hàng ngay trên web/app của mình, OTP nhập trên trang của Pay2S.
+    // Khoá lấy ở merchant.pay2s.vn → Bankhub → thiết lập (KHÁC API Token ở trên). UAT: https://api-partner-uat.pay2s.vn
+    'partner_api_url' => env('PAY2S_PARTNER_API_URL', 'https://api-partner.pay2s.vn'),
+    'partner_access_key' => env('PAY2S_PARTNER_ACCESS_KEY'),
+    'partner_secret_key' => env('PAY2S_PARTNER_SECRET_KEY'),
+    // Origin HTTPS (không có path) của web/app đã đăng ký "return URL" ở Pay2S — Hosted Link chỉ chạy trong origin này. Để trống = APP_URL.
+    'partner_parent_origin' => env('PAY2S_PARTNER_PARENT_ORIGIN'),
 ];

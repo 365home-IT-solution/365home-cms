@@ -15,12 +15,20 @@ class PartnerSePayAccount extends Model
 
     public const PROVIDER_PAY2S = 'pay2s';
 
-    public const PROVIDERS = [self::PROVIDER_SEPAY => 'SePay', self::PROVIDER_PAY2S => 'Pay2S'];
+    // Không dùng cổng báo biến động số dư: khách vẫn chuyển khoản vào tài khoản đối tác (QR như SePay/Pay2S) nhưng đối tác tự bấm "xác nhận đã nhận tiền".
+    public const PROVIDER_MANUAL = 'manual';
+
+    public const PROVIDERS = [self::PROVIDER_SEPAY => 'SePay', self::PROVIDER_PAY2S => 'Pay2S', self::PROVIDER_MANUAL => 'Xác nhận thủ công'];
+
+    public function isManual(): bool
+    {
+        return $this->provider === self::PROVIDER_MANUAL;
+    }
 
     protected $fillable = ['partner_id', 'provider', 'is_active', 'bank_code', 'bank_bin', 'account_number', 'account_holder', 'note', 'webhook_token', 'updated_by'];
 
     // webhook_token: token Pay2S sinh cho webhook của tài khoản này (mã hoá khi lưu, không bao giờ trả ra API/form).
-    protected $casts = ['is_active' => 'boolean', 'webhook_token' => 'encrypted'];
+    protected $casts = ['is_active' => 'boolean', 'webhook_token' => \App\Casts\TolerantEncrypted::class];
 
     protected $hidden = ['webhook_token'];
 

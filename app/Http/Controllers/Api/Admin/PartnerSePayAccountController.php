@@ -101,6 +101,59 @@ class PartnerSePayAccountController extends Controller
         return response()->json(['message' => 'Đã lưu tài khoản ' . (PartnerSePayAccount::PROVIDERS[$provider] ?? 'SePay') . ' của đối tác.', 'data' => $this->data($partner->fresh())]);
     }
 
+    /**
+     * Đối tác bấm "Liên kết ngân hàng Pay2S": tạo phiên Hosted Link. App mở data.hosted_link_url (webview / tab mới) để đối tác nhập
+     * thông tin ngân hàng + OTP trên trang của Pay2S, rồi gọi GET …/pay2s-link/{session_id} mỗi 3–5 giây cho tới khi connected / failed.
+     */
+    public function pay2sLinkStart(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+
+        if (\Modules\Payment\Entities\PartnerPayOsAccount::query()->where('partner_id', $partner->id)->where('is_active', true)->exists()) {
+            return response()->json(['message' => 'Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi liên kết Pay2S (mỗi đối tác chỉ dùng một kênh).'], 422);
+        }
+
+        if (! $bankHub->configured()) {
+            return response()->json(['message' => 'Chưa cấu hình khoá Partner API của Pay2S. Liên hệ 365 HOME để bật tính năng liên kết ngân hàng.'], 422);
+        }
+
+        try {
+            $session = $bankHub->createSession($partner, $request->user()->id);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        return response()->json(['message' => 'Đã tạo phiên liên kết. Mở hosted_link_url để đối tác nhập thông tin ngân hàng và OTP.', 'data' => $bankHub->present($session)], 201);
+    }
+
+    /** Hỏi kết quả phiên liên kết; khi connected hệ thống đã tự lưu tài khoản (và token webhook nếu Pay2S cấp). */
+    public function pay2sLinkStatus(Request $request, Partner $partner, string $session, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+        $record = \Modules\Payment\Entities\PartnerPay2sLinkSession::query()->where('partner_id', $partner->id)->where('session_id', $session)->firstOrFail();
+
+        try {
+            $record = $bankHub->refresh($record);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        return response()->json(['data' => $bankHub->present($record) + ['account' => $record->applied ? $this->data($partner->fresh()) : null]]);
+    }
+
+    /** Nút "Kiểm tra liên kết": tài khoản Pay2S của đối tác đã liên kết xong / đủ token webhook / đã nhận giao dịch chưa. */
+    public function pay2sLinkCheck(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, false);
+        $account = $partner->sePayAccount;
+
+        if (! $account) {
+            return response()->json(['message' => 'Đối tác chưa khai báo tài khoản nhận tiền.'], 404);
+        }
+
+        return response()->json(['data' => $bankHub->verify($account)]);
+    }
+
     private function data(Partner $partner): array
     {
         $account = $partner->sePayAccount;
@@ -117,9 +170,12 @@ class PartnerSePayAccountController extends Controller
             'account_holder' => $account?->account_holder,
             'note' => $account?->note,
             'eligible' => $partner->usesDirectPayment(),
-            'webhook_url' => ($account?->provider ?? 'sepay') === PartnerSePayAccount::PROVIDER_PAY2S
-                ? (\App\Support\Pay2SConfig::get('webhook_url') ?: route('webhook.pay2s'))
-                : (\App\Support\SePayConfig::get('webhook_url') ?: route('webhook.sepay')),
+            // Xác nhận thủ công không có webhook.
+            'webhook_url' => match ($account?->provider ?? 'sepay') {
+                PartnerSePayAccount::PROVIDER_MANUAL => null,
+                PartnerSePayAccount::PROVIDER_PAY2S => \App\Support\Pay2SConfig::get('webhook_url') ?: route('webhook.pay2s'),
+                default => \App\Support\SePayConfig::get('webhook_url') ?: route('webhook.sepay'),
+            },
             'code_prefix' => \App\Support\SePayConfig::get('code_prefix', 'DH'),
         ];
     }

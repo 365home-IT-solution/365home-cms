@@ -429,6 +429,16 @@ class PartnerForm
                             ->inline()
                             ->helperText('Chu kỳ thanh toán được áp dụng sau khi đối soát thành công các đơn hàng trong kỳ. Yêu cầu thanh toán tối thiểu từ 500.000 VNĐ.'),
                     ]),
+
+                Forms\Components\Section::make('Hình thức thanh toán khi đặt phòng')
+                    ->schema([
+                        Forms\Components\Radio::make('booking_payment_mode')
+                            ->hiddenLabel()
+                            ->options(\App\Models\Partner::PAYMENT_MODES)
+                            ->default(\App\Models\Partner::PAYMENT_MODE_BOTH)
+                            ->disabled(fn () => ! auth()->user()?->isSuperAdmin())
+                            ->helperText('Khách chỉ thấy các hình thức được chọn. Tiền mặt: không tạo link thanh toán, nhân viên xác nhận thu tại quầy (không áp dụng đặt cọc).'),
+                    ]),
             ]);
     }
 

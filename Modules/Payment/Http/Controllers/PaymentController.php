@@ -266,6 +266,24 @@ private function buildTelegramMessage(Order $order, string $status): string
     // HANDLE SUCCESSFUL PAYMENT (full payment or remaining)
     // =========================================================
 
+    /**
+     * Bù mã cổng (và category_id) cho đơn ĐÃ paid mà chưa qua handleSuccessfulPayment — vd API kiểm tra thanh toán của app/khách đánh dấu paid trước,
+     * webhook tới sau thấy đã paid nên bỏ qua. Idempotent: phòng khoá thủ công không ghi mã vào đơn nên chỉ chạy lại khi thiếu category_id.
+     */
+    public function ensureAccessCode(Order $order): void
+    {
+        try {
+            $order->loadMissing('items.product');
+            $product = $order->items->sortBy('checkin_date')->first()?->product;
+
+            if ($order->status === 'paid' && (! $order->category_id || ($product && ! $product->has_manual_lock && ! $order->hasAccessCode()))) {
+                $this->handleSuccessfulPayment($order);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('ensureAccessCode failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+        }
+    }
+
     protected function handleSuccessfulPayment($order)
     {
         try {
@@ -275,7 +293,7 @@ private function buildTelegramMessage(Order $order, string $status): string
 
             $categoryId = $order->category_id;
             if (!$categoryId && $firstItem && $firstItem->product) {
-                $categoryId = $firstItem->product->category_id;
+                $categoryId = $firstItem->product->branch_category_id;
                 $order->update(['category_id' => $categoryId]);
             }
 
@@ -704,6 +722,10 @@ private function buildTelegramMessage(Order $order, string $status): string
 
         if ($order->status === 'paid' && $status === 'PAID') {
             Log::info('Order already paid', ['order_id' => $order->id, 'current_status' => $order->status]);
+
+            // Đơn có thể đã được đánh dấu paid bởi API kiểm tra thanh toán của app/khách trước khi webhook tới — bù mã cổng nếu còn thiếu.
+            $this->ensureAccessCode($order);
+
             return false;
         }
 

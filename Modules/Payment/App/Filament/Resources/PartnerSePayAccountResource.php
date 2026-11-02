@@ -97,7 +97,7 @@ class PartnerSePayAccountResource extends Resource
                         ->required()
                         ->native(false)
                         ->live()
-                        ->helperText('Đối tác dùng cổng nào thì liên kết ngân hàng ở cổng đó (SePay hoặc Pay2S). Đổi cổng thì cần liên kết lại và khai báo token (Pay2S).'),
+                        ->helperText('Đối tác dùng cổng nào thì liên kết ngân hàng ở cổng đó (SePay hoặc Pay2S). Đổi cổng thì cần liên kết lại và khai báo token (Pay2S). "Xác nhận thủ công": không cần cổng — khách vẫn chuyển khoản vào tài khoản bên dưới, đối tác tự bấm xác nhận đã nhận tiền ở "Chờ xác nhận chuyển khoản".'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Dùng chuyển khoản tự động làm kênh thu tiền')
@@ -201,7 +201,7 @@ class PartnerSePayAccountResource extends Resource
                 Tables\Columns\TextColumn::make('partner.name')->label('Đối tác')->searchable()->wrap(),
                 Tables\Columns\TextColumn::make('provider')->label('Cổng')->badge()
                     ->formatStateUsing(fn (?string $state) => PartnerSePayAccount::PROVIDERS[$state ?: 'sepay'] ?? $state)
-                    ->color(fn (?string $state) => $state === PartnerSePayAccount::PROVIDER_PAY2S ? 'info' : 'success'),
+                    ->color(fn (?string $state) => match ($state) { PartnerSePayAccount::PROVIDER_PAY2S => 'info', PartnerSePayAccount::PROVIDER_MANUAL => 'warning', default => 'success' }),
                 Tables\Columns\TextColumn::make('bank_code')->label('Ngân hàng')->badge(),
                 Tables\Columns\TextColumn::make('account_number')->label('Số tài khoản')->searchable()->copyable(),
                 Tables\Columns\TextColumn::make('account_holder')->label('Chủ tài khoản')->wrap(),

@@ -136,9 +136,10 @@ class DailyRoomController extends Controller
             $totalAfterPromo = (int) max(0, $subtotal - $totalPromoDiscount);
             $depositMin      = (int) ($room->deposit_min_nights  ?? 0);
             $depositPct      = (int) ($room->deposit_multi_night ?? 50);
-            $canDeposit      = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100;
+            $canDeposit      = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100 && \App\Services\Payment\BookingPaymentPolicy::allowsOnline($room->categories()->first()?->id);
             $depositAmt      = $canDeposit ? (int) ceil($totalAfterPromo * $depositPct / 100) : null;
 
+            $response['payment']            = \App\Services\Payment\BookingPaymentPolicy::describe($room->categories()->first()?->id);
             $response['nights']             = $nights;
             $response['subtotal']           = (int) $subtotal;
             $response['promotion_discount'] = (int) $totalPromoDiscount;
@@ -222,10 +223,11 @@ class DailyRoomController extends Controller
 
         $depositMin = (int) ($room->deposit_min_nights  ?? 0);
         $depositPct = (int) ($room->deposit_multi_night ?? 50);
-        $canDeposit = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100;
+        $canDeposit = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100 && \App\Services\Payment\BookingPaymentPolicy::allowsOnline($room->categories()->first()?->id);
         $depositAmt = $canDeposit ? (int) ceil($totalAfterPromo * $depositPct / 100) : null;
 
         return response()->json([
+            'payment'            => \App\Services\Payment\BookingPaymentPolicy::describe($room->categories()->first()?->id),
             'nights'             => $nights,
             'checkin_date'       => $checkin->format('Y-m-d'),
             'checkout_date'      => $checkout->format('Y-m-d'),
@@ -252,6 +254,18 @@ class DailyRoomController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // GET /api/rooms/{id}/payment-options — hình thức thanh toán đối tác của phòng nhận: mode both|cash_only|online_only, methods (cod = tiền mặt tại quầy, PayOS = online), default.
+    public function paymentOptions(string $id): JsonResponse
+    {
+        $room = $this->loadRoom($id);
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
+        return response()->json(['data' => \App\Services\Payment\BookingPaymentPolicy::describe($room->categories()->first()?->id)]);
+    }
 
     private function loadRoom(string $id): ?Product
     {

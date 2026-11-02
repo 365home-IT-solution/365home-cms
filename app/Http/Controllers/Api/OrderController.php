@@ -643,13 +643,13 @@ class OrderController extends Controller
         if ($sePay->usesSePay($order)) {
             $fields = $sePay->paymentFields($order);
 
-            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? null)) {
+            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? $fields['manual'] ?? null)) {
                 $this->buildPayOSLink($order, $order->items->first()?->name ?? 'Đặt phòng');
                 $order->refresh();
                 $fields = $sePay->paymentFields($order);
             }
 
-            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? null)) {
+            if (! ($fields['sepay'] ?? $fields['pay2s'] ?? $fields['manual'] ?? null)) {
                 return response()->json(['message' => 'Không thể tạo yêu cầu thanh toán. Vui lòng thử lại sau.'], 500);
             }
 
@@ -1023,6 +1023,8 @@ class OrderController extends Controller
                         $order->update(['status' => 'deposit', 'checkout_url' => null, 'deposit_paid_at' => now()]);
                     } else {
                         $order->update(['status' => 'paid']);
+                        // Đánh dấu paid ở đây thì webhook đến sau sẽ bỏ qua ("đã paid") → phải tự gán mã cổng, nếu không đơn không bao giờ có mã.
+                        app(\Modules\Payment\Http\Controllers\PaymentController::class)->ensureAccessCode($order->fresh());
                     }
                     break;
 

@@ -357,7 +357,8 @@ class GuestBookingController extends Controller
             }
             $category = $parent;
         }
-        $paymentMethod = $request->input('payment_method', 'PayOS');
+        // Đối tác chỉ nhận tiền mặt / chỉ online (partners.booking_payment_mode): không gửi → mặc định của đối tác; gửi phương thức không nhận → 422.
+        $paymentMethod = \App\Services\Payment\BookingPaymentPolicy::resolve($room->categories()->first()?->id, $request->input('payment_method'));
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
         $appliedCouponCodes   = collect($appliedCoupons)->pluck('code')->values()->all();
@@ -1016,6 +1017,7 @@ class GuestBookingController extends Controller
                             'remaining_paid_at' => now(),
                         ]);
                         $order->refresh();
+                        app(\Modules\Payment\Http\Controllers\PaymentController::class)->ensureAccessCode($order);
                     }
                 } elseif ($order->deposit_percent !== null && $order->status === 'pending') {
                     $order->update([
@@ -1027,6 +1029,7 @@ class GuestBookingController extends Controller
                 } elseif ($order->deposit_percent === null && $order->status === 'pending') {
                     $order->update(['status' => 'paid']);
                     $order->refresh();
+                    app(\Modules\Payment\Http\Controllers\PaymentController::class)->ensureAccessCode($order);
                 }
             }
 

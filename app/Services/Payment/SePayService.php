@@ -88,7 +88,11 @@ class SePayService
     /** Công tắc tổng của từng cổng (CMS → Cấu hình web): tắt = mọi đối tác của cổng đó quay về PayOS. */
     public function providerEnabled(string $provider): bool
     {
-        return $provider === PartnerSePayAccount::PROVIDER_PAY2S ? Pay2SConfig::enabled() : SePayConfig::enabled();
+        return match ($provider) {
+            PartnerSePayAccount::PROVIDER_MANUAL => true, // không phụ thuộc cổng nào
+            PartnerSePayAccount::PROVIDER_PAY2S => Pay2SConfig::enabled(),
+            default => SePayConfig::enabled(),
+        };
     }
 
     public function providerLabel(string $provider): string
@@ -132,9 +136,12 @@ class SePayService
             ->latest('id')->first();
         $data = $link ? $this->payloadFor($link, $account) + ['checkout_url' => route('sepay.checkout', ['code' => $link->code])] : null;
 
-        return $account->provider === PartnerSePayAccount::PROVIDER_PAY2S
-            ? ['payment_provider' => 'pay2s', 'sepay' => null, 'pay2s' => $data]
-            : ['payment_provider' => 'sepay', 'sepay' => $data];
+        return match ($account->provider) {
+            PartnerSePayAccount::PROVIDER_PAY2S => ['payment_provider' => 'pay2s', 'sepay' => null, 'pay2s' => $data],
+            // Đối tác tự xác nhận: app hiện QR/nội dung chuyển khoản như SePay và báo khách "chờ chủ nhà xác nhận".
+            PartnerSePayAccount::PROVIDER_MANUAL => ['payment_provider' => 'manual', 'sepay' => null, 'manual' => $data],
+            default => ['payment_provider' => 'sepay', 'sepay' => $data],
+        };
     }
 
     public function usesSePay(Order $order): bool
@@ -207,7 +214,7 @@ class SePayService
     public function transferContent(PartnerSePayAccount $account, string $paymentCode): string
     {
         // SEVQR là quy ước riêng của SePay; Pay2S nhận biến động VietinBank theo cách khác nên giữ nguyên nội dung.
-        $needsSevqr = $account->provider !== PartnerSePayAccount::PROVIDER_PAY2S
+        $needsSevqr = ($account->provider ?: PartnerSePayAccount::PROVIDER_SEPAY) === PartnerSePayAccount::PROVIDER_SEPAY
             && ($account->bank_bin === '970415' || in_array(strtoupper((string) $account->bank_code), ['CTG', 'ICB'], true));
 
         return $needsSevqr ? 'SEVQR ' . $paymentCode : $paymentCode;
@@ -287,26 +294,7 @@ class SePayService
         }
 
         try {
-            $rejected = DB::transaction(function () use ($transaction, $link, $order): ?string {
-                $lockedLink = SePayPaymentLink::query()->lockForUpdate()->findOrFail($link->id);
-                $locked = Order::withoutGlobalScopes()->with('items')->lockForUpdate()->findOrFail($order->id);
-
-                // Kiểm tra lại trong khoá: 2 giao dịch cùng mã đến cùng lúc (webhook + kéo API) chỉ 1 cái được xử lý.
-                if ($recheck = $this->validateState($lockedLink, $locked)) {
-                    $transaction->update(['status' => 'rejected', 'failure_reason' => $recheck]);
-
-                    return $recheck;
-                }
-
-                if (! app(PaymentController::class)->processVerifiedSePayLink($locked, (string) $this->kindOf($locked, $lockedLink))) {
-                    throw new RuntimeException('Không cập nhật được đơn sau khi nhận tiền (xem log).');
-                }
-
-                $lockedLink->update(['status' => SePayPaymentLink::PAID, 'paid_at' => now(), 'sepay_transaction_id' => $transaction->id]);
-                $transaction->update(['status' => 'processed', 'failure_reason' => null]);
-
-                return null;
-            });
+            $rejected = DB::transaction(fn (): ?string => $this->applyVerifiedPayment($transaction, $link, $order));
         } catch (\Throwable $e) {
             $transaction->update(['status' => 'failed', 'failure_reason' => $e->getMessage()]);
             Log::error('SePay xử lý giao dịch lỗi', ['sepay_id' => $payload['id'], 'error' => $e->getMessage()]);
@@ -316,6 +304,102 @@ class SePayService
 
         return $rejected
             ? ['status' => 'rejected', 'reason' => $rejected, 'order' => $order]
+            : ['status' => 'processed', 'reason' => null, 'order' => $order->fresh()];
+    }
+
+    /**
+     * Trong khoá: kiểm tra lại trạng thái, xác nhận đơn rồi đánh dấu yêu cầu thanh toán đã trả. Trả lý do từ chối (null = đã xác nhận).
+     * Kiểm tra lại trong khoá để 2 xác nhận cùng lúc (webhook + kéo API, hoặc bấm 2 lần) chỉ 1 cái được xử lý.
+     */
+    private function applyVerifiedPayment(SePayTransaction $transaction, SePayPaymentLink $link, Order $order): ?string
+    {
+        $lockedLink = SePayPaymentLink::query()->lockForUpdate()->findOrFail($link->id);
+        $locked = Order::withoutGlobalScopes()->with('items')->lockForUpdate()->findOrFail($order->id);
+
+        if ($recheck = $this->validateState($lockedLink, $locked)) {
+            $transaction->update(['status' => 'rejected', 'failure_reason' => $recheck]);
+
+            return $recheck;
+        }
+
+        if (! app(PaymentController::class)->processVerifiedSePayLink($locked, (string) $this->kindOf($locked, $lockedLink))) {
+            throw new RuntimeException('Không cập nhật được đơn sau khi nhận tiền (xem log).');
+        }
+
+        $lockedLink->update(['status' => SePayPaymentLink::PAID, 'paid_at' => now(), 'sepay_transaction_id' => $transaction->id]);
+        $transaction->update(['status' => 'processed', 'failure_reason' => null]);
+
+        return null;
+    }
+
+    // ───────────────────────── Đối tác tự xác nhận (không qua SePay / Pay2S) ─────────────────────────
+
+    /** Tài khoản "xác nhận thủ công" đang bật của đối tác. */
+    public function manualAccountForPartner(?string $partnerId): ?PartnerSePayAccount
+    {
+        return $partnerId
+            ? PartnerSePayAccount::query()->where('partner_id', $partnerId)->where('provider', PartnerSePayAccount::PROVIDER_MANUAL)->where('is_active', true)->first()
+            : null;
+    }
+
+    /** Yêu cầu thanh toán đang chờ đối tác xác nhận (đơn của đối tác dùng "xác nhận thủ công", chưa trả/chưa huỷ). $partnerId null = mọi đối tác (Super Admin). */
+    public function pendingManualLinks(?string $partnerId = null)
+    {
+        $partnerIds = PartnerSePayAccount::query()->where('provider', PartnerSePayAccount::PROVIDER_MANUAL)->where('is_active', true)
+            ->when($partnerId, fn ($q) => $q->where('partner_id', $partnerId))->pluck('partner_id');
+
+        return SePayPaymentLink::query()->where('status', SePayPaymentLink::PENDING)
+            ->whereHas('order', fn ($q) => $q->withoutGlobalScopes()->whereIn('partner_id', $partnerIds));
+    }
+
+    /**
+     * Đối tác xác nhận đã nhận đủ tiền chuyển khoản cho 1 yêu cầu thanh toán → xác nhận đơn (cùng luồng với webhook: cọc / thanh toán đủ / phần còn lại /
+     * phát sinh, gán mã cổng, thông báo khách). Lưu 1 dòng nhật ký (provider = manual) ghi ai xác nhận, lúc nào, ghi chú.
+     *
+     * @return array{status: string, reason: ?string, order: ?Order}  status: processed | rejected | failed
+     */
+    public function confirmManually(SePayPaymentLink $link, ?string $confirmedBy, ?string $note = null): array
+    {
+        $order = Order::withoutGlobalScopes()->with('items')->find($link->order_id);
+        $account = $order ? $this->manualAccountForPartner(PayOsAccountResolver::partnerIdForOrder($order)) : null;
+
+        $failure = match (true) {
+            ! $order => 'Không tìm thấy đơn của yêu cầu thanh toán.',
+            ! $account => 'Đối tác của đơn không dùng hình thức xác nhận thủ công.',
+            default => null,
+        };
+
+        if ($failure) {
+            return ['status' => 'rejected', 'reason' => $failure, 'order' => $order];
+        }
+
+        try {
+            $reason = DB::transaction(function () use ($link, $order, $account, $confirmedBy, $note): ?string {
+                $transaction = SePayTransaction::query()->create([
+                    'provider' => PartnerSePayAccount::PROVIDER_MANUAL, 'sepay_id' => $link->id, 'partner_sepay_account_id' => $account->id,
+                    'order_id' => $order->id, 'payment_code' => $link->paymentCode(), 'amount' => (int) $link->amount, 'transaction_at' => now(),
+                    'status' => 'received', 'payload' => ['source' => 'manual', 'confirmed_by' => $confirmedBy, 'note' => $note],
+                ]);
+
+                $rejected = $this->applyVerifiedPayment($transaction, $link, $order);
+
+                // Bị từ chối thì không giữ dòng nhật ký (giữ unique (provider, sepay_id) cho lần xác nhận đúng sau này).
+                if ($rejected) {
+                    $transaction->delete();
+                }
+
+                return $rejected;
+            });
+        } catch (QueryException $e) {
+            return ['status' => 'rejected', 'reason' => 'Yêu cầu thanh toán này đã được xác nhận trước đó.', 'order' => $order];
+        } catch (\Throwable $e) {
+            Log::error('Đối tác xác nhận thủ công lỗi', ['link_id' => $link->id, 'error' => $e->getMessage()]);
+
+            return ['status' => 'failed', 'reason' => $e->getMessage(), 'order' => $order];
+        }
+
+        return $reason
+            ? ['status' => 'rejected', 'reason' => $reason, 'order' => $order]
             : ['status' => 'processed', 'reason' => null, 'order' => $order->fresh()];
     }
 
@@ -428,6 +512,11 @@ class SePayService
      */
     public function pull(?SePayPaymentLink $link = null, int $hours = 24): int
     {
+        // Đối tác tự xác nhận: không có giao dịch nào để hỏi cổng.
+        if ($link && $this->providerOfLink($link) === PartnerSePayAccount::PROVIDER_MANUAL) {
+            return 0;
+        }
+
         // Yêu cầu của đối tác dùng Pay2S: hỏi API Pay2S (cùng bộ kiểm tra handleIncoming).
         if ($link && $this->providerOfLink($link) === PartnerSePayAccount::PROVIDER_PAY2S) {
             return app(Pay2SService::class)->pull($link, $hours);

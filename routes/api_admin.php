@@ -153,6 +153,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
     Route::get('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'show'])->name('partners.sepay-account.show');
     Route::post('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'store'])->name('partners.sepay-account.store');
+    Route::post('partners/{partner}/pay2s-link', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStart'])->name('partners.pay2s-link.start');
+    // Đối tác dùng "xác nhận thủ công": danh sách khoản chuyển khoản chờ xác nhận và nút xác nhận đã nhận tiền.
+    Route::get('manual-payments', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'index'])->name('manual-payments.index');
+    Route::post('manual-payments/{link}/confirm', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'confirm'])->whereNumber('link')->name('manual-payments.confirm');
+    Route::get('partners/{partner}/pay2s-link-check', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkCheck'])->name('partners.pay2s-link.check');
+    Route::get('partners/{partner}/pay2s-link/{session}', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStatus'])->name('partners.pay2s-link.status');
     // SePay / Pay2S — cùng chức năng với các trang CMS (Super Admin): danh sách tài khoản mọi đối tác, cấu hình chung từng cổng, nhật ký giao dịch.
     Route::get('sepay-accounts', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'index'])->name('sepay-accounts.index');
     Route::get('payment-gateways', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'index'])->name('payment-gateways.index');
