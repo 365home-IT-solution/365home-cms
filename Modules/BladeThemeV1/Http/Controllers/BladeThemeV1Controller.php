@@ -262,19 +262,20 @@ class BladeThemeV1Controller extends Controller
         }
     }
 
-    // Title tag dựng từ tiêu đề hiển thị (H1) + hậu tố "| 365Home". Tiêu đề hiện có tự gắn sẵn
-    // "365Home" ở ĐẦU (nhiều dạng phân cách: |, –, -, hoặc không có) hoặc ở CUỐI ("... | 365Home")
-    // — bỏ cả 2 trước khi thêm hậu tố, tránh lặp thương hiệu kiểu "365Home | X | 365Home" hay
-    // "X | 365Home | 365Home" (vừa xấu vừa tốn ký tự hiển thị trên SERP). Chỉ bỏ ở cuối khi có dấu
-    // phân cách đứng trước, để tiêu đề kết thúc tự nhiên bằng tên thương hiệu ("Nội quy 365 Home")
-    // không bị cắt mất chữ.
+    // Title tag dựng từ tiêu đề hiển thị (H1) + hậu tố "| 365Home". Tiêu đề có "365Home" kèm dấu
+    // phân cách ở ĐẦU ("365Home – X", "365Home: X") hoặc ở CUỐI ("X | 365Home") thì bỏ phần đó trước
+    // khi thêm hậu tố, tránh lặp kiểu "365Home | X | 365Home". Chỉ bỏ khi CÓ dấu phân cách: trước đây
+    // dấu phân cách ở đầu là tuỳ chọn nên "365Home là gì?" thành "là gì? … | 365Home" và
+    // "365Homestay …" thành "stay … | 365Home". Tiêu đề còn chứa "365Home" như một từ (vd "Nội quy
+    // 365 Home", "… tại 365Home") thì đã có thương hiệu — không thêm hậu tố nữa cho khỏi lặp, tốn chỗ trên SERP.
     private function brandedSeoTitle(?string $title): string
     {
         $title = trim((string) $title);
-        $core = (string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', $title);
+        $core = (string) preg_replace('/^365\s*home\s*[|:–—-]\s*/iu', '', $title);
         $core = trim((string) preg_replace('/\s*[|–—-]\s*365\s*home\s*$/iu', '', $core));
+        $core = $core !== '' ? $core : $title;
 
-        return trim(($core !== '' ? $core : $title) . ' | 365Home');
+        return preg_match('/(?<![\p{L}\p{N}])365\s*home(?![\p{L}\p{N}])/iu', $core) ? $core : $core . ' | 365Home';
     }
 
     // Cắt $text về tối đa $limit ký tự tại ranh giới từ (không cắt giữa chữ), thêm "…" khi có cắt.
