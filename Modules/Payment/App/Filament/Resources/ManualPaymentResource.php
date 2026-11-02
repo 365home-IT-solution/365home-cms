@@ -69,7 +69,9 @@ class ManualPaymentResource extends Resource
         $user = auth()->user();
         $partnerId = $user && ! $user->seesAllPartners() ? (string) $user->partner_id : null;
 
-        return app(SePayService::class)->pendingManualLinks($partnerId)->with('order');
+        return app(SePayService::class)->pendingManualLinks($partnerId)->with(['order', 'account.category'])
+            // Khoản khách đã báo "Tôi đã chuyển khoản" lên đầu để đối tác kiểm tra trước.
+            ->orderByRaw('customer_claimed_at is null');
     }
 
     public static function getNavigationBadge(): ?string
@@ -94,7 +96,10 @@ class ManualPaymentResource extends Resource
                         'initial' => 'Thanh toán / cọc đầu', 'remaining' => 'Phần còn lại', 'deposit_retry' => 'Cọc lại', 'extra' => 'Phát sinh', default => '—',
                     }),
                 Tables\Columns\TextColumn::make('amount')->label('Số tiền')->numeric(0, ',', '.')->suffix(' ₫')->sortable(),
+                Tables\Columns\TextColumn::make('account.account_number')->label('Tài khoản nhận')->placeholder('—')
+                    ->formatStateUsing(fn (SePayPaymentLink $record) => $record->account ? $record->account->bank_code . ' ' . $record->account->account_number . ($record->account->category_id ? ' — ' . $record->account->category?->name : '') : '—'),
                 Tables\Columns\TextColumn::make('payment_code')->label('Nội dung chuyển khoản')->state(fn (SePayPaymentLink $record) => $record->paymentCode())->copyable(),
+                Tables\Columns\TextColumn::make('customer_claimed_at')->label('Khách báo đã chuyển')->dateTime('d/m/Y H:i')->placeholder('Chưa báo')->badge()->color(fn ($state) => $state ? 'warning' : 'gray'),
                 Tables\Columns\TextColumn::make('expires_at')->label('Hạn đơn')->dateTime('d/m/Y H:i')->placeholder('—'),
             ])
             ->actions([

@@ -812,6 +812,12 @@ private function buildTelegramMessage(Order $order, string $status): string
      * Xử lý khoản đã nhận qua SePay sau khi SePayWebhookController xác thực HMAC, tài khoản, mã, số tiền và trạng thái đơn.
      * $kind: initial | deposit_retry (đơn paid/cọc), remaining (phần còn lại), extra (phát sinh) — cùng nhánh xử lý với webhook PayOS.
      */
+    /** Đơn tiền mặt (cod) đã thu tại quầy: cùng nhánh "đã thanh toán" với cổng online — đổi trạng thái, gán mã cổng, báo khách, Telegram. */
+    public function processCashPayment(Order $order): bool
+    {
+        return $this->handlePaidStatus($order, ['status' => 'PAID', 'provider' => 'cash']);
+    }
+
     public function processVerifiedSePayLink(Order $order, string $kind): bool
     {
         return match ($kind) {

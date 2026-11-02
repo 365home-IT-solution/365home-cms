@@ -130,6 +130,9 @@ class Partner extends Model implements HasMedia
         'escrow_enforced_from' => 'datetime',
         'escrow_topup_due_at' => 'datetime',
         'escrow_suspended_at' => 'datetime',
+        // Khoá phòng do tỷ lệ huỷ đơn tiền mặt cao (xem CancellationGuardService): lúc khoá + các phòng đang đăng lúc khoá (để mở lại đúng các phòng đó).
+        'cancel_locked_at' => 'datetime',
+        'cancel_locked_product_ids' => 'array',
         'escrow_terminated_at' => 'datetime',
         // Super Admin bật thì chủ đối tác được tự nhập kênh PayOS (không nằm trong $fillable — xem PartnerPayOsChannelService).
         'payos_self_setup_enabled' => 'boolean',
@@ -212,9 +215,15 @@ class Partner extends Model implements HasMedia
         return $this->hasOne(\Modules\Payment\Entities\PartnerPayOsAccount::class);
     }
 
+    /** Tài khoản nhận tiền MẶC ĐỊNH của đối tác (không gắn chi nhánh). Tài khoản riêng của từng chi nhánh: sePayAccounts(). */
     public function sePayAccount(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
-        return $this->hasOne(\Modules\Payment\Entities\PartnerSePayAccount::class);
+        return $this->hasOne(\Modules\Payment\Entities\PartnerSePayAccount::class)->whereNull('category_id');
+    }
+
+    public function sePayAccounts(): HasMany
+    {
+        return $this->hasMany(\Modules\Payment\Entities\PartnerSePayAccount::class);
     }
 
     public function escrowEntries(): HasMany

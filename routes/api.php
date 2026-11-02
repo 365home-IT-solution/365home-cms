@@ -46,6 +46,8 @@ Route::get('public/sepay/orders/{code}/payment', [\App\Http\Controllers\Api\SePa
     ->middleware('throttle:public-api')->name('api.sepay.orders.payment');
 Route::get('public/sepay/payments/{code}', [\App\Http\Controllers\Api\SePayPaymentController::class, 'link'])
     ->whereNumber('code')->middleware('throttle:public-api')->name('api.sepay.payments.show');
+Route::post('public/sepay/payments/{code}/claim', [\App\Http\Controllers\Api\SePayPaymentController::class, 'claim'])
+    ->whereNumber('code')->middleware('throttle:public-api')->name('api.sepay.payments.claim');
 
 // SePay gọi qua domain API chính: https://365home.vn/api/webhook/sepay.
 // Controller tự xác thực HMAC-SHA256 nên route không cần đăng nhập.

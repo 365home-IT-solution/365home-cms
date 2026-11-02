@@ -37,7 +37,13 @@ class SePayGateway extends PayOsGateway
     public function createPaymentLink(array $paymentData): array
     {
         $expiresAt = isset($paymentData['expiredAt']) ? Carbon::createFromTimestamp((int) $paymentData['expiredAt']) : null;
-        $link = $this->sePay->createLink($this->order, (int) ($paymentData['orderCode'] ?? 0), (int) ($paymentData['amount'] ?? 0), $expiresAt);
+
+        // Xác nhận thủ công: đối tác cần thời gian đối chiếu app ngân hàng — giữ ít nhất manual_payment.hold_minutes (lệnh orders:expire-pending giữ đơn theo hạn này).
+        if ($this->account->isManual()) {
+            $hold = now()->addMinutes(max(15, (int) \App\Support\ManualPaymentConfig::get('hold_minutes', 60)));
+            $expiresAt = $expiresAt && $expiresAt->gt($hold) ? $expiresAt : $hold;
+        }
+        $link = $this->sePay->createLink($this->order, (int) ($paymentData['orderCode'] ?? 0), (int) ($paymentData['amount'] ?? 0), $expiresAt, $this->account);
 
         return [
             'checkoutUrl' => route('sepay.checkout', ['code' => $link->code]),

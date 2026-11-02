@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
 use Modules\Minihouse\App\Support\HomestayBridge;
 use Modules\Payment\App\Filament\Resources\PartnerSePayAccountResource\Pages;
+use Modules\Category\Entities\Category;
+use Modules\Payment\Entities\BranchPayOsAccount;
 use Modules\Payment\Entities\PartnerPayOsAccount;
 use Modules\Payment\Entities\PartnerSePayAccount;
 
@@ -56,6 +58,7 @@ class PartnerSePayAccountResource extends Resource
         $data['account_number'] = trim((string) ($data['account_number'] ?? ''));
         $data['account_holder'] = mb_strtoupper(trim((string) ($data['account_holder'] ?? '')));
         $data['provider'] = $data['provider'] ?? PartnerSePayAccount::PROVIDER_SEPAY;
+        $data['category_id'] = filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null;
         $data['updated_by'] = auth()->id();
 
         // Token Pay2S để trống = giữ nguyên token đang lưu (token không bao giờ hiện lại); SePay không dùng token này.
@@ -87,8 +90,25 @@ class PartnerSePayAccountResource extends Resource
                         ->required()
                         ->live()
                         ->disabledOn('edit')
-                        ->unique(ignoreRecord: true)
-                        ->validationMessages(['unique' => 'Đối tác này đã có tài khoản SePay / Pay2S — sửa dòng đang có thay vì tạo mới.']),
+                        // Mỗi đối tác tối đa 1 tài khoản mặc định + 1 tài khoản cho mỗi chi nhánh.
+                        ->rules([
+                            fn (Forms\Get $get, ?PartnerSePayAccount $record) => function (string $attribute, $value, \Closure $fail) use ($get, $record) {
+                                $categoryId = filled($get('category_id')) ? (int) $get('category_id') : null;
+
+                                if (PartnerSePayAccount::query()->where('partner_id', $value)->where('category_id', $categoryId)->when($record, fn ($q) => $q->whereKeyNot($record->getKey()))->exists()) {
+                                    $fail($categoryId ? 'Chi nhánh này đã có tài khoản nhận tiền — sửa dòng đang có thay vì tạo mới.' : 'Đối tác này đã có tài khoản mặc định — sửa dòng đang có, hoặc chọn một chi nhánh để thêm tài khoản riêng cho chi nhánh.');
+                                }
+                            },
+                        ]),
+
+                    Forms\Components\Select::make('category_id')
+                        ->label('Chi nhánh')
+                        ->placeholder('Cả đối tác (tài khoản mặc định)')
+                        ->options(fn (Forms\Get $get) => $get('partner_id') ? Category::query()->where('partner_id', $get('partner_id'))->orderBy('name')->pluck('name', 'id') : [])
+                        ->searchable()
+                        ->live()
+                        ->disabledOn('edit')
+                        ->helperText('Để trống = tài khoản dùng cho mọi chi nhánh của đối tác. Chọn chi nhánh = chi nhánh đó (và các khu vực con) nhận tiền vào tài khoản riêng bên dưới; chi nhánh không có tài khoản riêng dùng tài khoản mặc định.'),
 
                     Forms\Components\Select::make('provider')
                         ->label('Cổng nhận biến động số dư')
@@ -108,6 +128,10 @@ class PartnerSePayAccountResource extends Resource
                             fn (Forms\Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
                                 if ($value && $get('partner_id') && PartnerPayOsAccount::query()->where('partner_id', $get('partner_id'))->where('is_active', true)->exists()) {
                                     $fail('Đối tác đang dùng kênh PayOS riêng. Tắt kênh đó ở "PayOS theo đối tác" trước, rồi mới bật SePay / Pay2S (mỗi đối tác chỉ dùng một kênh).');
+                                }
+
+                                if ($value && filled($get('category_id')) && BranchPayOsAccount::query()->where('category_id', $get('category_id'))->where('is_active', true)->exists()) {
+                                    $fail('Chi nhánh này đang dùng kênh PayOS riêng. Tắt kênh đó ở "PayOS theo chi nhánh" trước.');
                                 }
                             },
                         ]),
@@ -132,7 +156,7 @@ class PartnerSePayAccountResource extends Resource
                 ->columns(2),
 
             Forms\Components\Section::make('Tài khoản ngân hàng nhận tiền')
-                ->description('Phải GIỐNG TUYỆT ĐỐI tài khoản đã liên kết trên dashboard của cổng đã chọn (SePay hoặc Pay2S). Mỗi số tài khoản chỉ gắn cho một đối tác.')
+                ->description('Phải GIỐNG TUYỆT ĐỐI tài khoản đã liên kết trên dashboard của cổng đã chọn (SePay hoặc Pay2S). Mỗi số tài khoản chỉ gắn cho một nơi (một đối tác, một chi nhánh).')
                 ->schema([
                     Forms\Components\Select::make('bank_code')
                         ->label('Ngân hàng')
@@ -146,7 +170,7 @@ class PartnerSePayAccountResource extends Resource
                         ->maxLength(50)
                         ->regex('/^[0-9A-Za-z.-]+$/')
                         ->unique(ignoreRecord: true)
-                        ->validationMessages(['unique' => 'Số tài khoản này đã gắn cho đối tác khác.', 'regex' => 'Số tài khoản chỉ gồm chữ, số, dấu chấm hoặc gạch ngang.']),
+                        ->validationMessages(['unique' => 'Số tài khoản này đã gắn cho đối tác / chi nhánh khác.', 'regex' => 'Số tài khoản chỉ gồm chữ, số, dấu chấm hoặc gạch ngang.']),
                     Forms\Components\TextInput::make('account_holder')
                         ->label('Chủ tài khoản')
                         ->required()
@@ -196,9 +220,10 @@ class PartnerSePayAccountResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('partner'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['partner', 'category']))
             ->columns([
                 Tables\Columns\TextColumn::make('partner.name')->label('Đối tác')->searchable()->wrap(),
+                Tables\Columns\TextColumn::make('category.name')->label('Phạm vi')->placeholder('Cả đối tác (mặc định)')->wrap(),
                 Tables\Columns\TextColumn::make('provider')->label('Cổng')->badge()
                     ->formatStateUsing(fn (?string $state) => PartnerSePayAccount::PROVIDERS[$state ?: 'sepay'] ?? $state)
                     ->color(fn (?string $state) => match ($state) { PartnerSePayAccount::PROVIDER_PAY2S => 'info', PartnerSePayAccount::PROVIDER_MANUAL => 'warning', default => 'success' }),
@@ -215,6 +240,8 @@ class PartnerSePayAccountResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->modalDescription('Xoá tài khoản nhận tiền này? Chi nhánh (hoặc cả đối tác) sẽ dùng tài khoản mặc định hoặc PayOS. Yêu cầu thanh toán đã tạo vẫn được tra cứu.'),
             ]);
     }
 

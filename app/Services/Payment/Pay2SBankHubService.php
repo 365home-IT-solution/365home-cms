@@ -91,7 +91,7 @@ class Pay2SBankHubService
     }
 
     /** Tạo phiên Hosted Link (15 phút). @throws RuntimeException khi Pay2S lỗi / chưa cấu hình. */
-    public function createSession(Partner $partner, ?string $userId = null): PartnerPay2sLinkSession
+    public function createSession(Partner $partner, ?string $userId = null, ?int $categoryId = null): PartnerPay2sLinkSession
     {
         if (! $this->configured()) {
             throw new RuntimeException('Chưa cấu hình khoá Partner API của Pay2S (PAY2S_PARTNER_ACCESS_KEY / PAY2S_PARTNER_SECRET_KEY).');
@@ -115,6 +115,7 @@ class Pay2SBankHubService
 
         return PartnerPay2sLinkSession::query()->create([
             'partner_id' => $partner->id,
+            'category_id' => $categoryId,
             'session_id' => (string) $sessionId,
             'customer_reference' => $reference,
             'status' => 'created',
@@ -176,8 +177,13 @@ class Pay2SBankHubService
 
         $bank = $this->matchBank((string) ($account['bank_code'] ?? $account['bank_short_name'] ?? $account['bank_name'] ?? $account['bank'] ?? ''));
 
-        $existing = PartnerSePayAccount::query()->where('partner_id', $session->partner_id)->first();
-        $taken = PartnerSePayAccount::query()->where('account_number', $number)->where('partner_id', '!=', $session->partner_id)->exists();
+        $existing = PartnerSePayAccount::query()->where('partner_id', $session->partner_id)->where('category_id', $session->category_id)->first();
+        // Số tài khoản đã dùng ở chỗ KHÁC (đối tác khác, hoặc cùng đối tác nhưng phạm vi khác: mặc định / chi nhánh khác) thì không gắn thêm được.
+        $taken = PartnerSePayAccount::query()->where('account_number', $number)->where(function ($q) use ($session) {
+            $q->where('partner_id', '!=', $session->partner_id)->orWhere(fn ($same) => $session->category_id === null
+                ? $same->whereNotNull('category_id')
+                : $same->whereNull('category_id')->orWhere('category_id', '!=', $session->category_id));
+        })->exists();
 
         if ($taken) {
             $session->forceFill(['status' => 'failed', 'error_code' => 'ACCOUNT_TAKEN', 'error_message' => 'Số tài khoản này đã gắn cho một đối tác khác.'])->save();
@@ -204,7 +210,7 @@ class Pay2SBankHubService
             $values['webhook_token'] = $webhookToken;
         }
 
-        PartnerSePayAccount::query()->updateOrCreate(['partner_id' => $session->partner_id], $values + ['is_active' => true]);
+        PartnerSePayAccount::query()->updateOrCreate(['partner_id' => $session->partner_id, 'category_id' => $session->category_id], $values + ['is_active' => true]);
         $session->forceFill(['applied' => true])->save();
     }
 
@@ -294,9 +300,13 @@ class Pay2SBankHubService
             $add('pay2s_linked', 'Pay2S ghi nhận liên kết ngân hàng', null, 'Chưa cấu hình khoá Partner API nên không hỏi được Pay2S.');
         }
 
-        $last = \Modules\Payment\Entities\SePayTransaction::query()->where('provider', PartnerSePayAccount::PROVIDER_PAY2S)->where('partner_sepay_account_id', $account->id)->latest('transaction_at')->first();
-        $add('last_transaction', 'Đã nhận giao dịch từ tài khoản này', $last ? true : null,
-            $last ? 'Giao dịch gần nhất: ' . $last->transaction_at?->format('d/m/Y H:i') . '.' : 'Chưa có giao dịch nào về (bình thường nếu tài khoản mới liên kết — chuyển thử 1 khoản nhỏ để chắc chắn).');
+        // Chỉ "đạt" khi giao dịch gần nhất THẬT SỰ xác nhận được đơn; giao dịch bị từ chối (sai số tiền, sai nội dung, đơn đã huỷ...) nêu rõ lý do.
+        $last = \Modules\Payment\Entities\SePayTransaction::query()->where('provider', PartnerSePayAccount::PROVIDER_PAY2S)->where('partner_sepay_account_id', $account->id)->latest('id')->first();
+        $add('last_transaction', 'Giao dịch gần nhất xác nhận được đơn', $last?->status === 'processed' ? true : null, match (true) {
+            ! $last => 'Chưa có giao dịch nào về (bình thường nếu tài khoản mới liên kết — chuyển thử 1 khoản nhỏ đúng nội dung để chắc chắn).',
+            $last->status === 'processed' => 'Giao dịch ' . $last->transaction_at?->format('d/m/Y H:i') . ' đã xác nhận đơn.',
+            default => 'Giao dịch ' . $last->transaction_at?->format('d/m/Y H:i') . ' chưa xác nhận được đơn: ' . ($last->failure_reason ?: $last->status) . '.',
+        });
 
         return ['linked' => collect($checks)->every(fn ($c) => $c['ok'] !== false), 'checks' => $checks];
     }
@@ -323,6 +333,7 @@ class Pay2SBankHubService
     {
         return [
             'session_id' => $session->session_id,
+            'category_id' => $session->category_id,
             'status' => $session->status,
             'pending' => $session->isPending(),
             'connected' => $session->applied,

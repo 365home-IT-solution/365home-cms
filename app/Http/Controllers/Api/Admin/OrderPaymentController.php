@@ -40,6 +40,34 @@ class OrderPaymentController extends Controller
      * hạn, đơn failed/cancelled gần như chắc chắn đã có 1 link cũ từ lần thử trước. Tự tính đúng số
      * tiền cần thu qua depositDueAmount() (đơn cọc chỉ thu lại đúng % cọc, không phải full_amount).
      */
+    /**
+     * POST /api/admin/orders/{order_code}/confirm-cash — nhân viên xác nhận đã thu đủ tiền mặt tại quầy của đơn "cod" đang chờ: đơn chuyển "paid" (gán mã cổng,
+     * báo khách), ghi người thu + thời điểm + ghi chú; hoa hồng được chốt và vào kỳ đối soát (đối tác giữ tiền, nộp hoa hồng). Body: note (tuỳ chọn).
+     */
+    public function confirmCash(Request $request, string $orderCode, \App\Services\Payment\CashPaymentService $cash): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:255']]);
+
+        $order = Order::with('items')->where('order_code', $orderCode)->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        $order = $cash->confirm($order, $admin, $data['note'] ?? null);
+
+        return response()->json([
+            'message' => 'Đã xác nhận thu tiền mặt — đơn #' . $order->order_code . ' đã thanh toán.',
+            'data' => [
+                'order_code' => $order->order_code, 'status' => $order->status, 'amount' => (int) $order->amount, 'collected_by' => $order->collected_by,
+                'cash_confirmed_at' => $order->cash_confirmed_at ? \Illuminate\Support\Carbon::parse($order->cash_confirmed_at)->toIso8601String() : null,
+                'cash_confirmed_by' => $order->cash_confirmed_by, 'cash_confirm_note' => $order->cash_confirm_note,
+            ],
+        ]);
+    }
+
     public function retryPayment(Request $request, string $orderCode): JsonResponse
     {
         /** @var User $admin */

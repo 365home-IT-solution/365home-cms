@@ -11,6 +11,8 @@ return [
         \App\Settings\SePaySettings::class,
         \App\Settings\Pay2SSettings::class,
         \App\Settings\CouponSettings::class,
+        \App\Settings\ManualPaymentSettings::class,
+        \App\Settings\CashPaymentSettings::class,
     ],
 
     /*

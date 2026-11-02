@@ -41,10 +41,10 @@ class EditPartnerSePayAccount extends EditRecord
                 ->visible(fn () => app(Pay2SBankHubService::class)->configured() && ! $this->record->isManual())
                 ->requiresConfirmation()
                 ->modalHeading('Mở trang liên kết ngân hàng của Pay2S?')
-                ->modalDescription('Đối tác nhập thông tin ngân hàng và OTP trên trang Pay2S (hiệu lực 15 phút). Xong quay lại đây bấm "Cập nhật kết quả liên kết". Tài khoản liên kết xong sẽ ghi đè số tài khoản và token webhook hiện tại.')
+                ->modalDescription('Đối tác nhập thông tin ngân hàng và OTP trên trang Pay2S (hiệu lực 15 phút). Xong quay lại đây bấm "Cập nhật kết quả liên kết". Tài khoản liên kết xong sẽ ghi đè số tài khoản và token webhook của tài khoản này (' . $this->record->scopeLabel() . ').')
                 ->action(function () {
                     try {
-                        $session = app(Pay2SBankHubService::class)->createSession($this->record->partner, auth()->id());
+                        $session = app(Pay2SBankHubService::class)->createSession($this->record->partner, auth()->id(), $this->record->category_id);
                     } catch (\Throwable $e) {
                         Notification::make()->danger()->title($e->getMessage())->send();
 
@@ -61,7 +61,7 @@ class EditPartnerSePayAccount extends EditRecord
                 ->visible(fn () => app(Pay2SBankHubService::class)->configured() && ! $this->record->isManual())
                 ->action(function () {
                     $service = app(Pay2SBankHubService::class);
-                    $session = PartnerPay2sLinkSession::query()->where('partner_id', $this->record->partner_id)->latest('id')->first();
+                    $session = PartnerPay2sLinkSession::query()->where('partner_id', $this->record->partner_id)->where('category_id', $this->record->category_id)->latest('id')->first();
 
                     if (! $session) {
                         Notification::make()->warning()->title('Chưa có phiên liên kết nào cho đối tác này')->send();

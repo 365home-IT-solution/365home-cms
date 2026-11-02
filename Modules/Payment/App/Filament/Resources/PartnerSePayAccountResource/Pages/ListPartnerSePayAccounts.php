@@ -27,12 +27,16 @@ class ListPartnerSePayAccounts extends ListRecords
                 ->modalDescription('Mở trang của Pay2S để đối tác nhập thông tin ngân hàng và OTP (OTP chỉ nhập trên trang Pay2S). Xong quay lại đây bấm "Cập nhật kết quả liên kết".')
                 ->modalSubmitActionLabel('Mở trang liên kết')
                 ->form([
-                    Forms\Components\Select::make('partner_id')->label('Đối tác')->required()->searchable()
+                    Forms\Components\Select::make('partner_id')->label('Đối tác')->required()->searchable()->live()
                         ->options(fn () => Partner::query()->where('partner_type', Partner::TYPE_HOMESTAY)->where('is_platform_partner', false)->orderBy('name')->pluck('name', 'id')),
+                    Forms\Components\Select::make('category_id')->label('Chi nhánh')->searchable()
+                        ->placeholder('Cả đối tác (tài khoản mặc định)')
+                        ->helperText('Chọn chi nhánh để liên kết tài khoản ngân hàng riêng cho chi nhánh đó.')
+                        ->options(fn (Forms\Get $get) => $get('partner_id') ? \Modules\Category\Entities\Category::query()->where('partner_id', $get('partner_id'))->orderBy('name')->pluck('name', 'id') : []),
                 ])
                 ->action(function (array $data) {
                     try {
-                        $session = app(Pay2SBankHubService::class)->createSession(Partner::findOrFail($data['partner_id']), auth()->id());
+                        $session = app(Pay2SBankHubService::class)->createSession(Partner::findOrFail($data['partner_id']), auth()->id(), filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null);
                     } catch (\Throwable $e) {
                         Notification::make()->danger()->title($e->getMessage())->send();
 

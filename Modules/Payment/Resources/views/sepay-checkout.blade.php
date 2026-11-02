@@ -26,6 +26,9 @@
         .ok strong { color:var(--ok); } .bad strong { color:var(--bad); }
         a.btn { display:inline-block; margin-top:14px; padding:10px 18px; border-radius:10px; background:var(--brand); color:#fff; text-decoration:none; }
         .timer { text-align:center; color:var(--muted); font-size:.9rem; margin-top:12px; }
+        button.claim { display:block; width:100%; margin-top:14px; padding:12px; border:0; border-radius:10px; background:var(--brand); color:#fff; font-size:1rem; font-weight:600; cursor:pointer; }
+        button.claim[disabled] { opacity:.6; cursor:default; }
+        .claimed { margin-top:14px; padding:10px 12px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; font-size:.9rem; color:#065f46; text-align:center; }
         [hidden] { display:none !important; }
     </style>
 </head>
@@ -43,6 +46,10 @@
             <div class="row"><dt>Nội dung</dt><dd><span id="code">{{ $payment['transfer_content'] }}</span><button class="copy" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('code').textContent)">Chép</button></dd></div>
         </dl>
         <p class="note">Giữ nguyên <b>số tiền</b> và <b>nội dung chuyển khoản</b> ở trên. Sai một trong hai thì @if (($payment['provider'] ?? null) === 'manual')chủ nhà khó đối chiếu được khoản chuyển @else hệ thống không tự xác nhận được đơn @endif.</p>
+        @if (($payment['provider'] ?? null) === 'manual')
+            <button class="claim" type="button" id="claim" @if (! empty($payment['customer_claimed_at'])) hidden @endif>Tôi đã chuyển khoản</button>
+            <div class="claimed" id="claimed" @if (empty($payment['customer_claimed_at'])) hidden @endif>Đã báo chủ nhà. Đơn sẽ được xác nhận ngay khi chủ nhà kiểm tra thấy tiền về.</div>
+        @endif
         @if ($payment['expires_at'])
             <div class="timer">Còn lại <b id="left">--:--</b> để thanh toán</div>
         @endif
@@ -71,13 +78,15 @@
     (function () {
         var statusUrl = @json($statusUrl);
         var expiresAt = @json($payment['expires_at']) ? new Date(@json($payment['expires_at'])).getTime() : null;
+        var claimUrl = @json($payment['claim_url'] ?? null);
         var done = false;
         function show(id) { ['pay', 'paid', 'closed', 'expired'].forEach(function (k) { document.getElementById(k).hidden = (k !== id); }); }
         function tick() {
             var left = document.getElementById('left');
             if (done || !expiresAt || !left) return;
             var s = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-            left.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+            var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+            left.textContent = (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
             if (s === 0) { show('expired'); }
         }
         function poll() {
@@ -90,6 +99,21 @@
                     else if (j.data.status === 'cancelled') { done = true; show('closed'); }
                 })
                 .catch(function () {});
+        }
+        var claimBtn = document.getElementById('claim');
+        if (claimBtn && claimUrl) {
+            claimBtn.addEventListener('click', function () {
+                claimBtn.disabled = true;
+                fetch(claimUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
+                    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                    .then(function (res) {
+                        if (!res.ok) { claimBtn.disabled = false; alert((res.j && res.j.message) || 'Không gửi được, vui lòng thử lại.'); return; }
+                        claimBtn.hidden = true;
+                        document.getElementById('claimed').hidden = false;
+                        if (res.j.data && res.j.data.expires_at) { expiresAt = new Date(res.j.data.expires_at).getTime(); }
+                    })
+                    .catch(function () { claimBtn.disabled = false; });
+            });
         }
         setInterval(tick, 1000); tick();
         setInterval(poll, 4000);

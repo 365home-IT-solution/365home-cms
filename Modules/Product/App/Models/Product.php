@@ -217,6 +217,12 @@ class Product extends Model implements HasMedia, Resourceable
             if (($product->approval_status ?? 'approved') !== 'approved' && $product->is_activated) {
                 $product->setAttribute('is_activated', false);
             }
+
+            // Đối tác đang bị khoá phòng do huỷ nhiều đơn tiền mặt: không tự bật phòng lại được (chỉ Super Admin mở khoá) — xem CancellationGuardService.
+            if ($product->exists && $product->is_activated && $product->isDirty('is_activated') && ! (auth()->user()?->isSuperAdmin() ?? false)
+                && app(\App\Services\Payment\CancellationGuardService::class)->productLocked($product)) {
+                $product->setAttribute('is_activated', false);
+            }
         });
 
         // Đối tác sửa nội dung / giá của phòng ĐÃ duyệt: giữ nguyên bản đang chạy, bản sửa vào yêu cầu "Sửa phòng" chờ duyệt (các cột khác — bật/tắt, vệ sinh, khoá... — lưu như thường).

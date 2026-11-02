@@ -9,7 +9,7 @@ class PartnerPay2sLinkSession extends Model
 {
     protected $table = 'partner_pay2s_link_sessions';
 
-    protected $fillable = ['partner_id', 'session_id', 'customer_reference', 'status', 'hosted_link_url', 'expires_at', 'error_code', 'error_message', 'applied', 'account', 'created_by'];
+    protected $fillable = ['partner_id', 'category_id', 'session_id', 'customer_reference', 'status', 'hosted_link_url', 'expires_at', 'error_code', 'error_message', 'applied', 'account', 'created_by'];
 
     protected $casts = ['expires_at' => 'datetime', 'applied' => 'boolean', 'account' => 'array'];
 
