@@ -18,6 +18,9 @@
                     style="width: {{ $score }}%">
                 </div>
             </div>
+            @if (!empty($scoreNote))
+                <p class="v-text-sm v-text-gray-600 v-mt-2">{{ $scoreNote }}</p>
+            @endif
         </div>
 
         <div class="v-p-4 v-bg-gray-50 v-rounded-lg dark:v-bg-gray-900 v-mb-4 dark:v-bg-white/10 dark:v-ring-white/20">
@@ -154,27 +157,7 @@
                                     @endif
                                 </div>
                                 <div>
-                                    <h4 class="v-text-sm v-font-medium">
-                                        @switch($key)
-                                            @case('title')
-                                            @break
-
-                                            @case('description')
-                                            @break
-
-                                            @case('url')
-                                            @break
-
-                                            @case('keywordPlacement')
-                                            @break
-
-                                            @case('contentLength')
-                                            @break
-
-                                            @default
-                                                {{ ucfirst($key) }}
-                                        @endswitch
-                                    </h4>
+                                    <h4 class="v-text-sm v-font-medium">{{ $analysis['label'] ?? '' }}</h4>
                                     <p class="v-text-sm v-text-gray-600">{{ $analysis['message'] }}</p>
                                 </div>
                             </div>
@@ -268,6 +251,7 @@
                                     @endif
                                 </div>
                                 <div>
+                                    <h4 class="v-text-sm v-font-medium">{{ $analysis['label'] ?? '' }}</h4>
                                     <p class="v-text-sm v-text-gray-600">{{ $analysis['message'] }}</p>
                                 </div>
                             </div>
@@ -419,6 +403,7 @@
                                     @endif
                                 </div>
                                 <div>
+                                    <h4 class="v-text-sm v-font-medium">{{ $analysis['label'] ?? '' }}</h4>
                                     <p class="v-text-sm v-text-gray-600">{{ $analysis['message'] }}</p>
                                 </div>
                             </div>

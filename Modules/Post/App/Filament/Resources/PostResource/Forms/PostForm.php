@@ -297,7 +297,7 @@ class PostForm
         return TextInput::make('seo_title')
             ->label(__('post::post.form.label.seo_title'))
             ->placeholder(__('post::post.form.placeholder.seo_title'))
-            ->helperText('Tối ưu: 50–60 ký tự')
+            ->helperText('Nên ≤ 60 ký tự. Để trống hoặc trùng tiêu đề bài thì hệ thống tự thêm " | 365Home"')
             ->maxLength(60)
             ->live(onBlur: true)
             ->afterStateUpdated(function ($state, $livewire) {
@@ -319,7 +319,7 @@ class PostForm
         return Textarea::make('seo_description')
             ->label(__('post::post.form.label.seo_description'))
             ->placeholder(__('post::post.form.placeholder.seo_description'))
-            ->helperText('Tối ưu: 150–160 ký tự')
+            ->helperText('Nên 120–160 ký tự, có từ khóa chính, nêu lợi ích chính của bài')
             ->maxLength(160)
             ->rows(3)
             ->live(debounce: 1000)
