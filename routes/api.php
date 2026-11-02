@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\MiniGameController;
 use App\Http\Controllers\Api\ScratchCardController;
+use App\Http\Controllers\Api\CaroController;
 use App\Http\Controllers\Api\CollectionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\MinihouseRoomController;
@@ -605,6 +606,41 @@ Route::middleware(['auth:sanctum', 'customer.active'])->prefix('wishlist')->name
 Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('games/scratch-cards')->name('api.games.scratch-cards.')->group(function () {
     Route::get('/',              [ScratchCardController::class, 'index'])->name('index');
     Route::post('{id}/scratch',  [ScratchCardController::class, 'scratch'])->name('scratch');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Caro trực tuyến 2 người (khách đã đăng nhập) — ghép trận ngẫu nhiên hoặc mời bạn; đủ N trận thắng nhận voucher (source = caro)
+| GET    /api/games/caro                      → Luật chơi, tiến độ (pending_wins / wins_required), số người online, trận đang dở
+| POST   /api/games/caro/queue                → Vào hàng chờ; GET cùng đường dẫn mỗi 2-3 giây để giữ chỗ và nhận trận (status = matched)
+| DELETE /api/games/caro/queue                → Rời hàng chờ
+| GET    /api/games/caro/invites              → Lời mời đang chờ mình (incoming) + lời mời mình đang gửi (outgoing)
+| POST   /api/games/caro/invites              → Mời bạn: phone (mời đích danh) hoặc bỏ trống (lấy link/mã gửi bạn)
+| GET    /api/games/caro/invites/{code}       → Xem lời mời (người mời hỏi lại tới khi accepted)
+| POST   /api/games/caro/invites/{code}/accept  → Nhận lời mời → vào trận
+| POST   /api/games/caro/invites/{code}/decline → Từ chối (người được mời đích danh)
+| DELETE /api/games/caro/invites/{code}       → Huỷ lời mời (người mời)
+| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invited / caro.invite_updated)
+| POST   /api/games/caro/matches/{id}/move    → Đánh 1 nước (x, y)
+| POST   /api/games/caro/matches/{id}/resign  → Đầu hàng
+| GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('games/caro')->name('api.games.caro.')->group(function () {
+    Route::get('/',                    [CaroController::class, 'index'])->name('index');
+    Route::post('queue',               [CaroController::class, 'seek'])->name('queue.join');
+    Route::get('queue',                [CaroController::class, 'seek'])->name('queue.poll');
+    Route::delete('queue',             [CaroController::class, 'leave'])->name('queue.leave');
+    Route::get('invites',                     [CaroController::class, 'invites'])->name('invites.index');
+    Route::post('invites',                    [CaroController::class, 'invite'])->name('invites.store')->middleware('throttle:10,1');
+    Route::get('invites/{code}',              [CaroController::class, 'showInvite'])->name('invites.show');
+    Route::post('invites/{code}/accept',      [CaroController::class, 'acceptInvite'])->name('invites.accept');
+    Route::post('invites/{code}/decline',     [CaroController::class, 'declineInvite'])->name('invites.decline');
+    Route::delete('invites/{code}',           [CaroController::class, 'cancelInvite'])->name('invites.cancel');
+    Route::get('matches/{id}',         [CaroController::class, 'show'])->name('matches.show');
+    Route::post('matches/{id}/move',   [CaroController::class, 'move'])->name('matches.move');
+    Route::post('matches/{id}/resign', [CaroController::class, 'resign'])->name('matches.resign');
+    Route::get('rewards',              [CaroController::class, 'rewards'])->name('rewards');
 });
 
 /*

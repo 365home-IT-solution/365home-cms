@@ -10,6 +10,7 @@ return [
         \App\Settings\PriceBoardSettings::class,
         \App\Settings\SePaySettings::class,
         \App\Settings\Pay2SSettings::class,
+        \App\Settings\CouponSettings::class,
     ],
 
     /*

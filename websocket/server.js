@@ -726,6 +726,26 @@ app.post('/internal/notify-all', (req, res) => {
     return res.json({ ok: true, delivered: io.engine.clientsCount });
 });
 
+// Caro trực tuyến (App\Services\CaroRealtimeService): đẩy trạng thái trận tới kênh cá nhân của 1 khách — event là caro.matched | caro.updated.
+app.post('/internal/caro-event', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { customer_id, event, payload } = req.body;
+    if (!customer_id || !event || !String(event).startsWith('caro.')) {
+        return res.status(422).json({ error: 'Missing customer_id or invalid event' });
+    }
+
+    const sockets = connections.get(String(customer_id));
+    if (sockets && sockets.size > 0) {
+        sockets.forEach((socket) => socket.emit(event, payload || {}));
+    }
+
+    return res.json({ ok: true, delivered: sockets ? sockets.size : 0 });
+});
+
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok', connections: io.engine.clientsCount });

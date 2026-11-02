@@ -1064,6 +1064,11 @@ class BookingController extends Controller
      */
     private function guardExclusiveCoupons(array $codes): void
     {
+        // Giới hạn số mã trong 1 đơn: tổng số mã (Cài đặt áp mã) và riêng mã Caro (trang Caro trực tuyến)
+        if ($stackLimit = \App\Support\CouponStackLimit::violation($codes)) {
+            throw ValidationException::withMessages(['coupon_codes' => [$stackLimit]]);
+        }
+
         if (count($codes) < 2) {
             return;
         }

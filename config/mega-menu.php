@@ -39,7 +39,7 @@ return [
 
     'Quản lý API' => [
         'Nội dung app' => ['APP', 'POPUP', 'Thông báo vào app', 'Thông tin TTLock'],
-        'Game App' => ['Mini game', 'Thẻ cào — Giải thưởng', 'Thẻ cào — Lịch sử trúng', 'Mảnh ghép — Chiến dịch', 'Giới thiệu bạn bè'],
+        'Game App' => ['Mini game', 'Thẻ cào — Giải thưởng', 'Thẻ cào — Lịch sử trúng', 'Mảnh ghép — Chiến dịch', 'Giới thiệu bạn bè', 'Caro trực tuyến', 'Caro — Lịch sử thưởng'],
     ],
 
     // Bảng RIÊNG từng panel — ưu tiên hơn bảng chung ở trên (xem topbar/index.blade.php). Panel

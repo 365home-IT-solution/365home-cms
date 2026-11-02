@@ -37,6 +37,17 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Caro: xử thua trận hết giờ lượt mà không ai mở lại + dọn hàng chờ ghép trận.
+        $schedule->command('caro:sweep')
+            ->everyMinute()
+            ->withoutOverlapping(2);
+
+        // Caro: nhắc khách voucher caro chưa dùng sắp hết hạn (hạn 7 ngày) để quay lại đặt phòng.
+        $schedule->command('caro:remind-expiring')
+            ->hourly()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
         // Hợp đồng mẫu Điều 7: tự động gia hạn hợp đồng đến hạn (không bên nào thông báo chấm dứt) và nhắc trước 7 ngày.
         $schedule->command('partners:renew-contracts')
             ->dailyAt('00:30')

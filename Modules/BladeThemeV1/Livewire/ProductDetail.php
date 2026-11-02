@@ -398,6 +398,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
+        // Giới hạn số mã trong 1 đơn (tổng số mã + riêng mã Caro) — cùng luật với API (App\Support\CouponStackLimit)
+        if ($stackLimit = \App\Support\CouponStackLimit::violation([...collect($this->appliedCoupons)->pluck('code')->all(), $code])) {
+            $this->couponErrorMessage = $stackLimit;
+            return;
+        }
+
         // Chiều còn lại: mã MỚI này là exclusive nhưng đã có sẵn mã khác đang áp dụng.
         if ($coupon->is_exclusive && ! empty($this->appliedCoupons)) {
             $this->couponErrorMessage = sprintf('Mã "%s" không thể dùng chung với mã giảm giá khác. Vui lòng gỡ mã hiện tại trước.', $code);
