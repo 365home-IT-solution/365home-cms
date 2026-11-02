@@ -133,6 +133,9 @@ class ProductTable extends Table
                     })
                     ->onIcon(__('product::product.table.icons.active'))
                     ->offIcon(__('product::product.table.icons.inactive'))
+                    // Đối tác bị tạm khoá phòng do huỷ nhiều đơn tiền mặt: không tự bật lại được (chỉ Super Admin mở khoá).
+                    ->disabled(fn ($record) => ! $record->is_activated && ! (auth()->user()?->isSuperAdmin() ?? false)
+                        && app(\App\Services\Payment\CancellationGuardService::class)->productLocked($record))
                     ->alignCenter()
                     ->sortable(),
 //                ToggleColumn::make('is_trend')

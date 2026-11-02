@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\PartnerSePayAccount;
 use Modules\Payment\Entities\SePayPaymentLink;
@@ -67,7 +68,10 @@ class SePayService
         return null;
     }
 
-    /** Tài khoản SePay đang dùng cho đơn: đối tác bật SePay, được phép dùng kênh riêng (đã có hợp đồng mẫu mới) và đơn không thuộc chi nhánh có PayOS riêng. */
+    /**
+     * Tài khoản nhận tiền (SePay / Pay2S / xác nhận thủ công) đang dùng cho đơn: đối tác được phép dùng kênh riêng (đã có hợp đồng mẫu mới), đơn không
+     * thuộc chi nhánh có PayOS riêng, và có tài khoản đang bật áp dụng cho chi nhánh của đơn (xem accountForCategory).
+     */
     public function accountFor(Order $order): ?PartnerSePayAccount
     {
         if (PayOsAccountResolver::branchAccountFor($order->category_id ? (int) $order->category_id : null)) {
@@ -80,9 +84,44 @@ class SePayService
             return null;
         }
 
-        $account = PartnerSePayAccount::query()->where('partner_id', $partnerId)->where('is_active', true)->first();
+        $account = $this->accountForCategory($partnerId, $order->category_id ? (int) $order->category_id : null);
 
         return $account && $this->providerEnabled((string) $account->provider) ? $account : null;
+    }
+
+    /**
+     * Tài khoản nhận tiền của đối tác áp dụng cho một chi nhánh: tài khoản riêng của chi nhánh (hoặc của chi nhánh cha gần nhất — khu vực con dùng chung
+     * với chi nhánh), không có thì tài khoản mặc định của cả đối tác (category_id trống). $activeOnly = false: lấy cả tài khoản đang tắt (tra link cũ).
+     */
+    public function accountForCategory(?string $partnerId, ?int $categoryId, bool $activeOnly = true): ?PartnerSePayAccount
+    {
+        if (! $partnerId) {
+            return null;
+        }
+
+        $accounts = PartnerSePayAccount::query()->where('partner_id', $partnerId)->when($activeOnly, fn ($q) => $q->where('is_active', true))->get();
+
+        if ($accounts->isEmpty()) {
+            return null;
+        }
+
+        $depth = 0;
+
+        while ($categoryId && $depth++ < 5) {
+            if ($account = $accounts->first(fn (PartnerSePayAccount $a) => (int) $a->category_id === $categoryId)) {
+                return $account;
+            }
+
+            $categoryId = Category::whereKey($categoryId)->value('parent_id');
+        }
+
+        return $accounts->first(fn (PartnerSePayAccount $a) => $a->category_id === null);
+    }
+
+    /** Tài khoản của đơn kể cả đang tắt / cổng đang tắt — dùng để tra lại yêu cầu thanh toán đã phát hành. */
+    private function accountOfOrder(Order $order): ?PartnerSePayAccount
+    {
+        return $this->accountForCategory(PayOsAccountResolver::partnerIdForOrder($order), $order->category_id ? (int) $order->category_id : null, false);
     }
 
     /** Công tắc tổng của từng cổng (CMS → Cấu hình web): tắt = mọi đối tác của cổng đó quay về PayOS. */
@@ -100,13 +139,16 @@ class SePayService
         return PartnerSePayAccount::PROVIDERS[$provider] ?? ucfirst($provider);
     }
 
-    /** Cổng (sepay | pay2s) của đối tác sở hữu yêu cầu thanh toán — dùng chọn đường hỏi giao dịch. */
+    /** Cổng (sepay | pay2s | manual) của tài khoản đã phát hành yêu cầu thanh toán — dùng chọn đường hỏi giao dịch. */
     private function providerOfLink(SePayPaymentLink $link): ?string
     {
-        $order = $link->order ?: Order::withoutGlobalScopes()->find($link->order_id);
-        $partnerId = $order ? PayOsAccountResolver::partnerIdForOrder($order) : null;
+        if ($link->account) {
+            return $link->account->provider;
+        }
 
-        return $partnerId ? PartnerSePayAccount::query()->where('partner_id', $partnerId)->value('provider') : null;
+        $order = $link->order ?: Order::withoutGlobalScopes()->find($link->order_id);
+
+        return $order ? $this->accountOfOrder($order)?->provider : null;
     }
 
     /** Số tiền tối thiểu của 1 lần thu: PayOS không tạo được link dưới 2.000đ; chuyển khoản SePay không có mức đó (mặc định 1.000đ, đổi bằng SEPAY_MIN_AMOUNT). */
@@ -134,6 +176,8 @@ class SePayService
         $link = SePayPaymentLink::query()->where('order_id', $order->id)->where('status', SePayPaymentLink::PENDING)
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
             ->latest('id')->first();
+        // Yêu cầu đang chờ hiện đúng tài khoản đã phát hành cho khách (kể cả khi cấu hình đổi sau đó).
+        $account = $link?->account ?: $account;
         $data = $link ? $this->payloadFor($link, $account) + ['checkout_url' => route('sepay.checkout', ['code' => $link->code])] : null;
 
         return match ($account->provider) {
@@ -160,12 +204,13 @@ class SePayService
      * Tạo (hoặc làm mới, nếu chưa trả) yêu cầu thanh toán cho khoản thu $refCode của đơn. Mã khách ghi khi chuyển khoản (code) là mã NGẮN 8 chữ số riêng,
      * không dùng mã đơn dài (SePay chỉ nhận hậu tố trong giới hạn đã cấu hình, mặc định 6–8 ký tự). Khoản đã thanh toán không bao giờ tạo lại.
      */
-    public function createLink(Order $order, int $refCode, int $amount, ?Carbon $expiresAt): SePayPaymentLink
+    public function createLink(Order $order, int $refCode, int $amount, ?Carbon $expiresAt, ?PartnerSePayAccount $account = null): SePayPaymentLink
     {
         if ($refCode <= 0 || $amount <= 0) {
             throw new RuntimeException('Mã hoặc số tiền thanh toán SePay không hợp lệ.');
         }
 
+        $account ??= $this->accountFor($order);
         $link = SePayPaymentLink::query()->where('order_id', $order->id)->where('ref_code', $refCode)->latest('id')->first();
 
         if ($link && $link->status === SePayPaymentLink::PAID) {
@@ -173,13 +218,14 @@ class SePayService
         }
 
         if ($link) {
-            $link->update(['amount' => $amount, 'status' => SePayPaymentLink::PENDING, 'expires_at' => $expiresAt, 'paid_at' => null]);
+            // Làm mới yêu cầu (đổi hạn/số tiền): gắn lại tài khoản hiện áp dụng cho chi nhánh của đơn.
+            $link->update(['amount' => $amount, 'status' => SePayPaymentLink::PENDING, 'expires_at' => $expiresAt, 'paid_at' => null, 'partner_sepay_account_id' => $account?->id ?? $link->partner_sepay_account_id]);
 
             return $link->fresh();
         }
 
         return SePayPaymentLink::query()->create([
-            'order_id' => $order->id, 'ref_code' => $refCode, 'code' => $this->newShortCode(), 'amount' => $amount,
+            'order_id' => $order->id, 'partner_sepay_account_id' => $account?->id, 'ref_code' => $refCode, 'code' => $this->newShortCode(), 'amount' => $amount,
             'status' => SePayPaymentLink::PENDING, 'expires_at' => $expiresAt,
         ]);
     }
@@ -231,7 +277,8 @@ class SePayService
     public function payloadFor(SePayPaymentLink $link, ?PartnerSePayAccount $account = null): array
     {
         $order = $link->order ?: Order::withoutGlobalScopes()->findOrFail($link->order_id);
-        $account ??= $this->accountFor($order) ?? PartnerSePayAccount::query()->where('partner_id', PayOsAccountResolver::partnerIdForOrder($order))->firstOrFail();
+        // Tài khoản đã phát hành cho yêu cầu này được ưu tiên: QR luôn trỏ đúng tài khoản chi nhánh đã báo khách, kể cả khi sau đó cấu hình đổi.
+        $account ??= $link->account ?: $this->accountFor($order) ?: $this->accountOfOrder($order) ?? throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(PartnerSePayAccount::class);
         $code = $link->paymentCode();
 
         return [
@@ -245,7 +292,11 @@ class SePayService
             'qr_url' => $this->qrUrl($account, (int) $link->amount, $code),
             'expires_at' => $link->expires_at?->toIso8601String(),
             'bank' => ['code' => $account->bank_code, 'bin' => $account->bank_bin, 'account_number' => $account->account_number, 'account_holder' => $account->account_holder],
-        ];
+        ] + ($account->isManual() ? [
+            // Xác nhận thủ công: khách bấm "Tôi đã chuyển khoản" (POST claim_url) để báo chủ nhà; customer_claimed_at = lúc đã báo (null = chưa báo).
+            'customer_claimed_at' => $link->customer_claimed_at?->toIso8601String(),
+            'claim_url' => route('api.sepay.payments.claim', ['code' => $link->code]),
+        ] : []);
     }
 
     // ───────────────────────── Xác nhận tiền vào (dùng chung webhook + kéo API) ─────────────────────────
@@ -262,6 +313,13 @@ class SePayService
         $amount = (int) $payload['transferAmount'];
         $account = $this->findAccount((string) $payload['accountNumber'], (string) ($payload['subAccount'] ?? ''));
         $code = $this->extractCode($payload);
+        // Tiền vào KHÔNG mang mã thanh toán của hệ thống, đến từ cổng mà tài khoản không dùng (vd SePay vẫn còn gửi webhook cho tài khoản đã chuyển sang
+        // Pay2S / xác nhận thủ công) hoặc vào số tài khoản chưa khai báo: là biến động số dư không liên quan — bỏ qua, không ghi nhật ký đối soát.
+        // Khoản có mã, hoặc không mã nhưng đến đúng cổng của tài khoản (khách ghi sai nội dung), vẫn được ghi "rejected" để đối soát / hoàn tiền.
+        if ($code === null && (! $account || ($account->provider ?: PartnerSePayAccount::PROVIDER_SEPAY) !== $provider)) {
+            return ['status' => 'ignored', 'reason' => null, 'order' => null];
+        }
+
         $link = $code ? SePayPaymentLink::query()->where('code', $code)->first() : null;
         $order = $link ? Order::withoutGlobalScopes()->with('items')->find($link->order_id) : null;
         $failure = $this->validatePayment($account, $link, $order, $amount, $provider);
@@ -334,22 +392,78 @@ class SePayService
 
     // ───────────────────────── Đối tác tự xác nhận (không qua SePay / Pay2S) ─────────────────────────
 
-    /** Tài khoản "xác nhận thủ công" đang bật của đối tác. */
-    public function manualAccountForPartner(?string $partnerId): ?PartnerSePayAccount
+    /**
+     * Hạn muộn nhất của các yêu cầu thanh toán "xác nhận thủ công" còn chờ của đơn (null nếu không có). Đơn không được tự huỷ trước hạn này:
+     * đối tác cần thời gian đối chiếu app ngân hàng, và khách đã báo "đã chuyển khoản" thì được giữ lâu hơn (xem claim()).
+     */
+    public static function manualHoldUntil(int|string $orderId): ?Carbon
     {
-        return $partnerId
-            ? PartnerSePayAccount::query()->where('partner_id', $partnerId)->where('provider', PartnerSePayAccount::PROVIDER_MANUAL)->where('is_active', true)->first()
-            : null;
+        $until = SePayPaymentLink::query()->where('order_id', $orderId)->where('status', SePayPaymentLink::PENDING)
+            ->whereHas('account', fn ($q) => $q->where('provider', PartnerSePayAccount::PROVIDER_MANUAL))
+            ->max('expires_at');
+
+        return $until ? Carbon::parse($until) : null;
     }
 
-    /** Yêu cầu thanh toán đang chờ đối tác xác nhận (đơn của đối tác dùng "xác nhận thủ công", chưa trả/chưa huỷ). $partnerId null = mọi đối tác (Super Admin). */
+    /**
+     * Khách bấm "Tôi đã chuyển khoản" ở yêu cầu của đối tác xác nhận thủ công: ghi lúc báo (một lần), giữ đơn thêm sepay.manual_claimed_hold_minutes phút
+     * và báo cho đối tác đối chiếu. Yêu cầu không phải thủ công / đã trả / đã huỷ thì không làm gì. @return bool đã ghi nhận
+     */
+    public function claim(SePayPaymentLink $link): bool
+    {
+        $account = $link->account;
+        $order = Order::withoutGlobalScopes()->find($link->order_id);
+
+        if (! $account || ! $account->isManual() || $link->status !== SePayPaymentLink::PENDING || ! $order || ! in_array($order->status, ['pending', 'deposit', 'paid'], true)) {
+            return false;
+        }
+
+        if ($link->customer_claimed_at) {
+            return true;
+        }
+
+        $hold = now()->addMinutes(max(15, (int) \App\Support\ManualPaymentConfig::get('claimed_hold_minutes', 240)));
+        $link->update(['customer_claimed_at' => now(), 'expires_at' => $link->expires_at && $link->expires_at->gt($hold) ? $link->expires_at : $hold]);
+
+        if ($order->status === 'pending') {
+            $order->forceFill(['expired_at' => $link->expires_at])->saveQuietly();
+        }
+
+        if ($partner = \App\Models\Partner::withTrashed()->find($account->partner_id)) {
+            app(\App\Services\PartnerNotifier::class)->send($partner, 'manual_payment_claimed', 'Khách báo đã chuyển khoản — chờ bạn xác nhận',
+                'Đơn #' . $order->order_code . ': khách báo đã chuyển ' . number_format((int) $link->amount, 0, ',', '.') . 'đ, nội dung ' . $link->paymentCode()
+                . ' vào tài khoản ' . $account->bank_code . ' ' . $account->account_number . '. Kiểm tra app ngân hàng rồi bấm "Xác nhận đã nhận tiền" ở mục Chờ xác nhận chuyển khoản.',
+                ['order_code' => $order->order_code, 'link_id' => $link->id], 'warning', false);
+        }
+
+        return true;
+    }
+
+    /** Tài khoản "xác nhận thủ công" đang bật đã phát hành yêu cầu thanh toán của đơn (chi nhánh nào thì tài khoản của chi nhánh đó). */
+    public function manualAccountForOrder(Order $order, ?SePayPaymentLink $link = null): ?PartnerSePayAccount
+    {
+        $account = $link?->account ?: $this->accountForCategory(PayOsAccountResolver::partnerIdForOrder($order), $order->category_id ? (int) $order->category_id : null);
+
+        return $account && $account->isManual() && $account->is_active ? $account : null;
+    }
+
+    /**
+     * Yêu cầu thanh toán đang chờ đối tác xác nhận (tài khoản phát hành là "xác nhận thủ công" đang bật, chưa trả/chưa huỷ). $partnerId null = mọi đối tác (Super Admin).
+     * Yêu cầu tạo trước khi có tài khoản theo chi nhánh (chưa ghi tài khoản) tính theo tài khoản mặc định của đối tác.
+     */
     public function pendingManualLinks(?string $partnerId = null)
     {
-        $partnerIds = PartnerSePayAccount::query()->where('provider', PartnerSePayAccount::PROVIDER_MANUAL)->where('is_active', true)
-            ->when($partnerId, fn ($q) => $q->where('partner_id', $partnerId))->pluck('partner_id');
+        $manual = PartnerSePayAccount::query()->where('provider', PartnerSePayAccount::PROVIDER_MANUAL)->where('is_active', true)
+            ->when($partnerId, fn ($q) => $q->where('partner_id', $partnerId))->get(['id', 'partner_id', 'category_id']);
+        $legacyPartnerIds = $manual->whereNull('category_id')->pluck('partner_id');
 
+        // Chỉ khoản còn nhận được tiền: chưa hết hạn và đơn còn ở trạng thái nhận thanh toán (đơn đã tự huỷ / bị huỷ thì không hiện để xác nhận nhầm).
         return SePayPaymentLink::query()->where('status', SePayPaymentLink::PENDING)
-            ->whereHas('order', fn ($q) => $q->withoutGlobalScopes()->whereIn('partner_id', $partnerIds));
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->whereHas('order', fn ($o) => $o->withoutGlobalScopes()->whereIn('status', ['pending', 'deposit', 'paid']))
+            ->where(fn ($q) => $q->whereIn('partner_sepay_account_id', $manual->pluck('id'))
+                ->orWhere(fn ($legacy) => $legacy->whereNull('partner_sepay_account_id')
+                    ->whereHas('order', fn ($o) => $o->withoutGlobalScopes()->whereIn('partner_id', $legacyPartnerIds))));
     }
 
     /**
@@ -361,7 +475,7 @@ class SePayService
     public function confirmManually(SePayPaymentLink $link, ?string $confirmedBy, ?string $note = null): array
     {
         $order = Order::withoutGlobalScopes()->with('items')->find($link->order_id);
-        $account = $order ? $this->manualAccountForPartner(PayOsAccountResolver::partnerIdForOrder($order)) : null;
+        $account = $order ? $this->manualAccountForOrder($order, $link) : null;
 
         $failure = match (true) {
             ! $order => 'Không tìm thấy đơn của yêu cầu thanh toán.',
@@ -440,6 +554,10 @@ class SePayService
         }
         if (PayOsAccountResolver::partnerIdForOrder($order) !== (string) $account->partner_id) {
             return 'Tài khoản nhận tiền không thuộc đối tác của đơn.';
+        }
+        // Đối tác có nhiều tài khoản (mỗi chi nhánh một): tiền phải về ĐÚNG tài khoản đã phát hành cho yêu cầu này, không phải tài khoản chi nhánh khác.
+        if ($link->partner_sepay_account_id && (int) $link->partner_sepay_account_id !== (int) $account->id) {
+            return 'Tiền chuyển vào tài khoản ' . $account->account_number . ' nhưng yêu cầu thanh toán này thuộc tài khoản khác của đối tác (chi nhánh khác) — đối soát/hoàn tiền thủ công.';
         }
         if ($amount !== (int) $link->amount) {
             return "Số tiền không khớp; cần {$link->amount}, nhận {$amount}.";

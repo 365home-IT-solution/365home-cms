@@ -52,7 +52,6 @@ class PaymentGatewaySettingsService
         $data['webhook_secret'] = filled($data['webhook_secret'] ?? null) ? trim((string) $data['webhook_secret']) : $current->webhook_secret;
         $data['code_prefix'] = filled($data['code_prefix'] ?? null) ? Str::upper(trim((string) $data['code_prefix'])) : null;
         $data['min_amount'] = filled($data['min_amount'] ?? null) ? (int) $data['min_amount'] : null;
-
         return array_intersect_key($data, array_flip(['enabled', 'webhook_secret', 'code_prefix', 'api_token', 'min_amount']));
     }
 

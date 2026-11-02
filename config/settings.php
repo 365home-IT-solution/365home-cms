@@ -10,6 +10,8 @@ return [
         \App\Settings\PriceBoardSettings::class,
         \App\Settings\SePaySettings::class,
         \App\Settings\Pay2SSettings::class,
+        \App\Settings\ManualPaymentSettings::class,
+        \App\Settings\CashPaymentSettings::class,
     ],
 
     /*

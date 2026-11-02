@@ -826,6 +826,26 @@ class OrderTable
     private static function gateActions(): array
     {
         return [
+            // Đơn tiền mặt tại quầy (cod) đang chờ: nhân viên xác nhận đã thu đủ → đơn "paid" qua cùng nhánh với cổng online (gán mã cổng, báo khách), ghi người thu.
+            Action::make('confirm_cash')
+                ->label('Xác nhận đã thu tiền mặt')
+                ->icon('heroicon-o-banknotes')
+                ->color('success')
+                ->visible(fn ($record) => app(\App\Services\Payment\CashPaymentService::class)->awaitingCash($record))
+                ->modalHeading(fn ($record) => 'Xác nhận đã thu tiền mặt — Đơn ' . $record->order_code)
+                ->modalDescription(fn ($record) => 'Chỉ xác nhận khi đã thu ĐỦ ' . number_format((int) $record->amount, 0, ',', '.') . ' ₫ tiền mặt. Đơn sẽ chuyển "Đã thanh toán", khách nhận mã mở cửa và đơn vào kỳ đối soát.')
+                ->form([\Filament\Forms\Components\TextInput::make('note')->label('Ghi chú (không bắt buộc)')->maxLength(255)])
+                ->action(function ($record, array $data) {
+                    try {
+                        app(\App\Services\Payment\CashPaymentService::class)->confirm($record, auth()->user(), $data['note'] ?? null);
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        Notification::make()->danger()->title(collect($e->errors())->flatten()->first() ?: 'Không xác nhận được')->send();
+
+                        return;
+                    }
+
+                    Notification::make()->success()->title('Đã xác nhận thu tiền mặt — đơn #' . $record->order_code)->send();
+                }),
             AssignAccessCodeAction::make(),
             OpenGateAction::make(),
             Action::make('toggle_unlock_anytime')

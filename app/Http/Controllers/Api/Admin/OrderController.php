@@ -1146,6 +1146,15 @@ class OrderController extends Controller
                 'refund_paid_by'     => $order->refund_paid_by,
                 'discounts'          => $order->discounts ?? [],
             ] : null,
+            // Tiền mặt tại quầy: chờ thu (awaiting = true → hiện nút "Xác nhận đã thu tiền mặt", POST …/confirm-cash) và ai/lúc nào đã xác nhận.
+            // source: staff = nhân viên bấm; auto_stayed = hệ thống tự xác nhận vì khách đã ở xong mà chưa ai xác nhận.
+            'cash_payment'      => $order->payment_method === 'cod' ? [
+                'awaiting'      => app(\App\Services\Payment\CashPaymentService::class)->awaitingCash($order),
+                'confirmed_at'  => $order->cash_confirmed_at ? \Illuminate\Support\Carbon::parse($order->cash_confirmed_at)->toIso8601String() : null,
+                'confirmed_by'  => $order->cash_confirmed_by,
+                'source'        => $order->cash_confirm_source,
+                'note'          => $order->cash_confirm_note,
+            ] : null,
             'creator'           => $order->creator ? [
                 'id'       => $order->creator->id,
                 'fullname' => $order->creator->fullname,

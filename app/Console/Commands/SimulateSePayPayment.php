@@ -56,7 +56,7 @@ class SimulateSePayPayment extends Command
         }
 
         $order = Order::withoutGlobalScopes()->findOrFail($link->order_id);
-        $account = $this->option('account') ?: PartnerSePayAccount::query()->where('partner_id', \App\Services\Payment\PayOsAccountResolver::partnerIdForOrder($order))->value('account_number');
+        $account = $this->option('account') ?: ($link->account ?: app(\App\Services\Payment\SePayService::class)->accountForCategory(\App\Services\Payment\PayOsAccountResolver::partnerIdForOrder($order), $order->category_id ? (int) $order->category_id : null, false))?->account_number;
         $amount = $this->option('amount') !== null ? (int) $this->option('amount') : (int) $link->amount;
         $id = $this->option('id') !== null ? (int) $this->option('id') : random_int(800000000, 899999999);
 

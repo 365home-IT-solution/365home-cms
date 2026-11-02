@@ -16,13 +16,19 @@ class SePayPaymentLink extends Model
 
     protected $table = 'sepay_payment_links';
 
-    protected $fillable = ['order_id', 'code', 'ref_code', 'amount', 'status', 'expires_at', 'paid_at', 'sepay_transaction_id'];
+    // partner_sepay_account_id: tài khoản nhận tiền đã phát hành cho yêu cầu này (chi nhánh nào thì tài khoản đó) — trống ở yêu cầu tạo trước khi có tài khoản theo chi nhánh.
+    protected $fillable = ['order_id', 'partner_sepay_account_id', 'code', 'ref_code', 'amount', 'status', 'expires_at', 'customer_claimed_at', 'paid_at', 'sepay_transaction_id'];
 
-    protected $casts = ['expires_at' => 'datetime', 'paid_at' => 'datetime'];
+    protected $casts = ['expires_at' => 'datetime', 'customer_claimed_at' => 'datetime', 'paid_at' => 'datetime'];
 
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(PartnerSePayAccount::class, 'partner_sepay_account_id');
     }
 
     /** Nội dung chuyển khoản khách phải ghi (SePay tách mã theo tiền tố DH). */

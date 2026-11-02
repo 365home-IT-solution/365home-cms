@@ -65,6 +65,13 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(1)
             ->appendOutputTo(storage_path('logs/expire-orders.log'));
 
+        // Đơn tiền mặt tại quầy chưa thu: nhắc đối tác / huỷ khi khách không đến / tự xác nhận khi khách đã ở xong.
+        $schedule->command('orders:cash-sweep')
+            ->everyTenMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(10)
+            ->appendOutputTo(storage_path('logs/cash-orders.log'));
+
         $schedule->command('manual-lock-passwords:check-expired')
             ->hourly()
             ->timezone('Asia/Ho_Chi_Minh')

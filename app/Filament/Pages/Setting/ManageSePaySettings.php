@@ -129,6 +129,7 @@ class ManageSePaySettings extends SettingsPage
                         ->placeholder('1000')
                         ->helperText(fn () => 'Trạng thái: ' . self::sourceLabel('min_amount') . ' (mặc định 1.000đ). Chỉ áp dụng cho SePay; PayOS luôn tối thiểu 2.000đ.'),
                 ]),
+
         ]);
     }
 

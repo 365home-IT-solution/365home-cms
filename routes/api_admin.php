@@ -153,6 +153,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('partners/{partner}/payment-channel/confirm-webhook', [\App\Http\Controllers\Api\Admin\PartnerPaymentChannelController::class, 'confirmWebhook'])->name('partners.payment-channel.confirm-webhook');
     Route::get('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'show'])->name('partners.sepay-account.show');
     Route::post('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'store'])->name('partners.sepay-account.store');
+    // Tài khoản nhận tiền theo chi nhánh: ?category_id= (show / store / delete) chọn chi nhánh; không gửi = tài khoản mặc định của đối tác.
+    Route::delete('partners/{partner}/sepay-account', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'destroy'])->name('partners.sepay-account.destroy');
+    Route::get('partners/{partner}/sepay-accounts', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'accounts'])->name('partners.sepay-accounts.index');
     Route::post('partners/{partner}/pay2s-link', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStart'])->name('partners.pay2s-link.start');
     // Đối tác dùng "xác nhận thủ công": danh sách khoản chuyển khoản chờ xác nhận và nút xác nhận đã nhận tiền.
     Route::get('manual-payments', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'index'])->name('manual-payments.index');
@@ -161,6 +164,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/pay2s-link/{session}', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStatus'])->name('partners.pay2s-link.status');
     // SePay / Pay2S — cùng chức năng với các trang CMS (Super Admin): danh sách tài khoản mọi đối tác, cấu hình chung từng cổng, nhật ký giao dịch.
     Route::get('sepay-accounts', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'index'])->name('sepay-accounts.index');
+    // Tiền mặt tại quầy: giờ tự huỷ khi khách không đến + ngưỡng chống huỷ đơn; khoá / mở khoá phòng của đối tác huỷ nhiều đơn.
+    Route::get('cash-payment-settings', [\App\Http\Controllers\Api\Admin\CashPaymentSettingsController::class, 'show'])->name('cash-payment-settings.show');
+    Route::put('cash-payment-settings', [\App\Http\Controllers\Api\Admin\CashPaymentSettingsController::class, 'update'])->name('cash-payment-settings.update');
+    Route::get('partners/{partner}/cash-cancel-lock', [\App\Http\Controllers\Api\Admin\CashPaymentSettingsController::class, 'partnerLock'])->name('partners.cash-cancel-lock.show');
+    Route::post('partners/{partner}/cash-cancel-lock/release', [\App\Http\Controllers\Api\Admin\CashPaymentSettingsController::class, 'releasePartnerLock'])->name('partners.cash-cancel-lock.release');
+    // Cấu hình "xác nhận thủ công" (không qua cổng): thời gian giữ đơn. Chỉ Super Admin.
+    Route::get('manual-payment-settings', [\App\Http\Controllers\Api\Admin\ManualPaymentSettingsController::class, 'show'])->name('manual-payment-settings.show');
+    Route::put('manual-payment-settings', [\App\Http\Controllers\Api\Admin\ManualPaymentSettingsController::class, 'update'])->name('manual-payment-settings.update');
     Route::get('payment-gateways', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'index'])->name('payment-gateways.index');
     Route::get('payment-gateways/{provider}', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'show'])->name('payment-gateways.show');
     Route::put('payment-gateways/{provider}', [\App\Http\Controllers\Api\Admin\PaymentGatewayController::class, 'update'])->name('payment-gateways.update');
@@ -728,6 +739,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('
     Route::post('/{order_code}/unlock',            [AdminUnlockController::class, 'unlock'])->name('unlock');
     Route::post('/{order_code}/open-gate',         [AdminUnlockController::class, 'openGate'])->name('open-gate');
     Route::post('/{order_code}/retry-payment',     [OrderPaymentController::class, 'retryPayment'])->name('retry-payment');
+    Route::post('/{order_code}/confirm-cash',      [OrderPaymentController::class, 'confirmCash'])->name('confirm-cash');
     Route::post('/{order_code}/remaining-payment', [OrderPaymentController::class, 'remainingPayment'])->name('remaining-payment');
     Route::post('/{order_code}/extra',             [OrderPaymentController::class, 'addExtra'])->name('extra');
     Route::post('/{order_code}/extra-charge-qr',   [OrderPaymentController::class, 'extraChargeQr'])->name('extra-charge-qr');

@@ -39,6 +39,15 @@ class ExpirePaymentOrders extends Command
         }
 
         foreach ($orders as $order) {
+            // Đối tác xác nhận thủ công còn trong hạn giữ (hoặc khách đã báo chuyển khoản): chưa huỷ, căn lại hạn đơn.
+            $hold = \App\Services\Payment\SePayService::manualHoldUntil($order->id);
+            if ($hold && $hold->isFuture()) {
+                $order->forceFill(['expired_at' => $hold])->saveQuietly();
+                $this->line("  ⏳ Giữ đơn #{$order->order_code} tới {$hold->format('H:i d/m')} (chờ đối tác xác nhận chuyển khoản)");
+
+                continue;
+            }
+
             try {
                 // Chụp lại khung giờ/khoảng ngày đang giữ chỗ TRƯỚC khi đổi status, để bắn realtime
                 // "giải phóng" cho khách/admin khác đang xem — cùng cách suy timeslot_id từ
@@ -46,10 +55,14 @@ class ExpirePaymentOrders extends Command
                 // timeslot_id trực tiếp).
                 $room = $order->items->first()?->product;
 
-                $this->broadcastRelease($realtimeService, $room, $order->items);
+                self::broadcastRelease($realtimeService, $room, $order->items);
 
                 $order->update(['status' => 'failed']);
                 $this->accessCodeService->releaseCode($order->id);
+                // Yêu cầu chuyển khoản (SePay / Pay2S / thủ công) của đơn đã huỷ: huỷ theo để không còn hiện QR / danh sách chờ xác nhận;
+                // tiền chuyển muộn vào mã đã huỷ vẫn được ghi lại (bị từ chối) để đối soát / hoàn tiền thủ công.
+                \Modules\Payment\Entities\SePayPaymentLink::query()->where('order_id', $order->id)->where('status', \Modules\Payment\Entities\SePayPaymentLink::PENDING)
+                    ->update(['status' => \Modules\Payment\Entities\SePayPaymentLink::CANCELLED]);
 
                 Log::info('Order auto-expired by cron', [
                     'order_id'    => $order->id,
@@ -78,7 +91,7 @@ class ExpirePaymentOrders extends Command
      * pending tự huỷ sau 15 phút chỉ đổi status trong DB, không có ai được báo qua WebSocket nên
      * lưới giờ/lịch ngày ở phía đang xem vẫn hiển thị "đã giữ" cho tới khi tự tải lại trang.
      */
-    private function broadcastRelease(SlotRealtimeService $realtimeService, $room, $items): void
+    public static function broadcastRelease(SlotRealtimeService $realtimeService, $room, $items): void
     {
         if (! $room || $items->isEmpty()) {
             return;

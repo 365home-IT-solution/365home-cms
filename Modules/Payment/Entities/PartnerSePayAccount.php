@@ -25,7 +25,8 @@ class PartnerSePayAccount extends Model
         return $this->provider === self::PROVIDER_MANUAL;
     }
 
-    protected $fillable = ['partner_id', 'provider', 'is_active', 'bank_code', 'bank_bin', 'account_number', 'account_holder', 'note', 'webhook_token', 'updated_by'];
+    // category_id: trống = tài khoản mặc định của cả đối tác; có giá trị = tài khoản riêng của chi nhánh (và các khu vực con) đó.
+    protected $fillable = ['partner_id', 'category_id', 'provider', 'is_active', 'bank_code', 'bank_bin', 'account_number', 'account_holder', 'note', 'webhook_token', 'updated_by'];
 
     // webhook_token: token Pay2S sinh cho webhook của tài khoản này (mã hoá khi lưu, không bao giờ trả ra API/form).
     protected $casts = ['is_active' => 'boolean', 'webhook_token' => \App\Casts\TolerantEncrypted::class];
@@ -40,5 +41,16 @@ class PartnerSePayAccount extends Model
     public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Category\Entities\Category::class)->withoutGlobalScopes();
+    }
+
+    /** Tên phạm vi áp dụng để hiển thị: tên chi nhánh, hoặc "Cả đối tác" với tài khoản mặc định. */
+    public function scopeLabel(): string
+    {
+        return $this->category_id ? ($this->category?->name ?: 'Chi nhánh #' . $this->category_id) : 'Cả đối tác (mặc định)';
     }
 }

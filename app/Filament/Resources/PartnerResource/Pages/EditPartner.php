@@ -65,6 +65,21 @@ class EditPartner extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Đối tác bị tạm khoá phòng do huỷ nhiều đơn tiền mặt (CancellationGuardService): Super Admin xem lý do và mở khoá — các phòng đã đăng được mở lại.
+            Action::make('releaseCashCancelLock')
+                ->label('Mở khoá phòng (huỷ đơn tiền mặt)')
+                ->color('danger')
+                ->icon('heroicon-o-lock-open')
+                ->visible(fn () => $this->record->cancel_locked_at !== null && (auth()->user()?->isSuperAdmin() ?? false))
+                ->requiresConfirmation()
+                ->modalHeading('Mở khoá phòng của đối tác?')
+                ->modalDescription(fn () => 'Khoá lúc ' . $this->record->cancel_locked_at?->format('d/m/Y H:i') . ': ' . $this->record->cancel_lock_reason
+                    . ' Mở khoá sẽ đăng lại ' . count((array) $this->record->cancel_locked_product_ids) . ' phòng đã đăng lúc khoá.')
+                ->action(function () {
+                    $reopened = app(\App\Services\Payment\CancellationGuardService::class)->release($this->record, auth()->user());
+                    $this->record->refresh();
+                    Notification::make()->success()->title('Đã mở khoá — mở lại ' . $reopened . ' phòng')->send();
+                }),
             Action::make('suspend')
                 ->label('Tạm dừng hồ sơ')
                 ->color('gray')

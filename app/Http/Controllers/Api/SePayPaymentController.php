@@ -43,4 +43,19 @@ class SePayPaymentController extends Controller
 
         return response()->json(['data' => $sePay->payloadFor($link) + ['order_status' => $order->status]]);
     }
+
+    // POST /api/public/sepay/payments/{code}/claim — khách báo "Tôi đã chuyển khoản" (chỉ yêu cầu của đối tác xác nhận thủ công): báo đối tác đối chiếu
+    // và giữ đơn lâu hơn trong lúc chờ. Gọi lại nhiều lần không báo lại. Yêu cầu không phải thủ công / đã trả / đã huỷ → 422.
+    public function claim(int $code, SePayService $sePay): JsonResponse
+    {
+        $link = SePayPaymentLink::query()->where('code', $code)->firstOrFail();
+
+        if (! $sePay->claim($link)) {
+            return response()->json(['message' => 'Yêu cầu thanh toán này không cần báo đã chuyển khoản (đã xác nhận, đã huỷ hoặc được xác nhận tự động).'], 422);
+        }
+
+        $order = Order::withoutGlobalScopes()->findOrFail($link->order_id);
+
+        return response()->json(['message' => 'Đã báo chủ nhà. Đơn sẽ được xác nhận ngay khi chủ nhà kiểm tra thấy tiền về.', 'data' => $sePay->payloadFor($link->fresh()) + ['order_status' => $order->status]]);
+    }
 }

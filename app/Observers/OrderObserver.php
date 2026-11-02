@@ -100,6 +100,13 @@ class OrderObserver
         if ($order->isDirty('status') && $order->status === 'paid' && is_null($order->paid_at)) {
             $order->paid_at = now();
         }
+
+        // Đối tác "xác nhận thủ công": yêu cầu thanh toán được giữ lâu hơn 15 phút (manual_payment.hold_minutes) — mọi nơi tạo link đều đặt hạn đơn 15 phút,
+        // nên căn hạn đơn theo yêu cầu thủ công đang chờ để app và lệnh tự huỷ thấy cùng một hạn.
+        if ($order->exists && $order->status === 'pending' && $order->isDirty('expired_at') && $order->expired_at
+            && ($hold = \App\Services\Payment\SePayService::manualHoldUntil($order->id)) && $hold->gt($order->expired_at)) {
+            $order->expired_at = $hold;
+        }
     }
 
     /**
@@ -191,6 +198,12 @@ class OrderObserver
     {
         // Đơn đã chốt hoa hồng TỪ TRƯỚC lần cập nhật này? (dùng cho việc tính lại bên dưới, tránh chốt rồi tính lại ngay trong cùng một lần lưu)
         $wasFinalized = $order->commission_finalized_at !== null;
+
+        // Đơn tiền mặt đang chờ thu bị huỷ (dù huỷ bằng đường nào): ghi lúc / nguồn huỷ và kiểm tra tỷ lệ huỷ của đối tác / khách (chống "đi cửa sau").
+        if ($order->payment_method === 'cod' && $order->wasChanged('status') && $order->getOriginal('status') === 'pending'
+            && in_array($order->status, \App\Services\Payment\CancellationGuardService::CANCELLED_STATUSES, true)) {
+            app(\App\Services\Payment\CancellationGuardService::class)->recordCancellation($order);
+        }
 
         // Đơn hoàn thành (trả phòng) hoặc bị hoàn mà đối tác vẫn giữ một phần tiền → chốt hoa hồng + khoản 365home bù.
         if ($order->wasChanged(['status', 'order_status', 'refund_amount'])) {
