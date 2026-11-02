@@ -10,7 +10,7 @@ use App\Settings\Pay2SSettings;
  */
 class Pay2SConfig
 {
-    private const CMS_KEYS = ['enabled', 'api_token'];
+    private const CMS_KEYS = ['enabled', 'api_token', 'partner_access_key', 'partner_secret_key', 'partner_api_url', 'partner_parent_origin'];
 
     public static function get(string $key, mixed $default = null): mixed
     {

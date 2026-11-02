@@ -33,7 +33,7 @@
 <div class="wrap">
     <div class="card" id="pay" @if ($payment['status'] !== 'pending') hidden @endif>
         <h1>Thanh toán đơn #{{ $payment['order_code'] }}</h1>
-        <p class="sub">Quét mã QR bằng ứng dụng ngân hàng. Đơn được xác nhận tự động sau khi chuyển khoản thành công.</p>
+        <p class="sub">@if (($payment['provider'] ?? null) === 'manual')Quét mã QR bằng ứng dụng ngân hàng. Sau khi chuyển khoản, chủ nhà sẽ xác nhận đã nhận tiền và đơn được xác nhận ngay sau đó.@else Quét mã QR bằng ứng dụng ngân hàng. Đơn được xác nhận tự động sau khi chuyển khoản thành công.@endif</p>
         <img class="qr" src="{{ $payment['qr_url'] }}" alt="Mã QR chuyển khoản">
         <dl>
             <div class="row"><dt>Số tiền</dt><dd class="amount">{{ number_format($payment['amount'], 0, ',', '.') }} ₫</dd></div>
@@ -42,7 +42,7 @@
             <div class="row"><dt>Chủ tài khoản</dt><dd>{{ $payment['bank']['account_holder'] }}</dd></div>
             <div class="row"><dt>Nội dung</dt><dd><span id="code">{{ $payment['transfer_content'] }}</span><button class="copy" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('code').textContent)">Chép</button></dd></div>
         </dl>
-        <p class="note">Giữ nguyên <b>số tiền</b> và <b>nội dung chuyển khoản</b> ở trên. Sai một trong hai thì hệ thống không tự xác nhận được đơn.</p>
+        <p class="note">Giữ nguyên <b>số tiền</b> và <b>nội dung chuyển khoản</b> ở trên. Sai một trong hai thì @if (($payment['provider'] ?? null) === 'manual')chủ nhà khó đối chiếu được khoản chuyển @else hệ thống không tự xác nhận được đơn @endif.</p>
         @if ($payment['expires_at'])
             <div class="timer">Còn lại <b id="left">--:--</b> để thanh toán</div>
         @endif

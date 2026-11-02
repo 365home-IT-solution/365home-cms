@@ -54,7 +54,7 @@ class SePayTransactionResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('provider')->label('Cổng')->badge()
                     ->formatStateUsing(fn (?string $state) => \Modules\Payment\Entities\PartnerSePayAccount::PROVIDERS[$state ?: 'sepay'] ?? $state)
-                    ->color(fn (?string $state) => $state === 'pay2s' ? 'info' : 'success'),
+                    ->color(fn (?string $state) => match ($state) { 'pay2s' => 'info', 'manual' => 'warning', default => 'success' }),
                 Tables\Columns\TextColumn::make('transaction_at')->label('Thời gian')->dateTime('d/m/Y H:i')->sortable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('account.partner.name')->label('Đối tác')->placeholder('Không xác định')->wrap(),
                 Tables\Columns\TextColumn::make('payment_code')->label('Mã thanh toán')->searchable()->copyable()->placeholder('—'),

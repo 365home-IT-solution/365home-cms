@@ -345,7 +345,8 @@ class BookingController extends Controller
         $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
 
         // ── Deposit (chỉ daily) ───────────────────────────────────────────────
-        $paymentMethod = $request->input('payment_method', 'cod');
+        // Nhân viên tạo đơn tại quầy: mặc định tiền mặt nếu đối tác nhận; đối tác chỉ online → mặc định online; gửi phương thức không nhận → 422.
+        $paymentMethod = \App\Services\Payment\BookingPaymentPolicy::resolve($room->categories()->first()?->id, $request->input('payment_method'), 'cod');
         $amountDue     = $finalAmount;
         $depositInfo   = null;
 

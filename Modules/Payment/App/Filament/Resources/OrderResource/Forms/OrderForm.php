@@ -298,12 +298,25 @@ class OrderForm
                                                                 Select::make('payment_method')
                                                                     ->label('Phương thức thanh toán')
                                                                     ->placeholder('-- Chọn phương thức --')
-                                                                    ->options([
-                                                                        'cod' => ('Tiền mặt'),
-                                                                        'PayOS' => '' . __('payment::order.form.options.payment_method.PayOS'),
-                                                                    ])
+                                                                    // Chỉ hiện hình thức mà đối tác của phòng nhận (partners.booking_payment_mode); đơn cũ vẫn hiện đúng giá trị đang lưu.
+                                                                    ->options(function (Get $get): array {
+                                                                        $categoryId = $get('category_id') ? (int) $get('category_id') : null;
+                                                                        $allowed = array_unique(array_filter([...\App\Services\Payment\BookingPaymentPolicy::methodsForCategory($categoryId), $get('payment_method')]));
+
+                                                                        return array_intersect_key([
+                                                                            'cod' => ('Tiền mặt'),
+                                                                            'PayOS' => '' . __('payment::order.form.options.payment_method.PayOS'),
+                                                                        ], array_flip($allowed));
+                                                                    })
                                                                     ->required()
                                                                     ->live()
+                                                                    ->rule(fn (Get $get, string $operation) => function (string $attribute, $value, \Closure $fail) use ($get, $operation) {
+                                                                        $categoryId = $get('category_id') ? (int) $get('category_id') : null;
+
+                                                                        if ($operation === 'create' && ! in_array($value, \App\Services\Payment\BookingPaymentPolicy::methodsForCategory($categoryId), true)) {
+                                                                            $fail(\App\Services\Payment\BookingPaymentPolicy::rejectMessage(\App\Services\Payment\BookingPaymentPolicy::modeForCategory($categoryId)));
+                                                                        }
+                                                                    })
                                                                     ->dehydrateStateUsing(fn($state) => $state),
 
                                                                 Select::make('status')

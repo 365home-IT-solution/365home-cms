@@ -14,6 +14,15 @@ class Pay2SSettings extends Settings
 
     public ?string $api_token;
 
+    // Partner API (BankHub — liên kết ngân hàng bằng Hosted Link).
+    public ?string $partner_access_key;
+
+    public ?string $partner_secret_key;
+
+    public ?string $partner_api_url;
+
+    public ?string $partner_parent_origin;
+
     public static function group(): string
     {
         return 'pay2s';
@@ -21,6 +30,6 @@ class Pay2SSettings extends Settings
 
     public static function encrypted(): array
     {
-        return ['api_token'];
+        return ['api_token', 'partner_access_key', 'partner_secret_key'];
     }
 }

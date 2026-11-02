@@ -701,6 +701,8 @@ class PartnerController extends Controller
             'vnpay_id' => ['nullable', 'string', 'max:100'], 'paypal_email' => ['nullable', 'email', 'max:255'],
             'wise_account' => ['nullable', 'string', 'max:255'], 'swift_code' => ['nullable', 'string', 'max:50'],
             'payment_cycle' => ['nullable', Rule::in(['weekly', 'biweekly', 'monthly'])],
+            // Hình thức thanh toán khi đặt phòng: both | cash_only | online_only (chỉ Super Admin đổi — xem BookingPaymentPolicy).
+            'booking_payment_mode' => ['sometimes', Rule::in(array_keys(Partner::PAYMENT_MODES))],
             'bank_card_image' => ['sometimes', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
         ], $this->messages());
         // Chủ đối tác chỉ được sửa tài khoản ngân hàng (ví điện tử, chu kỳ thanh toán... do Super Admin quản lý).
@@ -859,7 +861,7 @@ class PartnerController extends Controller
     {
         $media = $partner->getFirstMedia('bank_card_image');
 
-        return ['bank_code' => \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null, ...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle']),
+        return ['bank_code' => \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null, ...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle', 'booking_payment_mode']),
             'bank_card_image' => $media ? ['name' => $media->file_name, 'mime_type' => $media->mime_type, 'size' => $media->size, 'url' => $media->getUrl()] : null,
         ];
     }

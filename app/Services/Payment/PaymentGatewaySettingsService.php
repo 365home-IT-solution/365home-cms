@@ -39,7 +39,14 @@ class PaymentGatewaySettingsService
         $data['api_token'] = filled($data['api_token'] ?? null) ? trim((string) $data['api_token']) : $current->api_token;
 
         if ($provider === PartnerSePayAccount::PROVIDER_PAY2S) {
-            return array_intersect_key($data, array_flip(['enabled', 'api_token']));
+            foreach (['partner_access_key', 'partner_secret_key'] as $key) {
+                $data[$key] = filled($data[$key] ?? null) ? trim((string) $data[$key]) : $current->{$key};
+            }
+            foreach (['partner_api_url', 'partner_parent_origin'] as $key) {
+                $data[$key] = filled($data[$key] ?? null) ? rtrim(trim((string) $data[$key]), '/') : null;
+            }
+
+            return array_intersect_key($data, array_flip(['enabled', 'api_token', 'partner_access_key', 'partner_secret_key', 'partner_api_url', 'partner_parent_origin']));
         }
 
         $data['webhook_secret'] = filled($data['webhook_secret'] ?? null) ? trim((string) $data['webhook_secret']) : $current->webhook_secret;
@@ -70,6 +77,15 @@ class PaymentGatewaySettingsService
             'enabled' => $input['enabled'] ?? $settings->enabled,
             'api_token' => $input['api_token'] ?? null,
         ];
+
+        if ($provider === PartnerSePayAccount::PROVIDER_PAY2S) {
+            foreach (['partner_access_key', 'partner_secret_key'] as $key) {
+                $data[$key] = $input[$key] ?? null;
+            }
+            foreach (['partner_api_url', 'partner_parent_origin'] as $key) {
+                $data[$key] = array_key_exists($key, $input) ? $input[$key] : $settings->{$key};
+            }
+        }
 
         if ($provider === PartnerSePayAccount::PROVIDER_SEPAY) {
             $data += [
@@ -131,6 +147,11 @@ class PaymentGatewaySettingsService
             'webhook_url' => Pay2SConfig::get('webhook_url') ?: route('webhook.pay2s'),
             'api_token' => ['configured' => filled(Pay2SConfig::get('api_token')), 'source' => Pay2SConfig::source('api_token')],
             'can_pull' => app(Pay2SService::class)->canPull(),
+            'partner_access_key' => ['configured' => filled(Pay2SConfig::get('partner_access_key')), 'source' => Pay2SConfig::source('partner_access_key')],
+            'partner_secret_key' => ['configured' => filled(Pay2SConfig::get('partner_secret_key')), 'source' => Pay2SConfig::source('partner_secret_key')],
+            'partner_api_url' => ['value' => Pay2SConfig::get('partner_api_url'), 'source' => Pay2SConfig::source('partner_api_url')],
+            'partner_parent_origin' => ['value' => Pay2SConfig::get('partner_parent_origin') ?: config('app.url'), 'source' => Pay2SConfig::source('partner_parent_origin')],
+            'can_link_bank' => app(\App\Services\Payment\Pay2SBankHubService::class)->configured(),
             'accounts' => $this->accountCounts(PartnerSePayAccount::PROVIDER_PAY2S),
         ];
     }

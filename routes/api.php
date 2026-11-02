@@ -331,6 +331,7 @@ Route::get('rooms/{id}/guest-surcharge-preview', [RoomController::class, 'guestS
 */
 Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->name('api.rooms.daily.dates');
 Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
+Route::get('rooms/{id}/payment-options', [DailyRoomController::class, 'paymentOptions'])->name('api.rooms.payment-options');
 Route::post('rooms/{id}/hold',         [DailyRoomHoldController::class, 'hold'])->name('api.rooms.daily.hold');
 Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release'])->name('api.rooms.daily.hold.release');
 

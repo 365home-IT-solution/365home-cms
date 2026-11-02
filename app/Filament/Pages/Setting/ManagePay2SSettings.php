@@ -56,6 +56,15 @@ class ManagePay2SSettings extends SettingsPage
 
                     Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'danger'}()->persistent(! $result['ok'])->send();
                 }),
+            Action::make('testPartnerApi')
+                ->label('Kiểm tra khoá Partner API')
+                ->icon('heroicon-o-key')
+                ->color('gray')
+                ->action(function () {
+                    $result = app(\App\Services\Payment\Pay2SBankHubService::class)->testConnection();
+
+                    Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'danger'}()->persistent(! $result['ok'])->send();
+                }),
         ];
     }
 
@@ -96,6 +105,19 @@ class ManagePay2SSettings extends SettingsPage
                         ->maxLength(1000)
                         ->helperText(fn () => 'Trạng thái: ' . self::sourceLabel('api_token') . '. Lấy ở my.pay2s.vn → Tích hợp Web/App (token từ SecretKey). Lưu rồi bấm "Kiểm tra kết nối API Pay2S" ở đầu trang.'),
                 ]),
+
+            Forms\Components\Section::make('Partner API — đối tác tự liên kết ngân hàng')
+                ->description('Khoá để đối tác tự liên kết ngân hàng với Pay2S ngay trên web/app của mình (Hosted Link — OTP nhập trên trang Pay2S, hệ thống không chạm OTP). Cả 4 ô lấy ở merchant.pay2s.vn → Bankhub → Thiết lập (KHÁC API Token ở mục trên, lấy ở my.pay2s.vn). Trước khi dùng, ở đó cần: bật "Cho phép tạo liên kết ngân hàng", lưu địa chỉ HTTPS của web/app vào danh sách return URL, và chọn ngân hàng hiển thị trên Hosted Link. Khoá nhập ở đây được ưu tiên hơn .env; để trống ô khoá = giữ nguyên khoá hiện tại.')
+                ->schema([
+                    Forms\Components\TextInput::make('partner_access_key')->label('Access Key')->password()->revealable()->autocomplete(false)->maxLength(500)
+                        ->placeholder('Để trống = giữ nguyên')->helperText(fn () => 'Trạng thái: ' . self::sourceLabel('partner_access_key') . '.'),
+                    Forms\Components\TextInput::make('partner_secret_key')->label('Secret Key')->password()->revealable()->autocomplete(false)->maxLength(500)
+                        ->placeholder('Để trống = giữ nguyên')->helperText(fn () => 'Trạng thái: ' . self::sourceLabel('partner_secret_key') . '.'),
+                    Forms\Components\TextInput::make('partner_api_url')->label('API URL')->url()->maxLength(255)
+                        ->placeholder('https://api-partner.pay2s.vn')->helperText('Để trống = bản chính thức. Thử nghiệm (UAT): https://api-partner-uat.pay2s.vn (OTP cố định 123456). UAT có Access/Secret Key riêng — đổi URL thì phải đổi cả cặp khoá.'),
+                    Forms\Components\TextInput::make('partner_parent_origin')->label('Origin web/app')->url()->maxLength(255)
+                        ->placeholder(config('app.url'))->helperText('Gốc HTTPS của web/app, không có đường dẫn (vd https://365home.vn), phải trùng gốc của một return URL đã lưu ở Bankhub → Thiết lập. Để trống = APP_URL.'),
+                ])->columns(2),
         ]);
     }
 
@@ -104,6 +126,8 @@ class ManagePay2SSettings extends SettingsPage
     {
         $data['enabled'] = Pay2SConfig::enabled();
         $data['api_token'] = null;
+        $data['partner_access_key'] = null;
+        $data['partner_secret_key'] = null;
 
         return $data;
     }

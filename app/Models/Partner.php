@@ -20,6 +20,19 @@ use Spatie\MediaLibrary\InteractsWithMedia;
 
 class Partner extends Model implements HasMedia
 {
+    // Hình thức thanh toán khi đặt phòng (cột booking_payment_mode) — xem App\Services\Payment\BookingPaymentPolicy.
+    public const PAYMENT_MODE_BOTH = 'both';
+
+    public const PAYMENT_MODE_CASH_ONLY = 'cash_only';
+
+    public const PAYMENT_MODE_ONLINE_ONLY = 'online_only';
+
+    public const PAYMENT_MODES = [
+        self::PAYMENT_MODE_BOTH => 'Cả hai (tiền mặt tại quầy và thanh toán online)',
+        self::PAYMENT_MODE_CASH_ONLY => 'Chỉ tiền mặt tại quầy',
+        self::PAYMENT_MODE_ONLINE_ONLY => 'Chỉ thanh toán online',
+    ];
+
     public const TYPE_HOMESTAY = 'homestay';
 
     public const TYPE_MINIHOUSE = 'minihouse';
@@ -68,6 +81,7 @@ class Partner extends Model implements HasMedia
         'wise_account',
         'swift_code',
         'payment_cycle',
+        'booking_payment_mode',
         'contract_template',
 
         // Xác minh & vận hành

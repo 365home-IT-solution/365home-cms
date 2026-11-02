@@ -46,6 +46,10 @@ class PaymentGatewayController extends Controller
             ];
         }
 
+        if ($provider === 'pay2s') {
+            $rules += ['partner_access_key' => ['nullable', 'string', 'max:500'], 'partner_secret_key' => ['nullable', 'string', 'max:500'], 'partner_api_url' => ['nullable', 'url', 'max:255'], 'partner_parent_origin' => ['nullable', 'url', 'max:255']];
+        }
+
         $input = $request->validate($rules);
         $result = $this->gateways->update($provider, $input);
         $label = $provider === 'pay2s' ? 'Pay2S' : 'SePay';

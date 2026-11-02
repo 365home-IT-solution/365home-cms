@@ -585,7 +585,8 @@ trait BuildsRoomBooking
         $depositInfo = null;
 
         if ($type === 'daily' && $request->input('payment_type') === 'deposit') {
-            $paymentMethod = $paymentMethodForDeposit ?? $request->input('payment_method', 'cod');
+            // Đối tác chỉ nhận tiền mặt → luôn cod (không cọc được); chỉ nhận online → PayOS; cả hai → như cũ (không gửi = cod).
+            $paymentMethod = $paymentMethodForDeposit ?? \App\Services\Payment\BookingPaymentPolicy::resolve($room->categories()->first()?->id, $request->input('payment_method'), 'cod');
 
             if ($paymentMethod === 'cod') {
                 throw ValidationException::withMessages([
@@ -617,6 +618,8 @@ trait BuildsRoomBooking
             'guest_surcharge' => $guestSurchargeInfo,
             'system_discount' => $appliedSystemDiscount,
             'deposit'         => $depositInfo,
+            // Hình thức thanh toán đối tác nhận (cod = tiền mặt tại quầy, PayOS = online): app chỉ hiện các lựa chọn trong payment.methods.
+            'payment'         => \App\Services\Payment\BookingPaymentPolicy::describe($room->categories()->first()?->id),
             'summary' => [
                 'slots_total'          => (int) $basePrice,
                 'promotion_discount'   => $promotionDiscount,
