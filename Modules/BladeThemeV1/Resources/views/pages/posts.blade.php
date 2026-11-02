@@ -37,7 +37,7 @@
                     'component' => [
                         'show_sidebar' => false,
                         'columns' => 4,
-                        'number-post' => 9,
+                        'number-post' => 12,
                         'show_pagination' => true,
                         'location-sidebar' => '',
                         'new_post' => '0',
