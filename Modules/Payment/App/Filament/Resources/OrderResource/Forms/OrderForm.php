@@ -3325,7 +3325,11 @@ class OrderForm
             $dateStr = $current->format('Y-m-d');
             $rts     = $slotsByDate->get($dateStr);
 
-            $nightPrice = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            // Không có giá ngày đặc biệt → giá bảng giá theo đêm (giá theo thứ, ngày lễ, giảm % của bảng giá) — cùng công thức
+            // các luồng đặt phòng của khách (RoomItemBuilder, DailyRoomPricingService::calendar()).
+            $nightPrice = $rts?->price !== null
+                ? (float) $rts->price
+                : app(\App\Services\PriceBoards\StayPriceResolver::class)->nightPrice($product, $dateStr, $basePrice);
             $result     = $calculator->calculateForDate($rts, $nightPrice, $dateStr);
 
             $nightly[$dateStr] = $result['final_price'];
@@ -3346,7 +3350,7 @@ class OrderForm
     // phòng (Product::default_checkin/default_checkout), fallback '14:00'/'12:00' nếu phòng chưa
     // cấu hình — không tự bịa giờ khác (không dùng 00:00), và KHÔNG override theo từng ngày riêng
     // lẻ (giữ đơn giản, đúng yêu cầu — mọi ngày của 1 phòng đều nhận/trả phòng cùng 1 giờ cố định).
-    private static function resolveCheckinCheckoutTime(Product $product): array
+    public static function resolveCheckinCheckoutTime(Product $product): array
     {
         $checkin  = $product->default_checkin  ?? '14:00';
         $checkout = $product->default_checkout ?? '12:00';

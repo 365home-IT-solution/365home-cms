@@ -42,6 +42,8 @@
 
 @include('dashboard::pages.dashboard._scripts')
 
+@include('dashboard::pages.dashboard._day-calendar')
+
 @include('dashboard::pages.dashboard._styles')
 
 </x-filament-panels::page>

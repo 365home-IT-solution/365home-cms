@@ -78,7 +78,10 @@ window.rcApplyFilters = function() {
         // không phụ thuộc tab thời gian đang lọc) chứ không phải visibleCount — phòng có đơn
         // nhưng không khớp tab thời gian đang chọn vẫn hiện thẻ kèm ".ta-rc-no-match" như cũ, chỉ
         // phòng CHƯA TỪNG có đơn mới bị ẩn hẳn.
-        card.style.display = (branchMatch && allOrderCount > 0) ? '' : 'none';
+        // Riêng khi đã chọn 1 chi nhánh cụ thể (tab "Tất cả" thời gian) thì hiện CẢ phòng trống — để xem đủ phòng của chi
+        // nhánh (vd chi nhánh toàn phòng theo ngày chưa có đơn) thay vì màn hình trống.
+        var showEmpty = branch !== '__all__' && time === 'all';
+        card.style.display = (branchMatch && (allOrderCount > 0 || showEmpty)) ? '' : 'none';
     });
 };
 
@@ -651,10 +654,12 @@ window.rcCalRenderBranches = function() {
     // điều kiện lọc phòng của rcCalRenderGrid(), để carousel chi nhánh không bao giờ dẫn tới trạng
     // thái trống "Chi nhánh này chưa có phòng theo khung giờ để hiển thị" (chi nhánh chỉ có phòng
     // "theo ngày" styles=2, hoặc chưa có phòng nào, vẫn xem được bình thường qua view "Danh sách").
+    // Phòng "Theo ngày" (styles=2, _day-calendar.blade.php) cũng tính — chi nhánh chỉ có phòng theo ngày vẫn hiện, chọn
+    // vào thì lịch tự chuyển chế độ (rcCalSyncMode()).
     var slotStyleBranches = {};
     (window.__rcRoomsData || []).forEach(function(r) {
-        if ((r.styles || 1) === 1 && r.timeslot_grid && r.timeslot_grid.rows && r.timeslot_grid.rows.length
-            && r.timeslot_grid.dates && r.timeslot_grid.dates.length) {
+        if (r.styles === 2 || ((r.styles || 1) === 1 && r.timeslot_grid && r.timeslot_grid.rows && r.timeslot_grid.rows.length
+            && r.timeslot_grid.dates && r.timeslot_grid.dates.length)) {
             slotStyleBranches[r.branch] = true;
         }
     });
@@ -675,6 +680,7 @@ window.rcCalRenderBranches = function() {
     if (!window._rcCalActiveBranch || branches.indexOf(window._rcCalActiveBranch) === -1) {
         window._rcCalActiveBranch = branches[0] || null;
     }
+    if (window.rcCalSyncMode) window.rcCalSyncMode();
 
     if (!branches.length) {
         track.innerHTML = '';
@@ -745,6 +751,11 @@ window.rcCalScrollRooms = function(dir) {
 window.rcCalRenderGrid = function() {
     var wrap = document.getElementById('ta-rc-cal-grid-wrap');
     if (!wrap) return;
+
+    if (window._rcCalMode === 'day') {
+        window.rcDayRender();
+        return;
+    }
 
     // Giữ nguyên vị trí cuộn ngang của carousel phòng qua mỗi lần vẽ lại — hàm này bị gọi lại RẤT
     // thường xuyên (mỗi lần bấm chọn/bỏ chọn 1 ô, khoá/mở khoá...) và luôn dựng lại TOÀN BỘ

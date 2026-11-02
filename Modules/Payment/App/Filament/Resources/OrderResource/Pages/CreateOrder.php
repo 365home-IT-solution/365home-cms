@@ -110,7 +110,27 @@ class CreateOrder extends CreateRecord
             ],
         ];
 
+        // Phòng theo ngày: bỏ 'discount' (giá gốc 1 khung giờ) — computeOrderTotal() lấy 'discount' làm giá gốc trước 'price',
+        // để lại sẽ ra giá gốc 1 đêm thay vì tổng các đêm đã giảm giá. Chọn phòng bằng tay trên form cũng không có field này.
+        if ((int) ($product->styles ?? 1) === 2) {
+            unset($fill['orderItems'][$itemKey]['discount']);
+        }
+
+        // Phòng theo ngày mở từ Dashboard › Lịch › "Theo ngày" với ?checkin=Y-m-d&checkout=Y-m-d — điền sẵn khoảng ngày
+        // (checkin_day/checkout_day tự hydrate từ checkin_date/checkout_date) và giá các đêm, nếu khoảng đó còn trống.
+        $dailyRange = (int) ($product->styles ?? 1) === 2 ? $this->dailyRangeFromQuery($product) : null;
+        if ($dailyRange) {
+            $fill['orderItems'][$itemKey] = array_merge($fill['orderItems'][$itemKey], $dailyRange);
+        }
+
         $this->form->fill($fill);
+
+        if ($dailyRange) {
+            $this->data['amount'] = OrderForm::computeOrderTotal(
+                $this->data['orderItems'] ?? [],
+                $this->data['orderServices'] ?? []
+            ) + (float) ($this->data['surcharge'] ?? 0);
+        }
 
         // recalculateItemFromSelectedSlots() (trait HasTimeslotGridSelection) tính checkin/checkout/
         // giá từ selected_slots — thao tác trực tiếp trên $this->data (giống hệt selectTimeslot()),
@@ -122,6 +142,33 @@ class CreateOrder extends CreateRecord
                 $this->data['orderServices'] ?? []
             ) + (float) ($this->data['surcharge'] ?? 0);
         }
+    }
+
+    private function dailyRangeFromQuery(Product $product): ?array
+    {
+        $checkin  = (string) request()->query('checkin', '');
+        $checkout = (string) request()->query('checkout', '');
+        $isDate   = fn (string $v) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) === 1;
+
+        if (! $isDate($checkin) || ! $isDate($checkout) || $checkout <= $checkin || $checkin < now()->toDateString()) {
+            return null;
+        }
+
+        if (OrderForm::hasOverlappingNightBooking((string) $product->id, $checkin, $checkout)) {
+            Notification::make()->title('Khoảng ngày này vừa có khách khác đặt')->body('Vui lòng chọn lại ngày nhận/trả phòng.')->warning()->send();
+
+            return null;
+        }
+
+        [$checkinTime, $checkoutTime] = OrderForm::resolveCheckinCheckoutTime($product);
+        $priced = OrderForm::calculateDailyRoomPrice((string) $product->id, $checkin, $checkout);
+
+        return [
+            'checkin_date'    => "{$checkin} {$checkinTime}:00",
+            'checkout_date'   => "{$checkout} {$checkoutTime}:00",
+            'price'           => $priced['total'],
+            'price_per_night' => $priced['uniform_price'] ?? round($priced['total'] / max(1, $priced['nights'])),
+        ];
     }
 
     // resources/js/echo-admin.js gắn thẳng window.Echo.private(...).listen() rồi tự gọi

@@ -1,5 +1,8 @@
 {{-- ROOM CARDS --}}
-<div class="ta-room-section" id="ta-room-section">
+{{-- wire:ignore: khối này do JS quản lý hoàn toàn (poll /admin/api/room-cards, view Danh sách/Lịch, chọn ngày...) — không
+     có thì mỗi lần Livewire vẽ lại trang (đổi kỳ KPI, tháng hoa hồng...) sẽ trả về HTML gốc: Lịch bị ẩn, mất chế độ đang xem
+     và lựa chọn dở. --}}
+<div class="ta-room-section" id="ta-room-section" wire:ignore>
 
     {{-- Header --}}
     <div class="ta-room-head">
@@ -260,6 +263,11 @@
         {{-- Trước/Sau chi nhánh — hàng RIÊNG phía trên danh sách chi nhánh, 2 nút sát nhau, có chữ
              — CÙNG kiểu với Trước/Sau của carousel phòng (.ta-rc-cal-rooms-nav) bên dưới. --}}
         <div class="ta-rc-cal-branches-nav">
+            {{-- Khung giờ (styles=1) / Theo ngày (styles=2, lịch tháng — _day-calendar.blade.php) — rcCalSetMode(). --}}
+            <div class="ta-rc-cal-mode-toggle" id="ta-rc-cal-mode-toggle" role="tablist">
+                <button type="button" class="ta-rc-cal-mode-btn active" data-mode="slot" onclick="rcCalSetMode('slot')">Khung giờ</button>
+                <button type="button" class="ta-rc-cal-mode-btn" data-mode="day" onclick="rcCalSetMode('day')">Theo ngày</button>
+            </div>
             <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-cal-prev" onclick="rcCalScrollBranches(-1)" title="Trước">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Trước
@@ -276,7 +284,16 @@
         </div>
 
         <div class="ta-rc-cal-legend-row">
-            <div class="ta-rc-cal-legend">
+            <div class="ta-rc-cal-legend" data-cal-mode="day" style="display:none;">
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot booked"></i> Đã đặt</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot pending"></i> Chờ xác nhận</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot free"></i> Còn trống</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot blocked"></i> Đã khoá</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot discounted"></i> Khuyến mãi</span>
+                <span class="ta-rc-cal-legend-item"><span class="ta-rc-day-legend-io is-in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"/></svg></span> Nhận phòng</span>
+                <span class="ta-rc-cal-legend-item"><span class="ta-rc-day-legend-io is-out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></svg></span> Trả phòng</span>
+            </div>
+            <div class="ta-rc-cal-legend" data-cal-mode="slot">
                 <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot booked"></i> Đã đặt</span>
                 <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot pending"></i> Chờ xác nhận</span>
                 <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot overdue"></i> Hết giờ</span>
@@ -296,7 +313,18 @@
                  carousel đều dùng chung 1 cột "Thời gian"), không phải mỗi phòng 1 giá trị riêng —
                  chỉ 3 mốc 5/10/15 ngày, chọn là áp dụng luôn (không cần bấm thêm nút) — xem
                  rcCalApplyDaysRange()/window._rcCalDays trong _scripts.blade.php. --}}
-            <div class="ta-rc-cal-days-control">
+            {{-- Tháng đang xem — dùng chung cho mọi phòng của chi nhánh để so sánh cùng tháng (rcDayShiftMonth()). --}}
+            <div class="ta-rc-cal-days-control" data-cal-mode="day" style="display:none;">
+                <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-day-month-prev" onclick="rcDayShiftMonth(-1)" title="Tháng trước">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <span class="ta-rc-day-month-label" id="ta-rc-day-month-label"></span>
+                <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-day-month-next" onclick="rcDayShiftMonth(1)" title="Tháng sau">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" class="ta-rc-cal-nav-btn" onclick="rcDayShiftMonth(0)">Tháng này</button>
+            </div>
+            <div class="ta-rc-cal-days-control" data-cal-mode="slot">
                 <label for="ta-rc-cal-days-input">Số ngày hiển thị</label>
                 <select id="ta-rc-cal-days-input" class="ta-rc-cal-days-input" onchange="rcCalApplyDaysRange()">
                     <option value="5">5 ngày</option>

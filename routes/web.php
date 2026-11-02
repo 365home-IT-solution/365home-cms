@@ -1022,6 +1022,48 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
         return response()->json(['ok' => true]);
     })->name('admin.rooms.unblock-slots');
 
+    // View "Lịch" › "Theo ngày" (Dashboard, dashboard/_day-calendar.blade.php) — lịch tháng của các phòng đặt theo ngày
+    // trong chi nhánh đang xem (?ids[]=...), xem Modules\Dashboard\App\Services\DailyCalendarService.
+    Route::get('daily-calendar', function (\Illuminate\Http\Request $request) {
+        $ids = array_filter((array) $request->query('ids', []), 'is_string');
+
+        return response()->json(\Modules\Dashboard\App\Services\DailyCalendarService::forRooms(auth()->user(), $ids));
+    })->name('admin.daily-calendar');
+
+    // Khoá / mở khoá các ngày start..end (cả 2 đầu) của phòng theo ngày — ghi room_config.blocked_ranges như BlockTimeslotModal.
+    Route::post('rooms/{id}/block-days', function (\Illuminate\Http\Request $request, $id) {
+        $product = \Modules\Dashboard\App\Services\DailyCalendarService::roomQuery(auth()->user())->find($id);
+        if (! $product) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        $data = $request->validate([
+            'start' => 'required|date_format:Y-m-d|after_or_equal:today',
+            'end'   => 'required|date_format:Y-m-d|after_or_equal:start',
+            'rooms' => 'nullable|integer|min:1',
+        ]);
+
+        \Modules\Dashboard\App\Services\DailyCalendarService::block($product, $data['start'], $data['end'], $data['rooms'] ?? null);
+
+        return response()->json(['ok' => true]);
+    })->name('admin.rooms.block-days');
+
+    Route::post('rooms/{id}/unblock-days', function (\Illuminate\Http\Request $request, $id) {
+        $product = \Modules\Dashboard\App\Services\DailyCalendarService::roomQuery(auth()->user())->find($id);
+        if (! $product) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        $data = $request->validate([
+            'start' => 'required|date_format:Y-m-d',
+            'end'   => 'required|date_format:Y-m-d|after_or_equal:start',
+        ]);
+
+        $opened = \Modules\Dashboard\App\Services\DailyCalendarService::unblock($product, $data['start'], $data['end']);
+
+        return response()->json(['ok' => true, 'opened_days' => $opened]);
+    })->name('admin.rooms.unblock-days');
+
     // Deposit room note — lưu/xoá ghi chú cọc phòng cho đơn hàng
     Route::post('orders/{id}/deposit-room', function (\Illuminate\Http\Request $request, $id) {
         $user = auth()->user();
