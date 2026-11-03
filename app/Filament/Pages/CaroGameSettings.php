@@ -97,7 +97,7 @@ class CaroGameSettings extends Page
                         ->inline(false)
                         ->visible(fn (Get $get) => (bool) $get('invite_enabled')),
                     TextInput::make('invite_share_url_base')->label('Link chia sẻ lời mời')
-                        ->helperText('Link gửi cho bạn = link này + mã mời, ví dụ https://365home.vn/caro/AB12CD. App cần mở được link này.')
+                        ->helperText('Link gửi cho bạn = link này + mã mời, ví dụ https://365home.vn/caro/AB12CD — mở ra trang hiện mã + nút tải / mở app 365Home. Giữ đường dẫn /caro/ của website.')
                         ->url()->maxLength(255)->required()
                         ->columnSpanFull()
                         ->visible(fn (Get $get) => (bool) $get('invite_enabled')),

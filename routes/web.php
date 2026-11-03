@@ -1188,6 +1188,19 @@ Route::get('/minihouse/{slug}', [\App\Http\Controllers\Minihouse\Public\Storefro
     ->where('slug', '^(?!(?:admin|portal|tour|feedback|contract-document|contract-verify|webhook)$)[^/]+$')
     ->name('minihouse.storefront.show');
 
+// Link mời đấu Caro (CaroSetting::invite_share_url_base + mã) — trang hiện mã + nút tải / mở app 365Home. Phải đứng trước
+// route bắt-tất-cả /{type}/{location?} của BladeThemeV1, nếu không link rơi vào trang tìm phòng.
+Route::get('/caro/{code}', function (string $code) {
+    $invite = \App\Models\CaroInvite::where('code', strtoupper(trim($code)))->first();
+
+    return response()->view('caro-invite', [
+        'code'    => strtoupper(trim($code)),
+        'invite'  => $invite ? app(\App\Services\CaroService::class)->invitePayload($invite, '') : null,
+        'ios'     => config('services.mobile_app.ios'),
+        'android' => config('services.mobile_app.android'),
+    ])->header('X-Robots-Tag', 'noindex');
+})->where('code', '[A-Za-z0-9]{4,12}')->name('caro.invite');
+
 // Block paths that should not be accessible
 Route::get('/local', fn() => abort(404));
 Route::get('/local/{any}', fn() => abort(404))->where('any', '.*');

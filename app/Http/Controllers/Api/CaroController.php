@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\CaroInvite;
 use App\Models\CaroReward;
 use App\Models\CaroSetting;
 use App\Models\Customer;
@@ -16,7 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 // Caro trực tuyến (người với người) cho khách đã đăng nhập: ghép ngẫu nhiên hoặc mời bạn. App chỉ vẽ bàn cờ — lượt đi, thắng thua, hết giờ và voucher đều do BE quyết (xem CaroService).
-// Trạng thái được đẩy qua WS trên kênh cá nhân (caro.matched / caro.updated / caro.invited / caro.invite_updated); mất WS thì app hỏi lại bằng GET.
+// Trạng thái được đẩy qua WS trên kênh cá nhân (caro.matched / caro.updated / caro.invite_updated); mất WS thì app hỏi lại bằng GET.
 class CaroController extends Controller
 {
     public function __construct(private readonly CaroService $service) {}
@@ -49,7 +48,6 @@ class CaroController extends Controller
             'progress'           => $this->service->progress((string) $customer->id),
             'online'             => $this->service->onlineCount(),
             'active_match'       => $active ? $this->service->state($active, (string) $customer->id) : null,
-            'incoming_invites'   => $this->service->invitesOf($customer)['incoming']->count(),
         ]]);
     }
 
@@ -84,28 +82,25 @@ class CaroController extends Controller
     }
 
     /**
-     * GET /api/games/caro/invites — lời mời đích danh đang chờ mình (incoming) + lời mời mình đang gửi (outgoing, tối đa 1).
+     * GET /api/games/caro/invites — lời mời mình đang gửi (outgoing, tối đa 1).
      */
     public function invites(Request $request): JsonResponse
     {
         $customer = $this->customer($request);
-        $id       = (string) $customer->id;
-        $invites  = $this->service->invitesOf($customer);
+        $outgoing = $this->service->outgoingInvite($customer);
 
         return response()->json(['data' => [
-            'incoming' => $invites['incoming']->map(fn (CaroInvite $i) => $this->service->invitePayload($i, $id))->values(),
-            'outgoing' => $invites['outgoing'] ? $this->service->invitePayload($invites['outgoing'], $id) : null,
+            'outgoing' => $outgoing ? $this->service->invitePayload($outgoing, (string) $customer->id) : null,
         ]]);
     }
 
     /**
-     * POST /api/games/caro/invites — Body: phone (tuỳ chọn). Có phone = mời đích danh; không có = lời mời mở, gửi share_url / mã cho bạn.
+     * POST /api/games/caro/invites — tạo mã mời (kèm share_url / share_text) để gửi cho bạn; bạn nhập mã trên app để vào trận.
      */
     public function invite(Request $request): JsonResponse
     {
-        $data     = $request->validate(['phone' => 'nullable|string|max:20']);
         $customer = $this->customer($request);
-        $invite   = $this->service->createInvite($customer, $data['phone'] ?? null);
+        $invite   = $this->service->createInvite($customer);
 
         return response()->json(['data' => $this->service->invitePayload($invite, (string) $customer->id)], 201);
     }
@@ -124,14 +119,6 @@ class CaroController extends Controller
     public function acceptInvite(Request $request, string $code): JsonResponse
     {
         return $this->respond($request, fn (Customer $customer) => $this->service->acceptInvite($code, $customer));
-    }
-
-    /**
-     * POST /api/games/caro/invites/{code}/decline — người được mời đích danh từ chối.
-     */
-    public function declineInvite(Request $request, string $code): JsonResponse
-    {
-        return $this->respondInvite($request, fn (Customer $customer) => $this->service->declineInvite($code, $customer));
     }
 
     /**

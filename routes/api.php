@@ -617,13 +617,12 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
 | GET    /api/games/caro                      → Luật chơi, tiến độ (pending_wins / wins_required), số người online, trận đang dở
 | POST   /api/games/caro/queue                → Vào hàng chờ; GET cùng đường dẫn mỗi 2-3 giây để giữ chỗ và nhận trận (status = matched)
 | DELETE /api/games/caro/queue                → Rời hàng chờ
-| GET    /api/games/caro/invites              → Lời mời đang chờ mình (incoming) + lời mời mình đang gửi (outgoing)
-| POST   /api/games/caro/invites              → Mời bạn: phone (mời đích danh) hoặc bỏ trống (lấy link/mã gửi bạn)
-| GET    /api/games/caro/invites/{code}       → Xem lời mời (người mời hỏi lại tới khi accepted)
+| GET    /api/games/caro/invites              → Lời mời mình đang gửi (outgoing)
+| POST   /api/games/caro/invites              → Tạo mã mời (kèm link / lời nhắn) gửi cho bạn
+| GET    /api/games/caro/invites/{code}       → Xem lời mời theo mã (người mời hỏi lại tới khi accepted; bạn nhập mã để xem trước)
 | POST   /api/games/caro/invites/{code}/accept  → Nhận lời mời → vào trận
-| POST   /api/games/caro/invites/{code}/decline → Từ chối (người được mời đích danh)
 | DELETE /api/games/caro/invites/{code}       → Huỷ lời mời (người mời)
-| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invited / caro.invite_updated)
+| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invite_updated)
 | POST   /api/games/caro/matches/{id}/move    → Đánh 1 nước (x, y)
 | POST   /api/games/caro/matches/{id}/resign  → Đầu hàng
 | GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
@@ -638,7 +637,6 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix
     Route::post('invites',                    [CaroController::class, 'invite'])->name('invites.store')->middleware('throttle:10,1');
     Route::get('invites/{code}',              [CaroController::class, 'showInvite'])->name('invites.show');
     Route::post('invites/{code}/accept',      [CaroController::class, 'acceptInvite'])->name('invites.accept');
-    Route::post('invites/{code}/decline',     [CaroController::class, 'declineInvite'])->name('invites.decline');
     Route::delete('invites/{code}',           [CaroController::class, 'cancelInvite'])->name('invites.cancel');
     Route::get('matches/{id}',         [CaroController::class, 'show'])->name('matches.show');
     Route::post('matches/{id}/move',   [CaroController::class, 'move'])->name('matches.move');

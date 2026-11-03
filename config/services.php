@@ -131,6 +131,12 @@ return [
         'path'   => env('VITE_REVERB_PATH', ''),
     ],
 
+    // Link tải app khách 365Home — trang mời Caro (/caro/{mã}) dẫn khách sang store theo thiết bị.
+    'mobile_app' => [
+        'ios'     => env('APP_STORE_URL', 'https://apps.apple.com/vn/app/365-home/id6781598163?l=vi'),
+        'android' => env('PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=com.home365.app'),
+    ],
+
     'websocket' => [
         'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
         'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),

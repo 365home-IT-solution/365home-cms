@@ -116,11 +116,14 @@ class CaroService
         CaroQueueEntry::whereKey((string) $customer->id)->whereNull('match_id')->delete();
     }
 
+    // Mã mời nhập tay trên app — bỏ ký tự dễ nhầm (0/O, 1/I/L).
+    private const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
     /**
-     * Tạo lời mời đấu. Có SĐT thì mời đích danh (bạn nhận push + WS caro.invited), không có thì là lời mời mở — gửi link/mã cho ai cũng được.
+     * Tạo lời mời đấu: người mời gửi mã (hoặc link chứa mã) cho bạn, bạn nhập mã trên app để vào trận.
      * Mỗi khách chỉ giữ 1 lời mời đang chờ: tạo lời mời mới thì lời mời cũ bị huỷ.
      */
-    public function createInvite(Customer $inviter, ?string $phone): CaroInvite
+    public function createInvite(Customer $inviter): CaroInvite
     {
         $setting = $this->inviteSetting();
         $id      = (string) $inviter->id;
@@ -129,31 +132,18 @@ class CaroService
             $this->fail('Bạn đang trong một trận khác.');
         }
 
-        $invitee = null;
-        if ($phone !== null && $phone !== '') {
-            $invitee = Customer::whereIn('phone', array_unique([$phone, app(ZaloOtpService::class)->normalizePhone($phone)]))->first();
-
-            if (! $invitee) {
-                $this->fail('Không tìm thấy khách hàng với số điện thoại này. Bạn có thể gửi link mời thay vì số điện thoại.');
-            }
-            if ((string) $invitee->id === $id) {
-                $this->fail('Không thể tự mời chính mình.');
-            }
-        }
-
-        $invite = DB::transaction(function () use ($id, $invitee, $setting) {
+        $invite = DB::transaction(function () use ($id, $setting) {
             CaroInvite::where('inviter_id', $id)->where('status', CaroInvite::STATUS_PENDING)
                 ->get()
                 ->each(fn (CaroInvite $old) => $this->closeInvite($old, CaroInvite::STATUS_CANCELLED));
 
             do {
-                $code = strtoupper(Str::random(6));
+                $code = collect(range(1, 6))->map(fn () => self::INVITE_ALPHABET[random_int(0, strlen(self::INVITE_ALPHABET) - 1)])->implode('');
             } while (CaroInvite::where('code', $code)->exists());
 
             return CaroInvite::create([
                 'code'       => $code,
                 'inviter_id' => $id,
-                'invitee_id' => $invitee?->id,
                 'status'     => CaroInvite::STATUS_PENDING,
                 'expires_at' => now()->addMinutes($setting->invite_expire_minutes),
             ]);
@@ -161,26 +151,13 @@ class CaroService
 
         CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
 
-        if ($invitee) {
-            $this->realtime->push((string) $invitee->id, 'caro.invited', ['invite' => $this->invitePayload($invite, (string) $invitee->id)]);
-
-            try {
-                app(NotificationFcmService::class)->sendToCustomer(
-                    $invitee, 'Lời mời đấu Caro', self::maskName($inviter->fullname) . ' mời bạn một ván caro. Vào ngay!', 'caro_invite',
-                    ['code' => $invite->code], '/games/caro/invites/' . $invite->code,
-                );
-            } catch (\Throwable $e) {
-                Log::warning('Caro: gửi thông báo lời mời thất bại', ['invite' => $invite->code, 'error' => $e->getMessage()]);
-            }
-        }
-
         return $invite;
     }
 
-    // Lời mời theo mã — người mời, người được mời đích danh, hoặc bất kỳ ai nếu là lời mời mở.
+    // Lời mời theo mã — ai có mã cũng xem / nhận được; đã có người nhận thì chỉ người mời và người nhận xem được.
     public function findInvite(string $code, Customer $customer): CaroInvite
     {
-        $invite = CaroInvite::where('code', strtoupper($code))->firstOrFail();
+        $invite = CaroInvite::where('code', strtoupper(trim($code)))->firstOrFail();
         $id     = (string) $customer->id;
 
         if ($invite->invitee_id && ! in_array($id, [(string) $invite->inviter_id, (string) $invite->invitee_id], true)) {
@@ -233,19 +210,7 @@ class CaroService
         return $match;
     }
 
-    // Người được mời đích danh từ chối → người mời nhận WS caro.invite_updated.
-    public function declineInvite(string $code, Customer $customer): CaroInvite
-    {
-        $invite = $this->findInvite($code, $customer);
-
-        if ((string) $invite->invitee_id !== (string) $customer->id) {
-            $this->fail('Chỉ người được mời mới từ chối được lời mời này.');
-        }
-
-        return $this->closeOpenInvite($invite, CaroInvite::STATUS_DECLINED);
-    }
-
-    // Người mời huỷ → người được mời đích danh (nếu có) nhận WS caro.invite_updated.
+    // Người mời huỷ lời mời đang chờ.
     public function cancelInvite(string $code, Customer $customer): CaroInvite
     {
         $invite = $this->findInvite($code, $customer);
@@ -257,17 +222,11 @@ class CaroService
         return $this->closeOpenInvite($invite, CaroInvite::STATUS_CANCELLED);
     }
 
-    /** @return array{incoming: \Illuminate\Support\Collection<int, CaroInvite>, outgoing: ?CaroInvite} */
-    public function invitesOf(Customer $customer): array
+    // Lời mời mình đang gửi (tối đa 1).
+    public function outgoingInvite(Customer $customer): ?CaroInvite
     {
-        $id = (string) $customer->id;
-
-        return [
-            'incoming' => CaroInvite::where('invitee_id', $id)->where('status', CaroInvite::STATUS_PENDING)
-                ->where('expires_at', '>', now())->latest()->get(),
-            'outgoing' => CaroInvite::where('inviter_id', $id)->where('status', CaroInvite::STATUS_PENDING)
-                ->where('expires_at', '>', now())->latest()->first(),
-        ];
+        return CaroInvite::where('inviter_id', (string) $customer->id)->where('status', CaroInvite::STATUS_PENDING)
+            ->where('expires_at', '>', now())->latest()->first();
     }
 
     public function invitePayload(CaroInvite $invite, string $viewerId): array
@@ -282,13 +241,12 @@ class CaroService
             'code'         => $invite->code,
             'status'       => $invite->isOpen() || $invite->status !== CaroInvite::STATUS_PENDING ? $invite->status : CaroInvite::STATUS_EXPIRED,
             'is_mine'      => $mine,
-            'is_targeted'  => $invite->invitee_id !== null,
             'inviter'      => ['name' => self::maskName($names[$invite->inviter_id] ?? null)],
             'invitee'      => $invite->invitee_id ? ['name' => self::maskName($names[$invite->invitee_id] ?? null)] : null,
             'expires_at'   => $invite->expires_at->toIso8601String(),
             'seconds_left' => max(0, (int) now()->diffInSeconds($invite->expires_at, false)),
             'share_url'    => $mine ? $url : null,
-            'share_text'   => $mine ? "Vào đấu caro với mình trên app 365home nhé! Mã mời {$invite->code}: {$url}" : null,
+            'share_text'   => $mine ? "Đấu caro với mình trên app 365Home nhé! Mở app → Mini game Caro → nhập mã {$invite->code}. Chưa có app thì tải tại: {$url}" : null,
             'match'        => $match && $match->sideOf($viewerId) ? $this->state($match, $viewerId) : null,
         ];
     }
