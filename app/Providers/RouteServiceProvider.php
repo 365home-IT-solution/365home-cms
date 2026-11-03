@@ -120,6 +120,11 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by($request->route()?->getName() . '|' . ($request->user()?->id ?: $request->ip()));
         });
 
+        // Caro: khoá riêng theo khách. throttle:x,y dạng số dùng CHUNG 1 bộ đếm (sha1 id khách) cho mọi route có throttle số →
+        // lượt hỏi lại GET /invites/{code}, /queue, /matches cũng bị tính vào giới hạn tạo lời mời → app nhận 429 khi bấm mời.
+        RateLimiter::for('caro', fn (Request $request) => Limit::perMinute(120)->by('caro:' . ($request->user()?->id ?: $request->ip())));
+        RateLimiter::for('caro-invite', fn (Request $request) => Limit::perMinute(20)->by('caro-invite:' . ($request->user()?->id ?: $request->ip())));
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

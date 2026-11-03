@@ -628,13 +628,13 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
 | GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('games/caro')->name('api.games.caro.')->group(function () {
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:caro'])->prefix('games/caro')->name('api.games.caro.')->group(function () {
     Route::get('/',                    [CaroController::class, 'index'])->name('index');
     Route::post('queue',               [CaroController::class, 'seek'])->name('queue.join');
     Route::get('queue',                [CaroController::class, 'seek'])->name('queue.poll');
     Route::delete('queue',             [CaroController::class, 'leave'])->name('queue.leave');
     Route::get('invites',                     [CaroController::class, 'invites'])->name('invites.index');
-    Route::post('invites',                    [CaroController::class, 'invite'])->name('invites.store')->middleware('throttle:10,1');
+    Route::post('invites',                    [CaroController::class, 'invite'])->name('invites.store')->middleware('throttle:caro-invite');
     Route::get('invites/{code}',              [CaroController::class, 'showInvite'])->name('invites.show');
     Route::post('invites/{code}/accept',      [CaroController::class, 'acceptInvite'])->name('invites.accept');
     Route::delete('invites/{code}',           [CaroController::class, 'cancelInvite'])->name('invites.cancel');

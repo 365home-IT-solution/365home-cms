@@ -74,6 +74,17 @@ class Handler extends ExceptionHandler
 
             return null;
         });
+
+        // Bị throttle ở API app: thay "Too Many Attempts." bằng câu tiếng Việt app hiển thị thẳng được, giữ header Retry-After.
+        $this->renderable(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $e, $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            $seconds = (int) ($e->getHeaders()['Retry-After'] ?? 60);
+
+            return response()->json(['message' => "Bạn thao tác quá nhanh, vui lòng thử lại sau {$seconds} giây."], 429, $e->getHeaders());
+        });
     }
 
     /**
