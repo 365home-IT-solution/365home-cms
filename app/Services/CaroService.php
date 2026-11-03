@@ -121,7 +121,8 @@ class CaroService
 
     /**
      * Tạo lời mời đấu: người mời gửi mã (hoặc link chứa mã) cho bạn, bạn nhập mã trên app để vào trận.
-     * Mỗi khách chỉ giữ 1 lời mời đang chờ: tạo lời mời mới thì lời mời cũ bị huỷ.
+     * Mỗi khách chỉ giữ 1 lời mời đang chờ: còn hiệu lực thì dùng lại mã đó (gia hạn thêm) để link đã gửi vẫn dùng được,
+     * app gọi lại nhiều lần (mở lại màn mời, mời thêm SĐT khác) cũng không đổi mã.
      */
     public function createInvite(Customer $inviter): CaroInvite
     {
@@ -130,6 +131,13 @@ class CaroService
 
         if ($this->activeMatch($id)) {
             $this->fail('Bạn đang trong một trận khác.');
+        }
+
+        if ($current = $this->outgoingInvite($inviter)) {
+            $current->update(['expires_at' => now()->addMinutes($setting->invite_expire_minutes)]);
+            CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
+
+            return $current;
         }
 
         $invite = DB::transaction(function () use ($id, $setting) {
@@ -152,6 +160,47 @@ class CaroService
         CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
 
         return $invite;
+    }
+
+    // Khách có SĐT này để báo lời mời — tìm trước khi tạo lời mời để sai SĐT thì không tạo / gia hạn gì.
+    public function inviteeByPhone(Customer $inviter, string $phone): Customer
+    {
+        $digits = preg_replace('/\D+/', '', $phone);
+        $local  = str_starts_with($digits, '84') ? '0' . substr($digits, 2) : $digits;
+
+        $invitee = $digits === '' ? null
+            : Customer::whereIn('phone', array_unique([trim($phone), $digits, $local, app(ZaloOtpService::class)->normalizePhone($local)]))->first();
+
+        if (! $invitee) {
+            $this->fail('Không tìm thấy khách hàng với số điện thoại này. Bạn có thể gửi mã / link mời cho bạn.');
+        }
+        if ((string) $invitee->id === (string) $inviter->id) {
+            $this->fail('Không thể tự mời chính mình.');
+        }
+
+        return $invitee;
+    }
+
+    /**
+     * Báo lời mời cho khách có SĐT đã nhập: WS caro.invited + push caro_invite kèm mã. Lời mời vẫn là lời mời mở
+     * (ai có mã cũng nhận được) — người được báo chỉ cần bấm vào thông báo / nhập mã. Báo trùng 1 người trong 1 phút thì bỏ qua.
+     */
+    public function notifyInvitee(CaroInvite $invite, Customer $inviter, Customer $invitee): void
+    {
+        if (! Cache::add("caro:invite-notify:{$invite->id}:{$invitee->id}", 1, 60)) {
+            return;
+        }
+
+        $this->realtime->push((string) $invitee->id, 'caro.invited', ['invite' => $this->invitePayload($invite, (string) $invitee->id)]);
+
+        try {
+            app(NotificationFcmService::class)->sendToCustomer(
+                $invitee, 'Lời mời đấu Caro', self::maskName($inviter->fullname) . " mời bạn một ván caro. Nhập mã {$invite->code} hoặc bấm vào đây để vào trận!",
+                'caro_invite', ['code' => $invite->code], '/games/caro/invites/' . $invite->code,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Caro: gửi thông báo lời mời thất bại', ['invite' => $invite->code, 'error' => $e->getMessage()]);
+        }
     }
 
     // Lời mời theo mã — ai có mã cũng xem / nhận được; đã có người nhận thì chỉ người mời và người nhận xem được.
@@ -886,6 +935,12 @@ class CaroService
                 $this->realtime->push((string) $playerId, 'caro.updated', ['match' => $this->state($match, (string) $playerId)]);
             }
         }
+    }
+
+    // Tên hiển thị cho người khác thấy (đã che), vd. báo "Đã gửi lời mời cho N. V. An".
+    public function publicName(Customer $customer): string
+    {
+        return self::maskName($customer->fullname);
     }
 
     // "Nguyễn Văn An" → "N. V. An"

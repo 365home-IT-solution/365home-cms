@@ -13,9 +13,11 @@ use App\Services\ScratchCardService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 
 // Caro trực tuyến (người với người) cho khách đã đăng nhập: ghép ngẫu nhiên hoặc mời bạn. App chỉ vẽ bàn cờ — lượt đi, thắng thua, hết giờ và voucher đều do BE quyết (xem CaroService).
-// Trạng thái được đẩy qua WS trên kênh cá nhân (caro.matched / caro.updated / caro.invite_updated); mất WS thì app hỏi lại bằng GET.
+// Trạng thái được đẩy qua WS trên kênh cá nhân (caro.matched / caro.updated / caro.invited); mất WS thì app hỏi lại bằng GET.
 class CaroController extends Controller
 {
     public function __construct(private readonly CaroService $service) {}
@@ -95,14 +97,35 @@ class CaroController extends Controller
     }
 
     /**
-     * POST /api/games/caro/invites — tạo mã mời (kèm share_url / share_text) để gửi cho bạn; bạn nhập mã trên app để vào trận.
+     * POST /api/games/caro/invites — Body: phone (tuỳ chọn). Tạo (hoặc lấy lại) mã mời kèm share_url / share_text để gửi cho bạn;
+     * có phone thì báo thêm cho khách có SĐT đó (push + WS caro.invited). Bạn nhập mã / bấm thông báo để vào trận.
      */
     public function invite(Request $request): JsonResponse
     {
+        $data     = $request->validate(['phone' => 'nullable|string|max:20']);
         $customer = $this->customer($request);
-        $invite   = $this->service->createInvite($customer);
+        $phone    = trim((string) ($data['phone'] ?? ''));
+        $invitee  = null;
 
-        return response()->json(['data' => $this->service->invitePayload($invite, (string) $customer->id)], 201);
+        if ($phone !== '') {
+            // Chặn dò SĐT nào có tài khoản: tối đa 10 lần tìm theo SĐT / 10 phút mỗi khách.
+            $key = 'caro-invite-phone:' . $customer->id;
+            if (RateLimiter::tooManyAttempts($key, 10)) {
+                throw ValidationException::withMessages(['phone' => ['Bạn đã mời bằng số điện thoại quá nhiều lần, thử lại sau ' . ceil(RateLimiter::availableIn($key) / 60) . ' phút hoặc gửi mã mời cho bạn.']])->status(429);
+            }
+            RateLimiter::hit($key, 600);
+
+            $invitee = $this->service->inviteeByPhone($customer, $phone);
+        }
+
+        $invite = $this->service->createInvite($customer);
+        if ($invitee) {
+            $this->service->notifyInvitee($invite, $customer, $invitee);
+        }
+
+        return response()->json(['data' => $this->service->invitePayload($invite, (string) $customer->id) + [
+            'notified' => $invitee ? ['name' => $this->service->publicName($invitee)] : null,
+        ]], 201);
     }
 
     /**

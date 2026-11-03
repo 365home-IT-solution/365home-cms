@@ -618,11 +618,11 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
 | POST   /api/games/caro/queue                → Vào hàng chờ; GET cùng đường dẫn mỗi 2-3 giây để giữ chỗ và nhận trận (status = matched)
 | DELETE /api/games/caro/queue                → Rời hàng chờ
 | GET    /api/games/caro/invites              → Lời mời mình đang gửi (outgoing)
-| POST   /api/games/caro/invites              → Tạo mã mời (kèm link / lời nhắn) gửi cho bạn
+| POST   /api/games/caro/invites              → Lấy mã mời (kèm link / lời nhắn) gửi cho bạn; phone (tuỳ chọn) → báo cho khách có SĐT đó
 | GET    /api/games/caro/invites/{code}       → Xem lời mời theo mã (người mời hỏi lại tới khi accepted; bạn nhập mã để xem trước)
 | POST   /api/games/caro/invites/{code}/accept  → Nhận lời mời → vào trận
 | DELETE /api/games/caro/invites/{code}       → Huỷ lời mời (người mời)
-| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invite_updated)
+| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invited)
 | POST   /api/games/caro/matches/{id}/move    → Đánh 1 nước (x, y)
 | POST   /api/games/caro/matches/{id}/resign  → Đầu hàng
 | GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
