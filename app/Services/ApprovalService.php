@@ -430,7 +430,13 @@ class ApprovalService
         $slotChanges    = (array) ($request->payload['timeslots'] ?? []);
 
         if ($productChanges !== []) {
-            $product->forceFill(collect($productChanges)->map(fn (array $c) => $c['new'])->all())->save();
+            $values = collect($productChanges)->map(fn (array $c) => $c['new'])->all();
+
+            if (isset($productChanges['room_config'])) {
+                $values['room_config'] = $this->mergeRoomConfig($product, $productChanges['room_config']);
+            }
+
+            $product->forceFill($values)->save();
         }
 
         foreach ($slotChanges as $slotId => $fields) {
@@ -448,6 +454,33 @@ class ApprovalService
         if ($priceTouched) {
             $sync->afterManualPriceEdit($product->fresh(), $before);
         }
+    }
+
+    /**
+     * room_config đã duyệt: áp phần cấu hình của yêu cầu, còn ngày khoá giữ theo HIỆN TẠI (ngày khoá lưu ngay không qua duyệt —
+     * xem Product::updating) và chỉ thêm/bỏ đúng các khoảng mà yêu cầu đó thêm/bỏ — để duyệt yêu cầu cũ (kể cả yêu cầu khoá ngày
+     * gửi trước khi tách) không xoá mất các ngày khoá / mở khoá làm sau.
+     */
+    private function mergeRoomConfig(Product $product, array $change): array
+    {
+        $current = is_array($product->room_config) ? $product->room_config : [];
+        $new     = is_array($change['new'] ?? null) ? $change['new'] : [];
+        $key     = fn (array $r) => ($r['start'] ?? '') . '|' . ($r['end'] ?? '') . '|' . ($r['rooms'] ?? '');
+        $keyed   = fn (array $ranges) => collect($ranges)->filter(fn ($r) => is_array($r))->keyBy($key);
+
+        $oldRanges = $keyed($change['old']['blocked_ranges'] ?? []);
+        $newRanges = $keyed($new['blocked_ranges'] ?? []);
+        $ranges    = $keyed($current['blocked_ranges'] ?? [])
+            ->except($oldRanges->keys()->diff($newRanges->keys())->all())
+            ->union($newRanges->only($newRanges->keys()->diff($oldRanges->keys())->all()));
+
+        $merged = \Illuminate\Support\Arr::except($new, 'blocked_ranges');
+
+        if ($ranges->isNotEmpty() || array_key_exists('blocked_ranges', $current)) {
+            $merged['blocked_ranges'] = $ranges->values()->all();
+        }
+
+        return $merged;
     }
 
     private function subjectExists(ApprovalRequest $request): bool

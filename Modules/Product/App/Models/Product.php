@@ -241,6 +241,24 @@ class Product extends Model implements HasMedia, Resourceable
                     continue;
                 }
 
+                // Ngày khoá (room_config.blocked_ranges) là thao tác vận hành như bật/tắt phòng — lưu ngay, không chờ duyệt; chỉ phần
+                // cấu hình còn lại của room_config (khách miễn phí, phụ thu...) mới vào yêu cầu duyệt.
+                if ($field === 'room_config') {
+                    $old = is_array($product->getOriginal('room_config')) ? $product->getOriginal('room_config') : [];
+                    $new = is_array($product->room_config) ? $product->room_config : [];
+                    $oldRest = \Illuminate\Support\Arr::except($old, 'blocked_ranges');
+                    $newRest = \Illuminate\Support\Arr::except($new, 'blocked_ranges');
+
+                    if ($oldRest == $newRest) {
+                        continue;
+                    }
+
+                    $changes[$field] = ['old' => $oldRest, 'new' => $newRest];
+                    $product->setAttribute($field, array_key_exists('blocked_ranges', $new) ? $oldRest + ['blocked_ranges' => $new['blocked_ranges']] : $oldRest);
+
+                    continue;
+                }
+
                 $changes[$field] = ['old' => $product->getOriginal($field), 'new' => $product->getAttribute($field)];
                 $product->setAttribute($field, $product->getOriginal($field));
             }

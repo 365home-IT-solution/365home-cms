@@ -168,7 +168,73 @@ class ApprovalRequestResource extends Resource
                     ->url(fn (ApprovalRequest $record) => self::subjectUrl($record), shouldOpenInNewTab: true)
                     ->visible(fn (ApprovalRequest $record) => self::subjectUrl($record) !== null),
             ])
+            // Chọn nhiều yêu cầu ĐANG CHỜ để duyệt / từ chối / rút lại cùng lúc. Mỗi yêu cầu vẫn đi qua đúng ApprovalService như nút
+            // từng dòng (transaction + khoá riêng), xử lý theo thứ tự gửi; cái nào lỗi (vd bảng giá trùng ngày) thì bỏ qua và báo lại.
+            ->checkIfRecordIsSelectableUsing(fn (ApprovalRequest $record) => $record->isPending() && (self::canReview() || self::canAct($record)))
+            ->bulkActions([
+                Tables\Actions\BulkAction::make('approveSelected')
+                    ->label('Duyệt đã chọn')->icon('heroicon-o-check-circle')->color('success')
+                    ->visible(fn () => self::canReview())
+                    ->modalHeading('Duyệt các yêu cầu đã chọn?')
+                    ->modalDescription('Phòng / bảng giá đăng mới sẽ được hiện, bản sửa được áp xuống ngay. Yêu cầu nào không duyệt được sẽ được bỏ qua và báo lại.')
+                    ->form([Forms\Components\Textarea::make('note')->label('Ghi chú chung (không bắt buộc)')->maxLength(1000)->rows(2)])
+                    ->action(fn (\Illuminate\Support\Collection $records, array $data) => self::runBulk(
+                        $records, 'Đã duyệt', fn (ApprovalRequest $r) => self::service()->approve($r, auth()->user(), $data['note'] ?? null),
+                    ))
+                    ->deselectRecordsAfterCompletion(),
+
+                Tables\Actions\BulkAction::make('rejectSelected')
+                    ->label('Từ chối đã chọn')->icon('heroicon-o-x-circle')->color('danger')
+                    ->visible(fn () => self::canReview())
+                    ->modalHeading('Từ chối các yêu cầu đã chọn?')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Lý do (đối tác sẽ thấy, dùng chung cho mọi yêu cầu đã chọn)')->required()->maxLength(1000)->rows(3)])
+                    ->action(fn (\Illuminate\Support\Collection $records, array $data) => self::runBulk(
+                        $records, 'Đã từ chối', fn (ApprovalRequest $r) => self::service()->reject($r, auth()->user(), $data['reason']),
+                    ))
+                    ->deselectRecordsAfterCompletion(),
+
+                Tables\Actions\BulkAction::make('cancelSelected')
+                    ->label('Rút lại đã chọn')->icon('heroicon-o-arrow-uturn-left')->color('gray')->requiresConfirmation()
+                    ->modalDescription('Rút lại các yêu cầu đang chờ duyệt đã chọn. Bản đang chạy giữ nguyên; bản đăng mới quay về chưa được duyệt.')
+                    ->visible(fn () => ! self::canReview())
+                    ->action(fn (\Illuminate\Support\Collection $records) => self::runBulk(
+                        $records, 'Đã rút lại', fn (ApprovalRequest $r) => self::service()->cancel($r, auth()->user()),
+                    ))
+                    ->deselectRecordsAfterCompletion(),
+            ])
             ->defaultSort('id', 'desc');
+    }
+
+    /**
+     * Chạy $action cho từng yêu cầu đang chờ đã chọn (cũ trước), gom kết quả vào 1 thông báo: số thành công + lý do từng cái lỗi.
+     *
+     * @param  \Illuminate\Support\Collection<int, ApprovalRequest>  $records
+     */
+    private static function runBulk(\Illuminate\Support\Collection $records, string $doneLabel, \Closure $action): void
+    {
+        $done   = 0;
+        $failed = [];
+
+        foreach ($records->filter(fn (ApprovalRequest $r) => $r->isPending())->sortBy('id') as $record) {
+            try {
+                $action($record);
+                $done++;
+            } catch (ApprovalException $e) {
+                $failed[] = ($record->subject_label ?: $record->kindLabel()) . ': ' . $e->getMessage();
+            }
+        }
+
+        $skipped = $records->count() - $done - count($failed);
+        $body    = collect($failed)->take(5)->map(fn ($line) => '• ' . e($line))
+            ->when(count($failed) > 5, fn ($c) => $c->push('… và ' . (count($failed) - 5) . ' yêu cầu khác'))
+            ->when($skipped > 0, fn ($c) => $c->push($skipped . ' yêu cầu không còn chờ duyệt nên bỏ qua'))
+            ->implode('<br>');
+
+        $notification = Notification::make()
+            ->title($doneLabel . ' ' . $done . ' yêu cầu' . ($failed ? ', ' . count($failed) . ' không xử lý được' : '') . '.')
+            ->body($body ?: null);
+
+        $failed ? $notification->warning()->persistent()->send() : $notification->success()->send();
     }
 
     /** Đối tác của yêu cầu (hoặc Super Admin) mới rút lại / gửi lại được. */
