@@ -227,10 +227,19 @@ class BranchBookConfig
             ->values()
             ->toArray();
 
+        // Phòng THEO NGÀY (styles=2): Book component in thành carousel lịch theo ngày (Book::buildDailyCards(),
+        // cùng điều kiện lọc) — đếm riêng để chi nhánh chỉ có phòng theo ngày vẫn hiện khối lịch.
+        $dailyRoomCount = Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->where('styles', 2)
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', \Modules\Product\App\Models\PriceBoard::branchCategoryIds((int) $branch->id)))
+            ->count();
+
         return [
             'branch' => $branch,
             'bookConfig' => [
                 'bookable_room_count' => count($productIds),
+                'daily_room_count' => $dailyRoomCount,
                 'component' => [
                     'choose_room' => json_encode([
                         'categories' => [
@@ -256,6 +265,7 @@ class BranchBookConfig
     {
         return [
             'bookable_room_count' => 0,
+            'daily_room_count' => 0,
             'component' => [
                 'choose_room' => json_encode(['categories' => []], JSON_UNESCAPED_UNICODE),
                 'title_booking' => '',

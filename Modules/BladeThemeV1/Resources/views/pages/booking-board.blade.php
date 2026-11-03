@@ -61,8 +61,8 @@
            nghĩa sẵn ở #branch-rooms-root [x-ref="track"] phía dưới). Định nghĩa riêng
            (room-skel-shimmer, không dùng chung book-skel-shimmer của book/_skeleton.blade.php)
            vì khối lịch (component Livewire "book") chỉ render khi
-           bookConfig['bookable_room_count'] khác rỗng — nếu chi nhánh chưa có phòng theo khung
-           giờ thì style đó sẽ không tồn tại trên trang. */
+           bookConfig['bookable_room_count'] hoặc ['daily_room_count'] khác rỗng — nếu chi nhánh
+           chưa có phòng nào thì style đó sẽ không tồn tại trên trang. */
         @keyframes room-skel-shimmer {
             0% { background-position: -400px 0; }
             100% { background-position: 400px 0; }
@@ -171,7 +171,9 @@
                do tương tự). */
             #branch-rooms-root [x-ref="track"] {
                 display: grid !important;
-                grid-template-columns: repeat(2, 1fr) !important;
+                /* minmax(0, 1fr): 1fr mặc định không co nhỏ hơn min-content (tên phòng dài không
+                   xuống dòng) nên cột 2 bị đẩy tràn/cắt — ép 2 cột luôn bằng nhau. */
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 10px !important;
                 overflow: visible !important;
                 scroll-snap-type: none !important;
@@ -245,7 +247,7 @@
                tìm kiếm (.branch-grid/.branch-card ở search.blade.php). */
             #branch-rooms-root [x-ref="track"] {
                 display: grid !important;
-                grid-template-columns: repeat(2, 1fr) !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 20px 14px !important;
                 overflow: visible !important;
                 scroll-snap-type: none !important;
@@ -253,6 +255,7 @@
             #branch-rooms-root .home-card {
                 width: 100% !important;
                 max-width: 100% !important;
+                min-width: 0;
                 flex: none !important;
             }
             #branch-rooms-root .branch-carousel-nav { display: none !important; }
@@ -287,9 +290,10 @@
                     
                     </div>
 
-                    @if(empty($bookConfig['bookable_room_count']))
+                    {{-- Hiện khối lịch khi có phòng theo khung giờ HOẶC phòng theo ngày (Book tự in carousel lịch theo ngày). --}}
+                    @if(empty($bookConfig['bookable_room_count']) && empty($bookConfig['daily_room_count']))
                         <div style="padding:40px 16px; text-align:center; border:1px solid #f3f4f6; border-radius:14px; background:#f9fafb;">
-                            <p style="margin:0; color:#6b7280; font-size:14px;">Chi nhánh này chưa có phòng theo khung giờ để hiển thị.</p>
+                            <p style="margin:0; color:#6b7280; font-size:14px;">Chi nhánh này chưa có phòng để hiển thị.</p>
                         </div>
                     @else
                         @livewire('bladethemev1::book', ['config' => $bookConfig])

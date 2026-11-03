@@ -575,6 +575,11 @@ class ProductController extends Controller
             return response()->json(['message' => 'Phòng chưa được 365home duyệt nên chưa bật được.'], 422);
         }
 
+        // Đối tác đang bị tạm khoá phòng do tự huỷ nhiều đơn tiền mặt: chỉ Super Admin bật được (cùng quy tắc với nút bật phòng trên CMS).
+        if ($data['status'] && ! $request->user()->isSuperAdmin() && app(\App\Services\Payment\CancellationGuardService::class)->productLocked($product)) {
+            return response()->json(['message' => 'Phòng đang bị tạm khoá do huỷ nhiều đơn tiền mặt. Liên hệ 365 HOME để được mở khoá.', 'code' => 'CASH_CANCEL_LOCKED'], 423);
+        }
+
         $product->update(['is_activated' => $data['status']]);
 
         return response()->json(['message' => 'Đã cập nhật trạng thái.']);

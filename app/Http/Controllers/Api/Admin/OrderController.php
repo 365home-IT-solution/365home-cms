@@ -1168,6 +1168,9 @@ class OrderController extends Controller
                 'confirmed_by'  => $order->cash_confirmed_by,
                 'source'        => $order->cash_confirm_source,
                 'note'          => $order->cash_confirm_note,
+                // Đơn tiền mặt bị huỷ: lúc huỷ và ai huỷ (partner = tài khoản đối tác · admin = 365home · no_show = khách không đến · system).
+                'cancelled_at'  => $order->cancelled_at ? \Illuminate\Support\Carbon::parse($order->cancelled_at)->toIso8601String() : null,
+                'cancel_source' => $order->cancel_source,
             ] : null,
             'creator'           => $order->creator ? [
                 'id'       => $order->creator->id,
