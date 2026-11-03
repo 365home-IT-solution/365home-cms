@@ -31,8 +31,11 @@ php artisan package:discover --ansi
 # Run migrations and cache
 php artisan migrate --force --no-interaction
 
+# Dịch vụ đi kèm của phòng = dịch vụ của chi nhánh (BranchServiceSync) — đồng bộ lại mỗi lần deploy, idempotent.
+# Thay cho RoomAdditionalServiceSeeder cũ (gắn MỌI dịch vụ của mọi đối tác vào 8 phòng mẫu mỗi lần khởi động, đã xoá).
+php artisan services:sync-rooms --no-interaction
+
 # Seed idempotent data (insertOrIgnore — safe to run on every deploy)
-php artisan db:seed --class=RoomAdditionalServiceSeeder --force --no-interaction
 php artisan db:seed --class=AuditLogPermissionSeeder --force --no-interaction
 php artisan db:seed --class=CustomerVoucherUsagePermissionSeeder --force --no-interaction
 
