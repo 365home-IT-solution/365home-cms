@@ -129,9 +129,10 @@ class OrderObserver
             report($e);
         }
 
-        // Chỉ log khi admin tạo đơn trực tiếp từ admin panel.
-        // Admin panel và frontend dùng chung web guard nên phải kiểm tra qua Referer header:
+        // Chỉ log khi nhân viên / đối tác tạo đơn từ trang quản trị web hoặc app quản trị (xem isStaffAction()).
+        // Admin panel và frontend dùng chung web guard nên trang web phải kiểm tra qua Referer header:
         //   - Admin panel: Referer chứa '/homestay/admin/' → log
+        //   - App quản trị: API /api/admin/* → log
         //   - Frontend (client hoặc admin test UI): Referer không chứa '/homestay/admin/' → bỏ qua
         //   - Webhook PayOS: auth()->user() = null → bỏ qua
         // LƯU Ý: '/homestay/admin/' phải khớp path() của AdminPanelProvider (App\Providers\Filament\
@@ -139,10 +140,7 @@ class OrderObserver
         // audit-log tạo/sửa đơn từ admin panel sẽ ngừng ghi mà không có lỗi/cảnh báo nào (đã xảy ra
         // trước đây khi đổi /admin -> /home-admin, phát hiện muộn — cùng lớp lỗi khi đổi sang
         // /homestay/admin, đã cập nhật đúng chuỗi ở đây).
-        $user    = auth()->user();
-        $referer = request()->headers->get('referer', '');
-
-        if ($user && str_contains($referer, '/homestay/admin/')) {
+        if ($this->isStaffAction()) {
             AuditLogger::log(
                 action: 'create',
                 module: 'Order',
@@ -241,9 +239,7 @@ class OrderObserver
         $changed = AuditFieldFilter::filter($order->getChanges());
 
         if (! empty($changed)) {
-            $referer = request()->headers->get('referer', '');
-            // Xem giải thích ở created() — chuỗi này phải khớp path() của AdminPanelProvider.
-            if (str_contains($referer, '/homestay/admin/')) {
+            if ($this->isStaffAction()) {
                 $old = array_intersect_key($order->getOriginal(), $changed);
                 $new = $changed;
 
@@ -509,6 +505,23 @@ class OrderObserver
      * cascadeOnDelete theo order_id, nên nếu chờ tới deleted() (chạy SAU khi DB đã cascade xóa) thì
      * CouponUsageLedger::release() sẽ không tìm thấy dòng coupon_usages nào để hoàn used_count nữa.
      */
+    /**
+     * Thao tác của nhân viên / đối tác cần ghi lịch sử: tài khoản quản trị (App\Models\User) thao tác từ trang quản trị web
+     * (Referer chứa '/homestay/admin/' — phải khớp path() của AdminPanelProvider, kể cả các route JSON admin/api/* do trang đó
+     * gọi) HOẶC từ app quản trị (API /api/admin/*, auth:sanctum). Trước đây chỉ xét Referer nên mọi thao tác đối tác làm trên
+     * app (đổi trạng thái, xác nhận tiền mặt, sửa đơn...) không có lịch sử. Khách đặt trên web/app, webhook thanh toán, cron:
+     * không có tài khoản quản trị (hoặc không đi qua 2 đường trên) → không ghi.
+     */
+    private function isStaffAction(): bool
+    {
+        if (! auth()->user() instanceof \App\Models\User) {
+            return false;
+        }
+
+        return str_contains((string) request()->headers->get('referer', ''), '/homestay/admin/')
+            || request()->is('api/admin/*');
+    }
+
     public function deleting(Order $order): void
     {
         if (in_array($order->status, ['paid', 'deposit'], true)) {

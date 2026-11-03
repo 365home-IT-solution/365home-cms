@@ -37,6 +37,9 @@ class AuditLogger
         }
 
         AuditLog::create([
+            // Đối tác của người thao tác — BelongsToPartner chỉ tự gán trong trang quản trị web (AdminPanelContext), thao tác qua
+            // app quản trị (/api/admin/*) sẽ để trống và không lọc / không hiện đúng theo đối tác.
+            'partner_id'     => $user->partner_id,
             'user_id'        => $user->id,
             'user_name'      => $user->fullname ?? $user->email,
             'user_email'     => $user->email,

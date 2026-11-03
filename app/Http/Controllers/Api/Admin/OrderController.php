@@ -1006,6 +1006,18 @@ class OrderController extends Controller
 
         \Illuminate\Support\Facades\Log::info('Đơn ' . ($hidden ? 'ẨN khỏi' : 'HIỆN lại ở') . ' trang tra cứu', ['orders' => $codes->all(), 'by' => $admin->id]);
 
+        // update() hàng loạt không qua OrderObserver → tự ghi Lịch sử thao tác cho từng đơn.
+        Order::query()->whereIn('order_code', $codes)->get(['id', 'order_code', 'buyer_name', 'partner_id'])->each(
+            fn (Order $order) => \Modules\AuditLog\Services\AuditLogger::log(
+                action: 'update',
+                module: 'Order',
+                record: $order,
+                old: ['hidden_from_lookup' => ! $hidden],
+                new: ['hidden_from_lookup' => $hidden],
+                label: "#{$order->order_code} — {$order->buyer_name}",
+            )
+        );
+
         return response()->json([
             'message'   => ($hidden ? 'Đã ẩn ' : 'Đã hiện lại ') . "{$codes->count()} đơn" . ($hidden ? ' khỏi trang tra cứu.' : ' ở trang tra cứu.'),
             'hidden'    => $hidden,
