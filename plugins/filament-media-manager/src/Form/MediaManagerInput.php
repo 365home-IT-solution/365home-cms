@@ -34,9 +34,14 @@ class MediaManagerInput extends Repeater
         $this->saveRelationshipsUsing(static function (Repeater $component, HasMedia $record): void {
             $mediaComponent = $component->childComponents[0] ?? null;
             $setState = $component->getState();
+            // Gom uuid các ảnh đang giữ thành 1 mảng PHẲNG — trước đây mỗi ô thêm cả mảng array_keys() vào nên thành mảng lồng;
+            // Laravel 10.4x+ ném "Nested arrays may not be passed to whereIn" (lỗi 500 khi lưu phòng/bài viết) ngay khi có 1 ô
+            // rỗng (bấm thêm ảnh thư viện mà chưa chọn file, ảnh chưa tải xong) hoặc 1 ô nhiều file.
             $collectMediaIds = [];
             foreach ($setState as $getMediaItems) {
-                $collectMediaIds[] = array_keys($getMediaItems['file']);
+                foreach (array_keys((array) ($getMediaItems['file'] ?? [])) as $uuid) {
+                    $collectMediaIds[] = $uuid;
+                }
             }
             $getState = [];
             $mediasToDelete = $record->media()
@@ -197,7 +202,13 @@ class MediaManagerInput extends Repeater
                     $file->delete();
 
                     return $storedFile;
-                }, Arr::wrap($item['file'])));
+                }, Arr::wrap($item['file'] ?? [])));
+
+                // Ô không có ảnh (chưa chọn file / tải lỗi) — bỏ qua thay vì đọc array_keys($state)[0] không tồn tại.
+                if ($state === []) {
+                    continue;
+                }
+
                 $item['file'] = $state;
 
                 $getState[] = array_merge([
