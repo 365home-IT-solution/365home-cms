@@ -27,29 +27,7 @@ class BranchServiceSync
     {
         $roomId = $room instanceof Product ? (string) $room->getKey() : $room;
 
-        $serviceIds = $this->serviceIdsForBranches($this->rootBranchIdsForRoomId($roomId));
-
-        DB::transaction(function () use ($roomId, $serviceIds) {
-            DB::table('room_additional_service_assigns')
-                ->where('room_id', $roomId)
-                ->when($serviceIds, fn ($q) => $q->whereNotIn('additional_service_id', $serviceIds))
-                ->delete();
-
-            $existing = DB::table('room_additional_service_assigns')
-                ->where('room_id', $roomId)
-                ->pluck('additional_service_id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
-
-            $missing = array_diff($serviceIds, $existing);
-
-            if ($missing) {
-                DB::table('room_additional_service_assigns')->insert(array_map(
-                    fn ($serviceId) => ['room_id' => $roomId, 'additional_service_id' => $serviceId],
-                    array_values($missing)
-                ));
-            }
-        });
+        $this->syncRoomServices($roomId);
 
         // Phòng mới / đổi chi nhánh: các bảng giá phạm vi chi nhánh / toàn đối tác nhận phòng này ngay
         // (cùng điểm móc với dịch vụ theo chi nhánh). Lỗi giá không được chặn việc lưu phòng.
@@ -62,6 +40,43 @@ class BranchServiceSync
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    /**
+     * Chỉ ghi lại room_additional_service_assigns của 1 phòng theo chi nhánh (không đụng bảng giá như syncRoom()) —
+     * dùng cho lệnh services:sync-rooms sửa dữ liệu lệch. Trả về [số dịch vụ thêm, số dịch vụ bỏ].
+     *
+     * @return array{0: int, 1: int}
+     */
+    public function syncRoomServices(string $roomId): array
+    {
+        $serviceIds = $this->serviceIdsForBranches($this->rootBranchIdsForRoomId($roomId));
+        $added = $removed = 0;
+
+        DB::transaction(function () use ($roomId, $serviceIds, &$added, &$removed) {
+            $removed = DB::table('room_additional_service_assigns')
+                ->where('room_id', $roomId)
+                ->when($serviceIds, fn ($q) => $q->whereNotIn('additional_service_id', $serviceIds))
+                ->delete();
+
+            $existing = DB::table('room_additional_service_assigns')
+                ->where('room_id', $roomId)
+                ->pluck('additional_service_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $missing = array_diff($serviceIds, $existing);
+            $added   = count($missing);
+
+            if ($missing) {
+                DB::table('room_additional_service_assigns')->insert(array_map(
+                    fn ($serviceId) => ['room_id' => $roomId, 'additional_service_id' => $serviceId],
+                    array_values($missing)
+                ));
+            }
+        });
+
+        return [$added, $removed];
     }
 
     /** Đồng bộ lại mọi phòng thuộc các chi nhánh $branchIds (kể cả phòng gắn vào category con). */
