@@ -1167,6 +1167,14 @@ Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function 
         ->name('contract.sign.submit-cks');
 });
 
+// Link chia sẻ tải hợp đồng (kiểu Google Drive) — trang CÔNG KHAI, tạo/thu hồi ở tab Hợp đồng của đối tác hoặc API admin
+// (xem App\Services\ContractShareLinkService). Nhập mật khẩu giới hạn chặt hơn để chặn dò mật khẩu.
+Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong/chia-se')->name('contract-share.')->group(function () {
+    Route::get('{token}', [\App\Http\Controllers\ContractShareController::class, 'show'])->name('show');
+    Route::post('{token}/mo-khoa', [\App\Http\Controllers\ContractShareController::class, 'unlock'])->middleware('throttle:10,1')->name('unlock');
+    Route::get('{token}/{mode}', [\App\Http\Controllers\ContractShareController::class, 'file'])->whereIn('mode', ['xem', 'tai-xuong'])->name('file');
+});
+
 // Xoá tài khoản — trang CÔNG KHAI theo yêu cầu Data Safety của Google Play (xem
 // DeleteAccountController). Đăng ký ở đây (routes/web.php gốc) để route này được resolve TRƯỚC
 // route catch-all '/{type}/{location?}' của module BladeThemeV1 (đăng ký sau, xem

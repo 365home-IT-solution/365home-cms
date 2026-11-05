@@ -63,7 +63,7 @@ class PartnerResource extends Resource
 
     public static function getRelations(): array
     {
-        return [LegalDocumentsRelationManager::class];
+        return [LegalDocumentsRelationManager::class, PartnerResource\RelationManagers\ContractShareLinksRelationManager::class];
     }
 
     private static function isSuperAdmin(): bool

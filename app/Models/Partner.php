@@ -90,6 +90,7 @@ class Partner extends Model implements HasMedia
         'verified_at',
         'verified_by',
         'verification_note',
+        'review_exempt_at',
         'is_platform_partner',
         'count_in_platform_stats',
         'onboarding_token',
@@ -120,6 +121,7 @@ class Partner extends Model implements HasMedia
         'contract_expires_at' => 'date',
         'verification_submitted_at' => 'datetime',
         'verified_at' => 'datetime',
+        'review_exempt_at' => 'datetime',
         // Ký quỹ (Homestay) — chỉ App\Services\EscrowService ghi các cột này (không nằm trong $fillable).
         'escrow_min_amount' => 'integer',
         'escrow_balance' => 'integer',
@@ -241,6 +243,12 @@ class Partner extends Model implements HasMedia
         return $this->hasMany(PartnerLegalDocument::class);
     }
 
+    /** Link chia sẻ tải hợp đồng (kiểu Google Drive) — xem App\Services\ContractShareLinkService. */
+    public function contractShareLinks(): HasMany
+    {
+        return $this->hasMany(ContractShareLink::class);
+    }
+
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
@@ -277,6 +285,15 @@ class Partner extends Model implements HasMedia
         return $this->usesContract() && $this->contract_status === 'active'
             ? 'Hợp đồng đang có hiệu lực — hãy chấm dứt hợp đồng trước khi xoá đối tác.'
             : null;
+    }
+
+    /**
+     * Hồ sơ do Super Admin TẠO TRỰC TIẾP ở trang quản trị/API admin (không qua trang "Đăng ký hợp tác với 365 HOME"): bỏ bước duyệt giấy tờ và phê duyệt
+     * hồ sơ — tạo xong là đã duyệt, giấy tờ không bắt buộc để tạo hợp đồng. Hồ sơ cũ (trước khi có cột review_exempt_at) giữ nguyên luồng duyệt.
+     */
+    public function isReviewExempt(): bool
+    {
+        return $this->review_exempt_at !== null && blank($this->onboarding_token);
     }
 
     /** Đối tác đăng ký trên website KÝ HỢP ĐỒNG TRƯỚC khi 365 Home duyệt hồ sơ (config partner_flow.partner_signs_before_review). */

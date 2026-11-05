@@ -894,6 +894,9 @@ class PartnerForm
                                             }
 
                                             $readiness = app(PartnerLegalDocumentService::class)->readiness($record);
+                                            if ($record->isReviewExempt() && $record->verification_status === 'approved') {
+                                                return new HtmlString('<span style="color:#059669;font-weight:700;">✓ Hồ sơ do Super Admin tạo — không cần duyệt, được phép ký hợp đồng</span>');
+                                            }
                                             if ($record->verification_status === 'approved' && $readiness['ready']) {
                                                 return new HtmlString('<span style="color:#059669;font-weight:700;">✓ Super Admin đã duyệt — được phép chuyển sang ký hợp đồng</span>');
                                             }
@@ -1825,7 +1828,9 @@ class PartnerForm
             ->icon('heroicon-o-document-check')
             ->schema([
                 Forms\Components\Section::make('Trạng thái xác minh hồ sơ')
-                    ->description('Tổng trạng thái xác minh — đổi qua nút "Phê duyệt chính thức" / "Tạm dừng hồ sơ" ở đầu trang, không sửa trực tiếp ở đây.')
+                    ->description(fn (?Partner $record) => $record?->isReviewExempt()
+                        ? 'Hồ sơ do Super Admin tạo — không có bước duyệt. Dùng nút "Tạm dừng hồ sơ" ở đầu trang khi cần ngừng hợp tác.'
+                        : 'Tổng trạng thái xác minh — đổi qua nút "Phê duyệt chính thức" / "Tạm dừng hồ sơ" ở đầu trang, không sửa trực tiếp ở đây.')
                     ->schema([
                         Forms\Components\Placeholder::make('verification_status_badge')
                             ->hiddenLabel()

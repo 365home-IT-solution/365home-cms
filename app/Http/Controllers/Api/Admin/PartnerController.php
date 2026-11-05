@@ -105,6 +105,7 @@ class PartnerController extends Controller
 
         $scan = $scanner->scan($uploaded);
         $result = $scanner->attach($partner, $uploaded, $scan['scans'], (string) $request->user()->id);
+        app(PartnerLegalDocumentService::class)->autoApproveDocuments($partner, $request->user(), array_values($result['created']));
 
         return response()->json([
             'message'  => count($result['created']) . ' giấy tờ đã được đưa vào hồ sơ pháp lý.',
@@ -126,8 +127,11 @@ class PartnerController extends Controller
         if (array_key_exists('contract_code', $data)) {
             $data['contract_code'] = \App\Services\ContractCodeService::normalize($data['contract_code']);
         }
-        $partner = Partner::create([...$data, 'partner_type' => $this->partnerType($request), 'name' => $data['legal_name'], 'created_by' => $request->user()->id, 'verification_status' => 'pending', 'contract_status' => 'draft', 'status' => true]);
-        PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => 'pending', 'note' => 'Hồ sơ đối tác được tạo qua API.', 'changed_by' => $request->user()->id]);
+        $type = $this->partnerType($request);
+        // Homestay do Super Admin tạo trực tiếp: không cần bước duyệt hồ sơ/giấy tờ (cùng quy tắc trang quản trị). MiniHouse giữ nguyên luồng riêng.
+        $exempt = $type === Partner::TYPE_HOMESTAY ? $documents->reviewExemptAttributes($request->user()) : [];
+        $partner = Partner::create([...$data, 'partner_type' => $type, 'name' => $data['legal_name'], 'created_by' => $request->user()->id, 'verification_status' => 'pending', 'contract_status' => 'draft', 'status' => true, ...$exempt]);
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => $partner->verification_status, 'note' => $documents->creationNote($partner, 'qua API'), 'changed_by' => $request->user()->id]);
         if ($plan) {
             app(\App\Services\SubscriptionService::class)->startTrialWithPlan($partner, $plan);
         }
@@ -956,7 +960,7 @@ class PartnerController extends Controller
     {
         $sub = $partner->subscription()->with('plan:id,code,name')->first();
 
-        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'common_name', 'manual_contract_no', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate', 'count_in_platform_stats', 'province_code']), 'province_name' => $partner->province_code !== null ? \App\Models\Province::query()->where('code', $partner->province_code)->value('name') : null, 'fee_free_until' => $partner->fee_free_until?->toIso8601String(), 'fee_free_active' => $partner->isInFeeFreePeriod(), 'verification' => $documents->readiness($partner)];
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'common_name', 'manual_contract_no', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate', 'count_in_platform_stats', 'province_code']), 'province_name' => $partner->province_code !== null ? \App\Models\Province::query()->where('code', $partner->province_code)->value('name') : null, 'fee_free_until' => $partner->fee_free_until?->toIso8601String(), 'fee_free_active' => $partner->isInFeeFreePeriod(), 'review_exempt' => $partner->isReviewExempt(), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string

@@ -8,6 +8,7 @@ use App\Filament\Resources\PartnerResource;
 use App\Filament\Resources\PartnerResource\Forms\PartnerForm;
 use App\Models\Partner;
 use App\Models\PartnerStatusLog;
+use App\Services\PartnerLegalDocumentService;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -40,7 +41,8 @@ class CreatePartner extends CreateRecord
         $data['verification_status'] = $data['verification_status'] ?? 'pending';
         $data['status'] = true;
 
-        return $data;
+        // Super Admin tạo trực tiếp → không cần bước duyệt hồ sơ/giấy tờ (đã duyệt ngay). Luồng đăng ký trên website không đi qua trang này.
+        return [...$data, ...app(PartnerLegalDocumentService::class)->reviewExemptAttributes(auth()->user())];
     }
 
     protected function afterCreate(): void
@@ -52,7 +54,7 @@ class CreatePartner extends CreateRecord
             'partner_id' => $record->id,
             'from_status' => null,
             'to_status' => $record->verification_status,
-            'note' => 'Hồ sơ đối tác được tạo mới.',
+            'note' => app(PartnerLegalDocumentService::class)->creationNote($record, 'ở trang quản trị'),
             'changed_by' => auth()->id(),
         ]);
 
@@ -63,7 +65,7 @@ class CreatePartner extends CreateRecord
         $this->attachDossierDocuments($record);
     }
 
-    // Giấy tờ đã tải ở khối "Tải hồ sơ để tự điền" → hồ sơ pháp lý của đối tác, trạng thái CHỜ DUYỆT (Super Admin xem lại và duyệt).
+    // Giấy tờ đã tải ở khối "Tải hồ sơ để tự điền" → hồ sơ pháp lý của đối tác. Hồ sơ Super Admin tạo (không cần duyệt): giấy tờ được duyệt luôn.
     private function attachDossierDocuments(Model $record): void
     {
         $files = array_filter([
@@ -87,9 +89,11 @@ class CreatePartner extends CreateRecord
             return;
         }
 
+        $approved = app(PartnerLegalDocumentService::class)->autoApproveDocuments($record, auth()->user(), array_values($result['created']));
+
         if ($result['created'] !== []) {
             \Filament\Notifications\Notification::make()
-                ->title('Đã đưa ' . count($result['created']) . ' giấy tờ vào hồ sơ pháp lý (chờ duyệt)')
+                ->title('Đã đưa ' . count($result['created']) . ' giấy tờ vào hồ sơ pháp lý' . ($approved > 0 ? '' : ' (chờ duyệt)'))
                 ->success()->send();
         }
 
