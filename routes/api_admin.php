@@ -131,6 +131,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/terms-acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'partnerAcceptances'])->defaults('terms_type', 'partner_homestay')->name('partners.terms-acceptances');
     Route::get('partners/{partner}/contract/signed-pdf', [AdminPartnerController::class, 'downloadSignedPdf'])->name('partners.contract.signed-pdf');
     Route::get('partners/{partner}/contract/display-pdf', [AdminPartnerController::class, 'displayPdf'])->name('partners.contract.display-pdf');
+    // Link chia sẻ tải hợp đồng (kiểu Google Drive) — trang công khai /hop-dong/chia-se/{token}.
+    Route::get('partners/{partner}/contract/share-links', [\App\Http\Controllers\Api\Admin\ContractShareLinkController::class, 'index'])->name('partners.contract.share-links.index');
+    Route::post('partners/{partner}/contract/share-links', [\App\Http\Controllers\Api\Admin\ContractShareLinkController::class, 'store'])->name('partners.contract.share-links.store');
+    Route::get('partners/{partner}/contract/share-links/{link}/accesses', [\App\Http\Controllers\Api\Admin\ContractShareLinkController::class, 'accesses'])->whereNumber('link')->name('partners.contract.share-links.accesses');
+    Route::delete('partners/{partner}/contract/share-links/{link}', [\App\Http\Controllers\Api\Admin\ContractShareLinkController::class, 'destroy'])->whereNumber('link')->name('partners.contract.share-links.destroy');
     Route::get('partners/{partner}/contract/versions',[AdminPartnerController::class, 'contractVersions'])->name('partners.contract.versions.index');
     Route::post('partners/{partner}/contract/versions', [AdminPartnerController::class, 'storeContractVersion'])->name('partners.contract.versions.store');
     Route::post('partners/{partner}/contract/renew', [AdminPartnerController::class, 'renewContract'])->name('partners.contract.renew');

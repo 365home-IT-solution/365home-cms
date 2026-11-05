@@ -188,9 +188,11 @@ class LegalDocumentsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('review_note')->label('Ghi chú duyệt')->limit(45)->placeholder('—'),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()->label('Thêm giấy tờ')->mutateFormDataUsing(fn (array $data) => $this->applyCitizenIdRule($data)),
+                Tables\Actions\CreateAction::make()->label('Thêm giấy tờ')->mutateFormDataUsing(fn (array $data) => $this->applyCitizenIdRule($data))
+                    ->after(fn (PartnerLegalDocument $record) => $this->autoApprove($record)),
                 Tables\Actions\Action::make('submit')
                     ->label('Gửi hồ sơ xét duyệt')->icon('heroicon-o-paper-airplane')->color('warning')
+                    ->visible(fn () => ! $this->withoutReview())
                     ->requiresConfirmation()
                     ->action(function () {
                         app(PartnerLegalDocumentService::class)->submit($this->getOwnerRecord());
@@ -198,6 +200,7 @@ class LegalDocumentsRelationManager extends RelationManager
                     }),
                 Tables\Actions\Action::make('approveDossier')
                     ->label('Duyệt toàn bộ hồ sơ')->icon('heroicon-o-check-badge')->color('success')
+                    ->visible(fn () => ! $this->getOwnerRecord()->isReviewExempt())
                     ->requiresConfirmation()
                     ->action(function () {
                         try {
@@ -234,7 +237,8 @@ class LegalDocumentsRelationManager extends RelationManager
                 Tables\Actions\ViewAction::make()->label('Xem')->modalHeading(fn (PartnerLegalDocument $record) => PartnerLegalDocument::TYPES[$record->type] ?? 'Giấy tờ'),
                 Tables\Actions\EditAction::make()
                     ->mutateFormDataUsing(fn (array $data, PartnerLegalDocument $record) => $this->applyCitizenIdRule($data, $record))
-                    ->visible(fn (PartnerLegalDocument $record) => in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
+                    ->after(fn (PartnerLegalDocument $record) => $this->autoApprove($record))
+                    ->visible(fn (PartnerLegalDocument $record) => $this->withoutReview() || in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
                 Tables\Actions\Action::make('approve')->label('Duyệt')->icon('heroicon-o-check')->color('success')
                     ->visible(fn (PartnerLegalDocument $record) => $record->status === 'pending_review')
                     ->requiresConfirmation()
@@ -257,9 +261,21 @@ class LegalDocumentsRelationManager extends RelationManager
                         Notification::make()->title('Đã từ chối giấy tờ')->warning()->send();
                     }),
                 Tables\Actions\DeleteAction::make()
-                    ->visible(fn (PartnerLegalDocument $record) => in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
+                    ->visible(fn (PartnerLegalDocument $record) => $this->withoutReview() || in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
             ])
+            ->description(fn () => $this->getOwnerRecord()->isReviewExempt() ? 'Hồ sơ do Super Admin tạo: giấy tờ được duyệt ngay khi thêm, không bắt buộc để tạo hợp đồng.' : null)
             ->emptyStateHeading('Chưa có giấy tờ pháp lý');
+    }
+
+    // Hồ sơ Super Admin tạo trực tiếp (Partner::isReviewExempt) + đang là Super Admin: không có bước gửi duyệt / duyệt giấy tờ.
+    private function withoutReview(): bool
+    {
+        return $this->getOwnerRecord()->isReviewExempt() && (auth()->user()?->isSuperAdmin() ?? false);
+    }
+
+    private function autoApprove(PartnerLegalDocument $record): void
+    {
+        app(PartnerLegalDocumentService::class)->autoApproveDocuments($this->getOwnerRecord(), auth()->user(), [$record->id]);
     }
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool

@@ -16,6 +16,15 @@ class PartnerLegalDocumentService
     public function readiness(Partner $partner): array
     {
         $documents = $partner->legalDocuments()->with('media')->get();
+        // Hồ sơ Super Admin tạo trực tiếp: giấy tờ không bắt buộc, không có bước duyệt — luôn đủ điều kiện về hồ sơ pháp lý.
+        if ($partner->isReviewExempt()) {
+            return [
+                'ready' => true,
+                'approved' => $documents->filter(fn (PartnerLegalDocument $document) => $this->isUsable($document))->count(),
+                'required' => 0,
+                'problems' => [],
+            ];
+        }
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
         // Đăng ký trên website (Homestay, MiniHouse đăng ký dùng thử): bắt buộc theo config partner_flow.registration_required_documents; còn lại chỉ Giấy phép kinh doanh.
@@ -100,6 +109,12 @@ class PartnerLegalDocumentService
 
     public function submit(Partner $partner): void
     {
+        // Hồ sơ không cần duyệt + Super Admin thao tác: không có bước "gửi duyệt" — duyệt luôn các giấy tờ còn nháp.
+        if ($partner->isReviewExempt() && auth()->user()?->isSuperAdmin()) {
+            $this->autoApproveDocuments($partner, auth()->user());
+
+            return;
+        }
         $documents = $partner->legalDocuments()->with('media')->get();
         if ($documents->whereIn('status', ['draft', 'changes_requested', 'rejected'])->isEmpty()) {
             throw ValidationException::withMessages(['documents' => 'Không có giấy tờ mới để gửi duyệt.']);
@@ -120,7 +135,7 @@ class PartnerLegalDocumentService
                 'reviewed_at' => null,
                 'reviewed_by' => null,
             ]);
-            if ($this->keepsPartnerStatus($partner)) {
+            if ($this->keepsPartnerStatus($partner) || $partner->isReviewExempt()) {
                 return;
             }
             $this->changePartnerStatus($partner, 'pending', 'Đối tác đã gửi hồ sơ pháp lý để xét duyệt.');
@@ -159,7 +174,8 @@ class PartnerLegalDocumentService
             $document->partner->update(['verification_submitted_at' => null]);
         }
 
-        if ($status !== 'approved' && $document->partner->verification_status === 'approved' && ! $this->keepsPartnerStatus($document->partner)) {
+        if ($status !== 'approved' && $document->partner->verification_status === 'approved' && ! $this->keepsPartnerStatus($document->partner)
+            && ! $document->partner->isReviewExempt()) {
             $this->changePartnerStatus($document->partner, 'pending', 'Giấy tờ pháp lý cần được xác minh lại.');
         }
     }
@@ -169,6 +185,7 @@ class PartnerLegalDocumentService
         if (! $reviewer->isSuperAdmin()) {
             abort(403, 'Chỉ Super Admin được phê duyệt hồ sơ.');
         }
+        $this->assertNotReviewExempt($partner);
         $readiness = $this->readiness($partner);
         if (! $readiness['ready']) {
             throw ValidationException::withMessages(['legal_documents' => $readiness['problems']]);
@@ -208,6 +225,7 @@ class PartnerLegalDocumentService
         if (! $reviewer->isSuperAdmin()) {
             abort(403, 'Chỉ Super Admin được từ chối hồ sơ.');
         }
+        $this->assertNotReviewExempt($partner);
         if (blank(trim($reason))) {
             throw ValidationException::withMessages(['reason' => 'Phải nhập lý do từ chối hồ sơ.']);
         }
@@ -264,6 +282,64 @@ class PartnerLegalDocumentService
         return $to;
     }
 
+    /**
+     * Thuộc tính gán thêm khi TẠO hồ sơ đối tác ở trang quản trị/API admin: người tạo là Super Admin → hồ sơ không cần duyệt (đã duyệt ngay, ghi người
+     * duyệt = người tạo). Người tạo không phải Super Admin → [] (giữ luồng chờ duyệt). Hồ sơ đăng ký trên website không đi qua hàm này.
+     */
+    public function reviewExemptAttributes(?User $creator): array
+    {
+        if (! $creator?->isSuperAdmin()) {
+            return [];
+        }
+
+        $now = now();
+
+        return [
+            'review_exempt_at' => $now,
+            'verification_status' => 'approved',
+            'verified_at' => $now,
+            'verified_by' => $creator->id,
+            'status' => true,
+        ];
+    }
+
+    /** Ghi chú lịch sử trạng thái lúc tạo hồ sơ (dùng chung Filament và API). */
+    public function creationNote(Partner $partner, string $channel): string
+    {
+        return $partner->isReviewExempt()
+            ? "Super Admin tạo hồ sơ đối tác {$channel} — không cần duyệt."
+            : "Hồ sơ đối tác được tạo {$channel}.";
+    }
+
+    /**
+     * Hồ sơ không cần duyệt: giấy tờ SUPER ADMIN tải lên (nháp/chờ duyệt, đã có đủ tệp) được duyệt luôn, người duyệt = người thao tác.
+     * Trả về số giấy tờ vừa được duyệt. Giấy tờ đối tác tự tải lên vẫn để Super Admin xem như bình thường.
+     */
+    public function autoApproveDocuments(Partner $partner, ?User $actor, ?array $documentIds = null): int
+    {
+        if (! $partner->isReviewExempt() || ! $actor?->isSuperAdmin()) {
+            return 0;
+        }
+
+        $documents = $partner->legalDocuments()->with('media')
+            ->whereIn('status', ['draft', 'pending_review', 'changes_requested', 'rejected'])
+            ->when($documentIds !== null, fn ($query) => $query->whereKey($documentIds))
+            ->get()
+            ->filter(fn (PartnerLegalDocument $document) => $document->hasRequiredFiles());
+
+        foreach ($documents as $document) {
+            $document->update([
+                'status' => 'approved',
+                'submitted_at' => $document->submitted_at ?? now(),
+                'review_note' => null,
+                'reviewed_at' => now(),
+                'reviewed_by' => $actor->id,
+            ]);
+        }
+
+        return $documents->count();
+    }
+
     public function snapshot(Partner $partner): array
     {
         return $partner->legalDocuments()->with('media')->get()->map(fn (PartnerLegalDocument $document) => [
@@ -279,6 +355,13 @@ class PartnerLegalDocumentService
                 ? hash_file('sha256', $back->getPath()) : null,
             'approved_at' => $document->reviewed_at?->toIso8601String(),
         ])->all();
+    }
+
+    private function assertNotReviewExempt(Partner $partner): void
+    {
+        if ($partner->isReviewExempt()) {
+            throw ValidationException::withMessages(['status' => 'Hồ sơ do Super Admin tạo không có bước duyệt — dùng "Tạm dừng hồ sơ" nếu cần ngừng hợp tác.']);
+        }
     }
 
     // MiniHouse ĐÃ có tài khoản: bổ sung/duyệt lại giấy tờ không đổi trạng thái đối tác (pending sẽ khoá đăng nhập của tài khoản đang dùng).

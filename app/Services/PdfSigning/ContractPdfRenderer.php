@@ -21,7 +21,8 @@ class ContractPdfRenderer
     // Hệ số Dompdf nhân chiều cao dòng (đo thực tế: 22,4pt khai báo → 28,3pt).
     private const LINE_HEIGHT_SCALE = 1.2635;
 
-    public static function render(string $html): string
+    /** $watermark: chữ đóng chìm chéo giữa mọi trang (vd "BẢN CHƯA KÝ" cho link chia sẻ hợp đồng chưa ký) — chỉ dùng cho bản xem, KHÔNG dùng cho PDF đem đi ký. */
+    public static function render(string $html, ?string $watermark = null): string
     {
         $fontCache = storage_path('app/dompdf-fonts');
         if (! is_dir($fontCache)) {
@@ -47,6 +48,12 @@ class ContractPdfRenderer
         $css = '<style>@page{margin:51pt ' . $right . ' 93pt 85.04pt} body{font-family:"' . $family . '";font-size:13pt;margin:0} .hd-hint{display:none}</style>';
         // Dompdf nhân chiều cao dòng khai báo bằng pt lên ~1,2635 lần so với CSS chuẩn → chia lại để dòng cao đúng 22,4pt như Word.
         $html = preg_replace_callback('/line-height:\s*([0-9.]+)pt/', fn ($m) => 'line-height:' . round((float) $m[1] / self::LINE_HEIGHT_SCALE, 3) . 'pt', $html);
+        if (filled($watermark)) {
+            // position:fixed → Dompdf lặp lại khối này trên MỌI trang; để Dompdf tự dàn chữ (đúng phông, đủ dấu tiếng Việt) thay vì vẽ tay lên canvas.
+            // Màu nhạt thay cho opacity (opacity của Dompdf lan sang số trang vẽ sau); z-index:-1 để chữ hợp đồng nằm đè lên trên.
+            $html = '<div style="position:fixed;z-index:-1;top:330pt;left:-60pt;right:-60pt;text-align:center;transform:rotate(-35deg);font-size:56pt;font-weight:bold;'
+                . 'color:#f6caca;line-height:1;">' . e($watermark) . '</div>' . $html;
+        }
         $dompdf->loadHtml('<meta charset="utf-8">' . $css . $html);
         $dompdf->setPaper('A4');
         $dompdf->render();

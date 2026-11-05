@@ -79,14 +79,16 @@ class PartnerLegalDocumentController extends Controller
 
             return $document;
         });
+        // Hồ sơ Super Admin tạo (không cần duyệt): giấy tờ Super Admin thêm được duyệt luôn.
+        $this->service->autoApproveDocuments($partner, $request->user(), [$document->id]);
 
-        return response()->json(['message' => 'Đã thêm giấy tờ.', 'data' => $this->format($document->load('media'))], 201);
+        return response()->json(['message' => 'Đã thêm giấy tờ.', 'data' => $this->format($document->fresh(['media']))], 201);
     }
 
     public function update(Request $request, Partner $partner, PartnerLegalDocument $document): JsonResponse
     {
         $this->authorizeDocument($request, $partner, $document);
-        if (in_array($document->status, ['pending_review', 'approved'], true)) {
+        if (in_array($document->status, ['pending_review', 'approved'], true) && ! $this->editsWithoutReview($request, $partner)) {
             return response()->json(['message' => 'Không thể sửa giấy tờ đang chờ duyệt hoặc đã duyệt. Hãy tạo bản giấy tờ mới.'], 409);
         }
 
@@ -124,6 +126,7 @@ class PartnerLegalDocumentController extends Controller
                 $document->addMediaFromRequest('file_back')->toMediaCollection('file_back');
             }
         });
+        $this->service->autoApproveDocuments($partner, $request->user(), [$document->id]);
 
         return response()->json(['message' => 'Đã cập nhật giấy tờ.', 'data' => $this->format($document->fresh(['media']))]);
     }
@@ -131,7 +134,7 @@ class PartnerLegalDocumentController extends Controller
     public function destroy(Request $request, Partner $partner, PartnerLegalDocument $document): JsonResponse
     {
         $this->authorizeDocument($request, $partner, $document);
-        if (! in_array($document->status, ['draft', 'changes_requested', 'rejected'], true)) {
+        if (! in_array($document->status, ['draft', 'changes_requested', 'rejected'], true) && ! $this->editsWithoutReview($request, $partner)) {
             return response()->json(['message' => 'Chỉ được xóa giấy tờ nháp, bị từ chối hoặc cần bổ sung.'], 409);
         }
         $document->delete();
@@ -143,8 +146,9 @@ class PartnerLegalDocumentController extends Controller
     {
         $this->authorizePartner($request, $partner);
         $this->service->submit($partner);
+        $message = $this->editsWithoutReview($request, $partner) ? 'Hồ sơ không cần duyệt — đã duyệt các giấy tờ còn nháp.' : 'Đã gửi hồ sơ pháp lý để Super Admin xét duyệt.';
 
-        return response()->json(['message' => 'Đã gửi hồ sơ pháp lý để Super Admin xét duyệt.', 'verification' => $this->verification($partner->fresh())]);
+        return response()->json(['message' => $message, 'verification' => $this->verification($partner->fresh())]);
     }
 
     public function review(Request $request, Partner $partner, PartnerLegalDocument $document): JsonResponse
@@ -239,6 +243,12 @@ class PartnerLegalDocumentController extends Controller
         abort_unless($document->partner_id === $partner->id, 404);
     }
 
+    /** Hồ sơ không cần duyệt + Super Admin thao tác: sửa/xoá được cả giấy tờ đã duyệt (sửa xong được duyệt lại ngay). */
+    private function editsWithoutReview(Request $request, Partner $partner): bool
+    {
+        return $partner->isReviewExempt() && $request->user()->isSuperAdmin();
+    }
+
     private function requireSuperAdmin(Request $request): void
     {
         abort_unless($request->user()->isSuperAdmin(), 403, 'Chỉ Super Admin được xét duyệt hồ sơ.');
@@ -248,6 +258,8 @@ class PartnerLegalDocumentController extends Controller
     {
         return [
             'status' => $partner->verification_status,
+            // true = hồ sơ Super Admin tạo trực tiếp: không có bước gửi duyệt/duyệt giấy tờ/phê duyệt hồ sơ.
+            'review_exempt' => $partner->isReviewExempt(),
             'submitted_at' => $partner->verification_submitted_at?->toIso8601String(),
             'verified_at' => $partner->verified_at?->toIso8601String(),
             'readiness' => $this->service->readiness($partner),

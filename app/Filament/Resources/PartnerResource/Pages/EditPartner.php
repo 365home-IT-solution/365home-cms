@@ -107,7 +107,7 @@ class EditPartner extends EditRecord
                 ->label('Từ chối hồ sơ')
                 ->color('danger')
                 ->icon('heroicon-o-x-circle')
-                ->visible(fn () => $this->record->usesContract() && $this->record->verification_status !== 'rejected' && $this->record->contract_status !== 'active')
+                ->visible(fn () => $this->record->usesContract() && ! $this->record->isReviewExempt() && $this->record->verification_status !== 'rejected' && $this->record->contract_status !== 'active')
                 ->modalHeading('Từ chối hồ sơ đối tác')
                 ->modalDescription('Hồ sơ bị từ chối, link ký hợp đồng chưa được xác nhận sẽ mất hiệu lực. Với hồ sơ đăng ký trên website, lý do được gửi cho đối tác qua email.')
                 ->form([
@@ -131,7 +131,7 @@ class EditPartner extends EditRecord
                 ->color('success')
                 ->icon('heroicon-o-check-circle')
                 ->requiresConfirmation()
-                ->visible(fn () => $this->record->usesContract() && $this->record->verification_status !== 'approved')
+                ->visible(fn () => $this->record->usesContract() && ! $this->record->isReviewExempt() && $this->record->verification_status !== 'approved')
                 ->action(function () {
                     // Hồ sơ pháp lý chưa đủ điều kiện → service ném ValidationException(legal_documents) mà form không có ô nào hiển thị,
                     // nên trước đây bấm "Xác nhận" không thấy gì. Hiện rõ lý do thay vì im lặng.
