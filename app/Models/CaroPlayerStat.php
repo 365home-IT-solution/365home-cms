@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+// Thành tích caro của 1 khách, kèm mã người chơi cố định để bạn bè mời đích danh (CaroService::playerCode).
 class CaroPlayerStat extends Model
 {
     protected $primaryKey = 'customer_id';
@@ -14,7 +15,7 @@ class CaroPlayerStat extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['customer_id', 'wins', 'losses', 'draws', 'pending_wins', 'streak_days', 'last_played_on'];
+    protected $fillable = ['customer_id', 'player_code', 'wins', 'losses', 'draws', 'pending_wins', 'streak_days', 'last_played_on'];
 
     protected $casts = [
         'wins'         => 'integer',

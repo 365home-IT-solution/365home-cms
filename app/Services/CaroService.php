@@ -24,12 +24,15 @@ use Illuminate\Validation\ValidationException;
 use Modules\Promotion\App\Models\Coupon;
 
 /**
- * Mini game CARO TRỰC TUYẾN (chỉ người với người): ghép ngẫu nhiên 2 khách đang chờ, hoặc khách mời bạn vào đấu — mời đích danh theo SĐT
- * (bạn nhận push + WS) hoặc gửi link/mã cho ai cũng được. Chờ quá match_wait_seconds mà không có ai thì app gợi ý mời bạn.
+ * Mini game CARO TRỰC TUYẾN (chỉ người với người, 2 hoặc 3 người): ghép ngẫu nhiên khách đang chờ, hoặc khách mời bạn vào đấu — mời
+ * đích danh theo SĐT / mã người chơi (bạn nhận push + WS, lời mời hiện trong lời mời đến) hoặc gửi link/mã cho ai cũng được. Chờ quá match_wait_seconds mà không có ai thì app gợi ý mời bạn.
  * Mọi nước đi do BE kiểm tra (đúng lượt, ô trống, hết giờ) và BE phân thắng thua. Tiến độ (pending_wins) chạy theo vòng mốc thưởng: mỗi
  * trận thắng được tính (xem countsForReward), mỗi lần chơi đủ chuỗi ngày và lần bạn được mời chơi trận đầu đều +1; chạm mốc thì nhận voucher
  * (mốc cố định hoặc bốc theo trọng số), chạm mốc cuối thì về 0. Voucher cá nhân, 365home chịu, nằm trong /coupons/mine.
  * Hết giờ lượt được xử lý lười (mỗi lần đọc trận) và bởi lệnh caro:sweep chạy mỗi phút.
+ * Trận 3 người (X → O → △): đầu hàng / hết giờ thì bị loại (vẫn xem tiếp được), 2 người còn lại đánh tiếp; còn 1 người thì người đó thắng.
+ * Ghép ngẫu nhiên đủ 3 người cùng chờ chế độ 3 người; lời mời 3 người là phòng chờ, đủ 2 bạn nhận mã thì vào trận.
+ * Sự kiện WS gom theo request và gửi sau khi trả response (CaroRealtimeService) — nước đi không phải chờ đẩy cho từng người.
  */
 class CaroService
 {
@@ -45,11 +48,14 @@ class CaroService
     public function __construct(private readonly CaroRealtimeService $realtime) {}
 
     /**
-     * Vào/giữ hàng chờ. Đang có trận dở thì trả trận đó; có người khác đang chờ thì ghép luôn.
+     * Vào/giữ hàng chờ trận $players người (null = giữ chế độ đang chờ, mặc định 2). Đang có trận dở thì trả trận đó; đủ người khác
+     * đang chờ cùng chế độ thì ghép luôn. Đổi chế độ thì tính lại thời gian chờ từ đầu.
+     * App hỏi lại mỗi 2-3 giây: lúc chưa đủ người chờ thì chỉ cập nhật last_seen_at, không lấy khoá ghép trận — khoá chỉ dùng khi thật sự
+     * ghép, và tách riêng theo chế độ (caro:matchmaking:2 / :3) để 2 hàng chờ không chặn nhau.
      *
-     * @return array{status: 'matched', match: CaroMatch}|array{status: 'waiting', waited_seconds: int, suggest_invite: bool}
+     * @return array{status: 'matched', match: CaroMatch}|array{status: 'waiting', player_count: int, waited_seconds: int, suggest_invite: bool}
      */
-    public function seek(Customer $customer): array
+    public function seek(Customer $customer, ?int $players = null): array
     {
         $setting = $this->enabledSetting();
         $id      = (string) $customer->id;
@@ -60,51 +66,52 @@ class CaroService
             return ['status' => 'matched', 'match' => $match];
         }
 
-        // Khoá toàn cục để 2 khách vào hàng cùng lúc không bị ghép trùng / ghép chéo 2 trận
-        $result = Cache::lock('caro:matchmaking', 5)->block(3, function () use ($id, $setting) {
-            $entry = CaroQueueEntry::find($id);
+        $entry = CaroQueueEntry::find($id);
+        if ($matched = $this->takeQueuedMatch($entry)) {
+            return ['status' => 'matched', 'match' => $matched];
+        }
+        if ($entry?->match_id) {
+            $entry = null;
+        }
 
-            if ($entry?->match_id) {
+        $players ??= $entry?->player_count ?? 2;
+        $this->ensurePlayerCount($setting, $players);
+
+        if ($entry && $entry->player_count !== $players) {
+            $entry->delete();
+            $entry = null;
+        }
+
+        // Chưa đủ người chờ cùng chế độ → giữ chỗ, khỏi khoá. Có người vừa vào cùng lúc thì lần hỏi sau sẽ ghép.
+        if ($this->waitingQuery($players, $id)->count() < $players - 1) {
+            return $this->keepWaiting($entry, $id, $players, $setting);
+        }
+
+        $result = Cache::lock("caro:matchmaking:{$players}", 5)->block(3, function () use ($id, $setting, $players) {
+            $entry = CaroQueueEntry::find($id);
+            if ($matched = $this->takeQueuedMatch($entry)) {
+                return ['status' => 'matched', 'match' => $matched, 'paired' => false];
+            }
+            if ($entry && ($entry->match_id || $entry->player_count !== $players)) {
                 $entry->delete();
-                $match = CaroMatch::find($entry->match_id);
-                if ($match) {
-                    return ['status' => 'matched', 'match' => $match, 'paired' => false];
-                }
                 $entry = null;
             }
 
-            $opponent = CaroQueueEntry::where('customer_id', '!=', $id)
-                ->whereNull('match_id')
-                ->where('last_seen_at', '>=', now()->subSeconds(self::QUEUE_ALIVE_SECONDS))
-                ->orderBy('created_at')
-                ->first();
+            $opponents = $this->waitingQuery($players, $id)->orderBy('created_at')->limit($players - 1)->get();
 
-            if ($opponent) {
-                $match = $this->createMatch($setting, $id, (string) $opponent->customer_id);
-                $opponent->update(['match_id' => $match->id]);
+            if ($opponents->count() === $players - 1) {
+                $match = $this->createMatch($setting, [$id, ...$opponents->pluck('customer_id')->map(fn ($c) => (string) $c)->all()]);
+                CaroQueueEntry::whereKey($opponents->pluck('customer_id'))->update(['match_id' => $match->id]);
                 $entry?->delete();
 
                 return ['status' => 'matched', 'match' => $match, 'paired' => true];
             }
 
-            $entry ??= new CaroQueueEntry(['customer_id' => $id]);
-            $entry->last_seen_at = now();
-            $entry->save();
-
-            $waited = (int) $entry->created_at->diffInSeconds(now());
-
-            return [
-                'status'         => 'waiting',
-                'waited_seconds' => $waited,
-                'suggest_invite' => $setting->invite_enabled && $waited >= $setting->match_wait_seconds,
-            ];
+            return $this->keepWaiting($entry, $id, $players, $setting);
         });
 
         if (($result['paired'] ?? false) === true) {
-            $match = $result['match'];
-            foreach ([$match->player_x_id, $match->player_o_id] as $playerId) {
-                $this->realtime->push((string) $playerId, 'caro.matched', ['match' => $this->state($match, (string) $playerId)]);
-            }
+            $this->pushMatched($result['match']);
         }
         unset($result['paired']);
 
@@ -119,12 +126,16 @@ class CaroService
     // Mã mời nhập tay trên app — bỏ ký tự dễ nhầm (0/O, 1/I/L).
     private const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
+    // Mã người chơi dài 7 ký tự để không lẫn với mã mời (6 ký tự)
+    private const PLAYER_CODE_LENGTH = 7;
+
     /**
      * Tạo lời mời đấu: người mời gửi mã (hoặc link chứa mã) cho bạn, bạn nhập mã trên app để vào trận.
      * Mỗi khách chỉ giữ 1 lời mời đang chờ: còn hiệu lực thì dùng lại mã đó (gia hạn thêm) để link đã gửi vẫn dùng được,
-     * app gọi lại nhiều lần (mở lại màn mời, mời thêm SĐT khác) cũng không đổi mã.
+     * app gọi lại nhiều lần (mở lại màn mời, mời thêm SĐT / mã người chơi khác) cũng không đổi mã. $players = null giữ số người của
+     * lời mời đang có (mặc định 2); đổi số người khi chưa ai vào phòng thì vẫn giữ mã.
      */
-    public function createInvite(Customer $inviter): CaroInvite
+    public function createInvite(Customer $inviter, ?int $players = null): CaroInvite
     {
         $setting = $this->inviteSetting();
         $id      = (string) $inviter->id;
@@ -133,33 +144,65 @@ class CaroService
             $this->fail('Bạn đang trong một trận khác.');
         }
 
-        if ($current = $this->outgoingInvite($inviter)) {
-            $current->update(['expires_at' => now()->addMinutes($setting->invite_expire_minutes)]);
+        $current = $this->outgoingInvite($inviter);
+        $players ??= $current?->player_count ?? 2;
+        $this->ensurePlayerCount($setting, $players);
+
+        if ($current && ($current->player_count === $players || $current->guestIds() === [])) {
+            $current->update(['player_count' => $players, 'expires_at' => now()->addMinutes($setting->invite_expire_minutes)]);
             CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
 
             return $current;
         }
 
-        $invite = DB::transaction(function () use ($id, $setting) {
+        if ($current) {
+            $this->fail('Đã có bạn vào phòng chờ — huỷ lời mời hiện tại nếu muốn đổi số người chơi.');
+        }
+
+        $invite = DB::transaction(function () use ($id, $setting, $players) {
             CaroInvite::where('inviter_id', $id)->where('status', CaroInvite::STATUS_PENDING)
                 ->get()
                 ->each(fn (CaroInvite $old) => $this->closeInvite($old, CaroInvite::STATUS_CANCELLED));
 
             do {
-                $code = collect(range(1, 6))->map(fn () => self::INVITE_ALPHABET[random_int(0, strlen(self::INVITE_ALPHABET) - 1)])->implode('');
+                $code = $this->randomCode(6);
             } while (CaroInvite::where('code', $code)->exists());
 
             return CaroInvite::create([
-                'code'       => $code,
-                'inviter_id' => $id,
-                'status'     => CaroInvite::STATUS_PENDING,
-                'expires_at' => now()->addMinutes($setting->invite_expire_minutes),
+                'code'         => $code,
+                'inviter_id'   => $id,
+                'player_count' => $players,
+                'status'       => CaroInvite::STATUS_PENDING,
+                'expires_at'   => now()->addMinutes($setting->invite_expire_minutes),
             ]);
         });
 
         CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
 
         return $invite;
+    }
+
+    // Mã người chơi cố định của khách (tạo lần đầu cần tới) — bạn bè nhập mã này để mời đích danh.
+    public function playerCode(string $customerId): string
+    {
+        $stat = CaroPlayerStat::find($customerId);
+        if ($stat?->player_code) {
+            return $stat->player_code;
+        }
+
+        for ($attempt = 0; ; $attempt++) {
+            $code = $this->randomCode(self::PLAYER_CODE_LENGTH);
+
+            try {
+                CaroPlayerStat::updateOrCreate(['customer_id' => $customerId], ['player_code' => $code]);
+
+                return $code;
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                if ($attempt >= 5) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     // Khách có SĐT này để báo lời mời — tìm trước khi tạo lời mời để sai SĐT thì không tạo / gia hạn gì.
@@ -174,50 +217,86 @@ class CaroService
         if (! $invitee) {
             $this->fail('Không tìm thấy khách hàng với số điện thoại này. Bạn có thể gửi mã / link mời cho bạn.');
         }
-        if ((string) $invitee->id === (string) $inviter->id) {
-            $this->fail('Không thể tự mời chính mình.');
+
+        return $this->ensureNotSelf($inviter, $invitee);
+    }
+
+    // Khách có mã người chơi này để báo lời mời.
+    public function inviteeByPlayerCode(Customer $inviter, string $playerCode): Customer
+    {
+        $stat    = CaroPlayerStat::where('player_code', strtoupper(trim($playerCode)))->first();
+        $invitee = $stat ? Customer::find($stat->customer_id) : null;
+
+        if (! $invitee) {
+            $this->fail('Không tìm thấy người chơi với mã này. Kiểm tra lại mã người chơi của bạn bè.');
         }
 
-        return $invitee;
+        return $this->ensureNotSelf($inviter, $invitee);
     }
 
     /**
-     * Báo lời mời cho khách có SĐT đã nhập: WS caro.invited + push caro_invite kèm mã. Lời mời vẫn là lời mời mở
-     * (ai có mã cũng nhận được) — người được báo chỉ cần bấm vào thông báo / nhập mã. Báo trùng 1 người trong 1 phút thì bỏ qua.
+     * Báo lời mời cho khách đã nhập SĐT / mã người chơi: WS caro.invited + thông báo caro_invite (push FCM + danh sách thông báo) kèm mã,
+     * và ghi vào notified_ids để lời mời hiện trong lời mời đến của họ (GET /invites → incoming) kể cả khi lỡ thông báo.
+     * Lời mời vẫn là lời mời mở (ai có mã cũng nhận được). Báo trùng 1 người trong 1 phút thì bỏ qua. Push gửi sau khi trả response.
      */
     public function notifyInvitee(CaroInvite $invite, Customer $inviter, Customer $invitee): void
     {
-        if (! Cache::add("caro:invite-notify:{$invite->id}:{$invitee->id}", 1, 60)) {
+        $inviteeId = (string) $invitee->id;
+
+        if (! in_array($inviteeId, $invite->notified_ids ?? [], true)) {
+            $invite->update(['notified_ids' => [...($invite->notified_ids ?? []), $inviteeId]]);
+        }
+
+        if (! Cache::add("caro:invite-notify:{$invite->id}:{$inviteeId}", 1, 60)) {
             return;
         }
 
-        $this->realtime->push((string) $invitee->id, 'caro.invited', ['invite' => $this->invitePayload($invite, (string) $invitee->id)]);
+        $this->realtime->push($inviteeId, 'caro.invited', fn () => ['invite' => $this->invitePayload($invite, $inviteeId)]);
 
-        try {
-            app(NotificationFcmService::class)->sendToCustomer(
-                $invitee, 'Lời mời đấu Caro', self::maskName($inviter->fullname) . " mời bạn một ván caro. Nhập mã {$invite->code} hoặc bấm vào đây để vào trận!",
-                'caro_invite', ['code' => $invite->code], '/games/caro/invites/' . $invite->code,
-            );
-        } catch (\Throwable $e) {
-            Log::warning('Caro: gửi thông báo lời mời thất bại', ['invite' => $invite->code, 'error' => $e->getMessage()]);
-        }
+        $mode = $invite->player_count === 3 ? 'một ván caro 3 người' : 'một ván caro';
+        $body = self::maskName($inviter->fullname) . " mời bạn {$mode}. Nhập mã {$invite->code} hoặc bấm vào đây để vào trận!";
+
+        app()->terminating(function () use ($invite, $invitee, $body) {
+            try {
+                app(NotificationFcmService::class)->sendToCustomer(
+                    $invitee, 'Lời mời đấu Caro', $body, 'caro_invite', ['code' => $invite->code], '/games/caro/invites/' . $invite->code,
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Caro: gửi thông báo lời mời thất bại', ['invite' => $invite->code, 'error' => $e->getMessage()]);
+            }
+        });
     }
 
-    // Lời mời theo mã — ai có mã cũng xem / nhận được; đã có người nhận thì chỉ người mời và người nhận xem được.
+    // Lời mời đến: lời mời còn hiệu lực mà mình được báo đích danh (theo SĐT / mã người chơi).
+    /** @return \Illuminate\Support\Collection<int, CaroInvite> */
+    public function incomingInvites(Customer $customer): \Illuminate\Support\Collection
+    {
+        return CaroInvite::where('status', CaroInvite::STATUS_PENDING)
+            ->where('expires_at', '>', now())
+            ->whereJsonContains('notified_ids', (string) $customer->id)
+            ->latest()
+            ->limit(10)
+            ->get();
+    }
+
+    // Lời mời theo mã — ai có mã cũng xem / nhận được; đã đủ người vào trận thì chỉ những người trong phòng xem được.
     public function findInvite(string $code, Customer $customer): CaroInvite
     {
         $invite = CaroInvite::where('code', strtoupper(trim($code)))->firstOrFail();
         $id     = (string) $customer->id;
 
-        if ($invite->invitee_id && ! in_array($id, [(string) $invite->inviter_id, (string) $invite->invitee_id], true)) {
+        if ($invite->status === CaroInvite::STATUS_ACCEPTED && ! in_array($id, [(string) $invite->inviter_id, ...$invite->guestIds()], true)) {
             throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(CaroInvite::class);
         }
 
         return $this->expireIfDue($invite);
     }
 
-    // Nhận lời mời → tạo trận ngay giữa người mời và người nhận, cả 2 nhận WS caro.matched.
-    public function acceptInvite(string $code, Customer $customer): CaroMatch
+    /**
+     * Nhận lời mời → vào phòng. Đủ người (2 người: ngay khi có 1 bạn nhận; 3 người: khi bạn thứ 2 nhận) thì tạo trận, mọi người nhận
+     * WS caro.matched; chưa đủ thì những người liên quan nhận WS caro.invite_updated. Trả lời mời (match_id có khi đã vào trận).
+     */
+    public function acceptInvite(string $code, Customer $customer): CaroInvite
     {
         $setting = $this->inviteSetting();
         $id      = (string) $customer->id;
@@ -227,9 +306,12 @@ class CaroService
             $this->fail('Không thể tự nhận lời mời của chính mình.');
         }
 
-        $match = Cache::lock('caro:matchmaking', 5)->block(3, fn () => DB::transaction(function () use ($invite, $id, $setting) {
+        [$invite, $match] = $this->withMatchmakingLocks(fn () => DB::transaction(function () use ($invite, $id, $setting) {
             $invite = CaroInvite::whereKey($invite->id)->lockForUpdate()->first();
 
+            if (in_array($id, $invite->guestIds(), true)) {
+                return [$invite, null];
+            }
             if (! $invite->isOpen()) {
                 $this->fail(match ($invite->status) {
                     CaroInvite::STATUS_ACCEPTED  => 'Lời mời đã được nhận.',
@@ -245,26 +327,45 @@ class CaroService
                 $this->fail('Người mời đang trong một trận khác.');
             }
 
-            $match = $this->createMatch($setting, (string) $invite->inviter_id, $id, 'invite');
-            $invite->update(['status' => CaroInvite::STATUS_ACCEPTED, 'match_id' => $match->id, 'invitee_id' => $invite->invitee_id ?? $id]);
-            CaroQueueEntry::whereIn('customer_id', [$id, (string) $invite->inviter_id])->delete();
+            // Bạn đã vào phòng nhưng sau đó vào trận khác thì nhường chỗ
+            $guests   = array_values(array_filter($invite->guestIds(), fn (string $guestId) => ! $this->activeMatch($guestId)));
+            $guests[] = $id;
 
-            return $match;
+            if (count($guests) < $invite->player_count - 1) {
+                $invite->update(['guest_ids' => $guests, 'invitee_id' => $guests[0]]);
+                CaroQueueEntry::whereKey($id)->whereNull('match_id')->delete();
+
+                return [$invite, null];
+            }
+
+            $players = [(string) $invite->inviter_id, ...$guests];
+            $match   = $this->createMatch($setting, $players, 'invite');
+            $invite->update(['status' => CaroInvite::STATUS_ACCEPTED, 'match_id' => $match->id, 'guest_ids' => $guests, 'invitee_id' => $guests[0]]);
+            CaroQueueEntry::whereIn('customer_id', $players)->delete();
+
+            return [$invite, $match];
         }));
 
-        foreach ([$match->player_x_id, $match->player_o_id] as $playerId) {
-            $this->realtime->push((string) $playerId, 'caro.matched', ['match' => $this->state($match, (string) $playerId)]);
+        if ($match) {
+            $this->pushMatched($match);
         }
+        // Người đã được báo mà chưa vào (hoặc đang chờ trong phòng) cập nhật lại lời mời — đủ người thì app ẩn popup lời mời đến
+        $this->pushInviteUpdated($invite, $id, $match ? $match->players() : []);
 
-        return $match;
+        return $invite;
     }
 
-    // Người mời huỷ lời mời đang chờ.
+    // Người mời huỷ lời mời đang chờ; bạn đã vào phòng chờ (lời mời 3 người, chưa đủ người) thì rời phòng.
     public function cancelInvite(string $code, Customer $customer): CaroInvite
     {
         $invite = $this->findInvite($code, $customer);
+        $id     = (string) $customer->id;
 
-        if ((string) $invite->inviter_id !== (string) $customer->id) {
+        if (in_array($id, $invite->guestIds(), true) && $invite->status === CaroInvite::STATUS_PENDING) {
+            return $this->leaveInvite($invite, $id);
+        }
+
+        if ((string) $invite->inviter_id !== $id) {
             $this->fail('Chỉ người mời mới huỷ được lời mời.');
         }
 
@@ -284,27 +385,34 @@ class CaroService
         $url     = rtrim($setting->invite_share_url_base, '/') . '/' . $invite->code;
         $mine    = (string) $invite->inviter_id === $viewerId;
         $match   = $invite->match_id ? CaroMatch::find($invite->match_id) : null;
-        $names   = Customer::whereIn('id', array_filter([$invite->inviter_id, $invite->invitee_id]))->pluck('fullname', 'id');
+        $guests  = $invite->guestIds();
+        $names   = Customer::whereIn('id', [$invite->inviter_id, ...$guests])->pluck('fullname', 'id');
+        $mode    = $invite->player_count === 3 ? 'caro 3 người' : 'caro';
 
         return [
             'code'         => $invite->code,
             'status'       => $invite->isOpen() || $invite->status !== CaroInvite::STATUS_PENDING ? $invite->status : CaroInvite::STATUS_EXPIRED,
+            'player_count' => $invite->player_count,
             'is_mine'      => $mine,
+            'joined'       => in_array($viewerId, $guests, true),
             'inviter'      => ['name' => self::maskName($names[$invite->inviter_id] ?? null)],
-            'invitee'      => $invite->invitee_id ? ['name' => self::maskName($names[$invite->invitee_id] ?? null)] : null,
+            // Người nhận đầu tiên — app cũ chỉ đọc trường này
+            'invitee'      => $guests ? ['name' => self::maskName($names[$guests[0]] ?? null)] : null,
+            'guests'       => array_map(fn (string $guestId) => ['name' => self::maskName($names[$guestId] ?? null)], $guests),
+            'slots_left'   => $invite->slotsLeft(),
             'expires_at'   => $invite->expires_at->toIso8601String(),
             'seconds_left' => max(0, (int) now()->diffInSeconds($invite->expires_at, false)),
             'share_url'    => $mine ? $url : null,
-            'share_text'   => $mine ? "Đấu caro với mình trên app 365Home nhé! Mở app → Mini game Caro → nhập mã {$invite->code}. Chưa có app thì tải tại: {$url}" : null,
+            'share_text'   => $mine ? "Đấu {$mode} với mình trên app 365Home nhé! Mở app → Mini game Caro → nhập mã {$invite->code}. Chưa có app thì tải tại: {$url}" : null,
             'match'        => $match && $match->sideOf($viewerId) ? $this->state($match, $viewerId) : null,
         ];
     }
 
-    // Đọc trận của khách — tiện thể xử thua nếu lượt hiện tại đã hết giờ.
+    // Đọc trận của khách (cả người đã bị loại, để xem tiếp) — tiện thể xử thua nếu lượt hiện tại đã hết giờ.
     public function find(string $matchId, Customer $customer): CaroMatch
     {
         $match = CaroMatch::whereKey($matchId)
-            ->where(fn ($q) => $q->where('player_x_id', $customer->id)->orWhere('player_o_id', $customer->id))
+            ->ofPlayer((string) $customer->id)
             ->firstOrFail();
 
         if ($this->isTimedOut($match)) {
@@ -321,11 +429,14 @@ class CaroService
             $side  = $match->sideOf((string) $customer->id);
 
             if ($this->isTimedOut($match)) {
-                $this->finish($match, $match->turn() === 'x' ? 'o' : 'x', 'timeout');
+                $this->eliminate($match, $match->turn(), 'timeout');
 
                 return $match;
             }
 
+            if ($match->isEliminated($side)) {
+                $this->fail('Bạn đã bị loại khỏi trận này.');
+            }
             if ($match->turn() !== $side) {
                 $this->fail('Chưa tới lượt của bạn.');
             }
@@ -350,7 +461,13 @@ class CaroService
     {
         $match = DB::transaction(function () use ($matchId, $customer) {
             $match = $this->lockedMatchOf($matchId, $customer);
-            $this->finish($match, $match->sideOf((string) $customer->id) === 'x' ? 'o' : 'x', 'resign');
+            $side  = $match->sideOf((string) $customer->id);
+
+            if ($match->isEliminated($side)) {
+                $this->fail('Bạn đã bị loại khỏi trận này.');
+            }
+
+            $this->eliminate($match, $side, 'resign');
 
             return $match;
         });
@@ -360,7 +477,7 @@ class CaroService
         return $match;
     }
 
-    // Xử thua bên đang tới lượt nếu đã quá giờ. Trả null nếu trận không còn hết giờ (vd vừa có nước đi).
+    // Xử thua (trận 3 người: loại) bên đang tới lượt nếu đã quá giờ. Trả null nếu trận không còn hết giờ (vd vừa có nước đi).
     public function resolveTimeout(string $matchId): ?CaroMatch
     {
         $match = DB::transaction(function () use ($matchId) {
@@ -370,7 +487,7 @@ class CaroService
                 return null;
             }
 
-            $this->finish($match, $match->turn() === 'x' ? 'o' : 'x', 'timeout');
+            $this->eliminate($match, $match->turn(), 'timeout');
 
             return $match;
         });
@@ -406,20 +523,22 @@ class CaroService
     public function activeMatch(string $customerId): ?CaroMatch
     {
         return CaroMatch::where('status', CaroMatch::STATUS_PLAYING)
-            ->where(fn ($q) => $q->where('player_x_id', $customerId)->orWhere('player_o_id', $customerId))
+            ->ofPlayer($customerId)
             ->latest()
-            ->first();
+            ->get()
+            // Đã bị loại khỏi trận 3 người đang tiếp tục thì coi như không còn trận dở
+            ->first(fn (CaroMatch $match) => ! $match->isEliminated($match->sideOf($customerId)));
     }
 
     /** @return array{waiting: int, playing: int} */
     public function onlineCount(): array
     {
-        $playing = CaroMatch::where('status', CaroMatch::STATUS_PLAYING)
-            ->where('updated_at', '>=', now()->subMinutes(2))->count();
+        $playing = (int) CaroMatch::where('status', CaroMatch::STATUS_PLAYING)
+            ->where('updated_at', '>=', now()->subMinutes(2))->sum('player_count');
 
         return [
             'waiting' => CaroQueueEntry::whereNull('match_id')->where('last_seen_at', '>=', now()->subSeconds(self::QUEUE_ALIVE_SECONDS))->count(),
-            'playing' => $playing * 2,
+            'playing' => $playing,
         ];
     }
 
@@ -468,10 +587,12 @@ class CaroService
     // Trạng thái trận nhìn từ phía 1 khách (quân của mình, tới lượt mình chưa, kết quả, voucher nhận được ở trận này).
     public function state(CaroMatch $match, string $customerId): array
     {
-        $side       = $match->sideOf($customerId);
-        $opponentId = $side === 'x' ? $match->player_o_id : $match->player_x_id;
-        $finished   = $match->status === CaroMatch::STATUS_FINISHED;
-        $rewards    = $finished ? CaroReward::where('match_id', $match->id)->where('customer_id', $customerId)->with('coupon')->get() : collect();
+        $side     = $match->sideOf($customerId);
+        $players  = $match->players();
+        $names    = Customer::whereIn('id', $players)->pluck('fullname', 'id');
+        $finished = $match->status === CaroMatch::STATUS_FINISHED;
+        $rewards  = $finished ? CaroReward::where('match_id', $match->id)->where('customer_id', $customerId)->with('coupon')->get() : collect();
+        $others   = array_filter($players, fn (string $s) => $s !== $side, ARRAY_FILTER_USE_KEY);
 
         return [
             'id'                => $match->id,
@@ -480,13 +601,23 @@ class CaroService
             'win_length'        => $match->win_length,
             'block_two_ends'    => $match->block_two_ends,
             'turn_seconds'      => $match->turn_seconds,
+            'player_count'      => $match->player_count,
             'you'               => $side,
             'source'            => $match->source,
-            'opponent'          => ['name' => self::maskName(Customer::find($opponentId)?->fullname)],
+            // Trận 3 người: tên 2 đối thủ ghép bằng " & " — chi tiết từng người ở players
+            'opponent'          => ['name' => implode(' & ', array_map(fn (string $id) => self::maskName($names[$id] ?? null), $others))],
+            // Các quân theo thứ tự đi (x → o → t), eliminated = đã đầu hàng / hết giờ ở trận 3 người
+            'players'           => array_values(array_map(fn (string $s, string $id) => [
+                'side'       => $s,
+                'name'       => self::maskName($names[$id] ?? null),
+                'is_you'     => $s === $side,
+                'eliminated' => $match->isEliminated($s),
+            ], array_keys($players), $players)),
+            'eliminated'        => $match->isEliminated($side),
             'moves'             => $match->moves,
             'last_move'         => Arr::last($match->moves),
             'turn'              => $finished ? null : $match->turn(),
-            'your_turn'         => ! $finished && $match->turn() === $side,
+            'your_turn'         => ! $finished && $side !== null && $match->turn() === $side,
             'turn_deadline_at'  => $finished ? null : $match->turn_deadline_at?->toIso8601String(),
             'turn_seconds_left' => $finished ? null : max(0, (int) now()->diffInSeconds($match->turn_deadline_at, false)),
             'winner'            => $match->winner,
@@ -525,23 +656,95 @@ class CaroService
         return $setting;
     }
 
-    private function createMatch(CaroSetting $setting, string $playerA, string $playerB, string $source = 'queue'): CaroMatch
+    /** @param array<int, string> $playerIds 2 hoặc 3 khách */
+    private function createMatch(CaroSetting $setting, array $playerIds, string $source = 'queue'): CaroMatch
     {
-        // Bốc ngẫu nhiên ai cầm X (đi trước)
-        [$x, $o] = random_int(0, 1) === 0 ? [$playerA, $playerB] : [$playerB, $playerA];
+        // Bốc ngẫu nhiên thứ tự đi (người đầu cầm X, đi trước)
+        [$x, $o, $t] = [...Arr::shuffle($playerIds), null];
 
         return CaroMatch::create([
             'player_x_id'      => $x,
             'player_o_id'      => $o,
+            'player_t_id'      => $t,
+            'player_count'     => count($playerIds),
             'source'           => $source,
             'board_size'       => $setting->board_size,
             'win_length'       => $setting->win_length,
             'block_two_ends'   => $setting->block_two_ends,
             'turn_seconds'     => $setting->turn_seconds,
             'moves'            => [],
+            'eliminated'       => [],
             'status'           => CaroMatch::STATUS_PLAYING,
             'turn_deadline_at' => now()->addSeconds($setting->turn_seconds + self::FIRST_TURN_BONUS_SECONDS),
         ]);
+    }
+
+    private function ensurePlayerCount(CaroSetting $setting, int $players): void
+    {
+        if (! in_array($players, [2, 3], true)) {
+            $this->fail('Số người chơi chỉ được là 2 hoặc 3.');
+        }
+        if ($players === 3 && ! $setting->three_player_enabled) {
+            $this->fail('Chế độ caro 3 người đang tạm đóng.');
+        }
+    }
+
+    // Những người khác đang chờ trận $players người (còn hỏi hàng chờ gần đây, chưa được ghép)
+    private function waitingQuery(int $players, string $exceptId): \Illuminate\Database\Eloquent\Builder
+    {
+        return CaroQueueEntry::where('player_count', $players)
+            ->whereNull('match_id')
+            ->where('last_seen_at', '>=', now()->subSeconds(self::QUEUE_ALIVE_SECONDS))
+            ->where('customer_id', '!=', $exceptId);
+    }
+
+    // Dòng chờ đã được người khác ghép vào trận → lấy trận đó (xoá dòng chờ). Trận đã kết thúc khi khách chưa kịp hỏi lại thì bỏ qua.
+    private function takeQueuedMatch(?CaroQueueEntry $entry): ?CaroMatch
+    {
+        if (! $entry?->match_id) {
+            return null;
+        }
+
+        $entry->delete();
+        $match = CaroMatch::find($entry->match_id);
+
+        return $match?->status === CaroMatch::STATUS_PLAYING ? $match : null;
+    }
+
+    private function keepWaiting(?CaroQueueEntry $entry, string $id, int $players, CaroSetting $setting): array
+    {
+        $entry ??= new CaroQueueEntry(['customer_id' => $id, 'player_count' => $players]);
+        $entry->last_seen_at = now();
+        $entry->save();
+
+        $waited = (int) $entry->created_at->diffInSeconds(now());
+
+        return [
+            'status'         => 'waiting',
+            'player_count'   => $players,
+            'waited_seconds' => $waited,
+            'suggest_invite' => $setting->invite_enabled && $waited >= $setting->match_wait_seconds,
+        ];
+    }
+
+    // Nhận lời mời giữ cả 2 khoá hàng chờ (luôn theo thứ tự 2 → 3) để người mời / bạn không bị ghép ngẫu nhiên vào trận khác cùng lúc.
+    private function withMatchmakingLocks(callable $callback): mixed
+    {
+        return Cache::lock('caro:matchmaking:2', 5)->block(3, fn () => Cache::lock('caro:matchmaking:3', 5)->block(3, $callback));
+    }
+
+    private function randomCode(int $length): string
+    {
+        return collect(range(1, $length))->map(fn () => self::INVITE_ALPHABET[random_int(0, strlen(self::INVITE_ALPHABET) - 1)])->implode('');
+    }
+
+    private function ensureNotSelf(Customer $inviter, Customer $invitee): Customer
+    {
+        if ((string) $invitee->id === (string) $inviter->id) {
+            $this->fail('Không thể tự mời chính mình.');
+        }
+
+        return $invitee;
     }
 
     private function inviteSetting(): CaroSetting
@@ -580,21 +783,54 @@ class CaroService
         return $invite;
     }
 
-    // Đóng lời mời và báo cho bên còn lại (người mời khi bị từ chối, người được mời đích danh khi bị huỷ)
+    // Đóng lời mời và báo cho bên còn lại (người mời khi bị từ chối; người trong phòng chờ và người được báo đích danh khi bị huỷ)
     private function closeInvite(CaroInvite $invite, string $status): void
     {
         $invite->update(['status' => $status]);
 
-        $notify = $status === CaroInvite::STATUS_DECLINED ? $invite->inviter_id : $invite->invitee_id;
-        if ($notify) {
-            $this->realtime->push((string) $notify, 'caro.invite_updated', ['invite' => $this->invitePayload($invite, (string) $notify)]);
+        if ($status === CaroInvite::STATUS_DECLINED) {
+            $this->realtime->push((string) $invite->inviter_id, 'caro.invite_updated', fn () => ['invite' => $this->invitePayload($invite, (string) $invite->inviter_id)]);
+
+            return;
+        }
+
+        $this->pushInviteUpdated($invite, (string) $invite->inviter_id);
+    }
+
+    // Bạn rời phòng chờ của lời mời 3 người (chưa đủ người); người mời và người còn lại nhận caro.invite_updated.
+    private function leaveInvite(CaroInvite $invite, string $guestId): CaroInvite
+    {
+        DB::transaction(function () use (&$invite, $guestId) {
+            $invite = CaroInvite::whereKey($invite->id)->lockForUpdate()->first();
+
+            if ($invite->status !== CaroInvite::STATUS_PENDING) {
+                $this->fail('Lời mời không còn hiệu lực.');
+            }
+
+            $guests = array_values(array_diff($invite->guestIds(), [$guestId]));
+            $invite->update(['guest_ids' => $guests, 'invitee_id' => $guests[0] ?? null]);
+        });
+
+        $this->pushInviteUpdated($invite, $guestId);
+
+        return $invite;
+    }
+
+    // Báo lời mời thay đổi (có người vào / rời phòng, đủ người, bị huỷ) cho người mời, người trong phòng chờ và người được báo đích danh,
+    // trừ $actorId và $except (vd những người vừa nhận caro.matched).
+    private function pushInviteUpdated(CaroInvite $invite, string $actorId, array $except = []): void
+    {
+        $recipients = array_unique([(string) $invite->inviter_id, ...$invite->guestIds(), ...array_map('strval', $invite->notified_ids ?? [])]);
+
+        foreach (array_diff($recipients, [$actorId, ...$except]) as $customerId) {
+            $this->realtime->push($customerId, 'caro.invite_updated', fn () => ['invite' => $this->invitePayload($invite, $customerId)]);
         }
     }
 
     private function lockedMatchOf(string $matchId, Customer $customer): CaroMatch
     {
         $match = CaroMatch::whereKey($matchId)
-            ->where(fn ($q) => $q->where('player_x_id', $customer->id)->orWhere('player_o_id', $customer->id))
+            ->ofPlayer((string) $customer->id)
             ->lockForUpdate()
             ->firstOrFail();
 
@@ -610,7 +846,8 @@ class CaroService
     {
         $side = $match->turn();
         $board->place($x, $y, $side);
-        $match->moves = [...$match->moves, [$x, $y]];
+        // Trận 3 người lưu kèm quân vì lượt không còn suy ra được từ số nước khi có người bị loại
+        $match->moves = [...$match->moves, $match->player_count === 3 ? [$x, $y, $side] : [$x, $y]];
 
         if ($line = $board->winningLine($x, $y, $match->win_length, $match->block_two_ends)) {
             $this->finish($match, $side, 'line', $line);
@@ -628,6 +865,26 @@ class CaroService
         $match->save();
 
         return false;
+    }
+
+    // Loại 1 quân (đầu hàng / hết giờ). Còn 1 quân thì quân đó thắng; trận 3 người còn 2 quân thì đánh tiếp, bị loại đúng lượt mình
+    // thì người kế tiếp được tính giờ lại từ đầu.
+    private function eliminate(CaroMatch $match, string $side, string $reason): void
+    {
+        $wasTurn           = $match->turn() === $side;
+        $match->eliminated = [...($match->eliminated ?? []), $side];
+        $active            = $match->activeSides();
+
+        if (count($active) === 1) {
+            $this->finish($match, $active[0], $reason);
+
+            return;
+        }
+
+        if ($wasTurn) {
+            $match->turn_deadline_at = now()->addSeconds($match->turn_seconds);
+        }
+        $match->save();
     }
 
     private function isTimedOut(CaroMatch $match): bool
@@ -655,7 +912,7 @@ class CaroService
         $match->counted_for_reward = $winnerId !== null && $this->countsForReward($match, $winnerId, $setting);
         $match->save();
 
-        foreach (array_filter([$match->player_x_id, $match->player_o_id]) as $playerId) {
+        foreach ($match->players() as $playerId) {
             $stat = CaroPlayerStat::whereKey($playerId)->lockForUpdate()->first() ?? CaroPlayerStat::create(['customer_id' => $playerId]);
             $stat->increment(match (true) {
                 $winner === 'draw'      => 'draws',
@@ -669,8 +926,8 @@ class CaroService
         }
 
         if ($this->isRealGame($match, $setting)) {
-            foreach ([$match->player_x_id, $match->player_o_id] as $playerId) {
-                $this->touchStreak((string) $playerId, $match, $setting);
+            foreach ($match->players() as $playerId) {
+                $this->touchStreak($playerId, $match, $setting);
             }
             $this->inviteBonus($match, $setting);
         }
@@ -701,7 +958,8 @@ class CaroService
         }
     }
 
-    // Bạn được mời (chưa từng chơi caro) chơi xong trận đầu với người mời → cả 2 +1 trận thưởng; người mời giới hạn số lần / ngày.
+    // Mỗi bạn được mời (chưa từng chơi caro) chơi xong trận đầu với người mời → bạn đó và người mời +1 trận thưởng (trận 3 người có thể
+    // 2 bạn mới cùng lúc); người mời giới hạn số lần / ngày.
     private function inviteBonus(CaroMatch $match, CaroSetting $setting): void
     {
         if (! $setting->invite_bonus_enabled || $match->source !== 'invite') {
@@ -709,29 +967,29 @@ class CaroService
         }
 
         $invite = CaroInvite::where('match_id', $match->id)->first();
-        if (! $invite?->invitee_id) {
+        if (! $invite) {
             return;
         }
 
-        $inviteeId = (string) $invite->invitee_id;
         $inviterId = (string) $invite->inviter_id;
 
-        $playedBefore = CaroMatch::where('status', CaroMatch::STATUS_FINISHED)->whereKeyNot($match->id)
-            ->where(fn ($q) => $q->where('player_x_id', $inviteeId)->orWhere('player_o_id', $inviteeId))->exists();
+        foreach ($invite->guestIds() as $inviteeId) {
+            $playedBefore = CaroMatch::where('status', CaroMatch::STATUS_FINISHED)->whereKeyNot($match->id)->ofPlayer($inviteeId)->exists();
 
-        if ($playedBefore || CaroBonus::where('customer_id', $inviteeId)->where('type', CaroBonus::TYPE_INVITE)->exists()) {
-            return;
-        }
+            if ($playedBefore || CaroBonus::where('customer_id', $inviteeId)->where('type', CaroBonus::TYPE_INVITE)->exists()) {
+                continue;
+            }
 
-        CaroBonus::create(['customer_id' => $inviteeId, 'type' => CaroBonus::TYPE_INVITE, 'match_id' => $match->id]);
-        $this->addProgress($inviteeId, $match, $setting);
+            CaroBonus::create(['customer_id' => $inviteeId, 'type' => CaroBonus::TYPE_INVITE, 'match_id' => $match->id]);
+            $this->addProgress($inviteeId, $match, $setting);
 
-        $inviterToday = CaroBonus::where('customer_id', $inviterId)->where('type', CaroBonus::TYPE_INVITE)
-            ->where('created_at', '>=', now()->startOfDay())->count();
+            $inviterToday = CaroBonus::where('customer_id', $inviterId)->where('type', CaroBonus::TYPE_INVITE)
+                ->where('created_at', '>=', now()->startOfDay())->count();
 
-        if ($setting->invite_bonus_daily_cap === null || $inviterToday < $setting->invite_bonus_daily_cap) {
-            CaroBonus::create(['customer_id' => $inviterId, 'type' => CaroBonus::TYPE_INVITE, 'match_id' => $match->id]);
-            $this->addProgress($inviterId, $match, $setting);
+            if ($setting->invite_bonus_daily_cap === null || $inviterToday < $setting->invite_bonus_daily_cap) {
+                CaroBonus::create(['customer_id' => $inviterId, 'type' => CaroBonus::TYPE_INVITE, 'match_id' => $match->id]);
+                $this->addProgress($inviterId, $match, $setting);
+            }
         }
     }
 
@@ -753,12 +1011,12 @@ class CaroService
             return false;
         }
 
+        // Trận 3 người: đã thắng đủ số lần trước 1 trong 2 người thua thì không tính
         if ($setting->same_opponent_daily_cap !== null) {
-            $loserId = $winnerId === $match->player_x_id ? $match->player_o_id : $match->player_x_id;
-            $vsSame  = (clone $todayWins)->where(fn ($q) => $q->where('player_x_id', $loserId)->orWhere('player_o_id', $loserId))->count();
-
-            if ($vsSame >= $setting->same_opponent_daily_cap) {
-                return false;
+            foreach (array_diff($match->players(), [$winnerId]) as $loserId) {
+                if ((clone $todayWins)->ofPlayer($loserId)->count() >= $setting->same_opponent_daily_cap) {
+                    return false;
+                }
             }
         }
 
@@ -927,13 +1185,21 @@ class CaroService
         return $coupon;
     }
 
-    // Người kia trong trận nhận trạng thái mới; $actorId = null thì đẩy cho cả 2 bên.
+    // Những người khác trong trận (kể cả người đã bị loại, đang xem) nhận trạng thái mới; $actorId = null thì đẩy cho tất cả.
+    // Trạng thái dựng sau khi trả response (CaroRealtimeService).
     private function pushToOpponent(CaroMatch $match, ?string $actorId): void
     {
-        foreach (array_filter([$match->player_x_id, $match->player_o_id]) as $playerId) {
-            if ((string) $playerId !== $actorId) {
-                $this->realtime->push((string) $playerId, 'caro.updated', ['match' => $this->state($match, (string) $playerId)]);
+        foreach ($match->players() as $playerId) {
+            if ($playerId !== $actorId) {
+                $this->realtime->push($playerId, 'caro.updated', fn () => ['match' => $this->state($match, $playerId)]);
             }
+        }
+    }
+
+    private function pushMatched(CaroMatch $match): void
+    {
+        foreach ($match->players() as $playerId) {
+            $this->realtime->push($playerId, 'caro.matched', fn () => ['match' => $this->state($match, $playerId)]);
         }
     }
 

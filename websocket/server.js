@@ -746,6 +746,34 @@ app.post('/internal/caro-event', (req, res) => {
     return res.json({ ok: true, delivered: sockets ? sockets.size : 0 });
 });
 
+// Bản gom: 1 request mang nhiều sự kiện caro (cả 2-3 người trong trận) — Laravel gửi sau khi đã trả response cho app.
+// Body: { events: [{ customer_id, event, payload }, ...] }
+app.post('/internal/caro-events', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const events = Array.isArray(req.body?.events) ? req.body.events : null;
+    if (!events) {
+        return res.status(422).json({ error: 'Missing events' });
+    }
+
+    let delivered = 0;
+    events.forEach(({ customer_id, event, payload }) => {
+        if (!customer_id || !event || !String(event).startsWith('caro.')) {
+            return;
+        }
+        const sockets = connections.get(String(customer_id));
+        if (sockets && sockets.size > 0) {
+            sockets.forEach((socket) => socket.emit(event, payload || {}));
+            delivered += sockets.size;
+        }
+    });
+
+    return res.json({ ok: true, delivered });
+});
+
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok', connections: io.engine.clientsCount });

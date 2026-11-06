@@ -40,6 +40,9 @@ class AppServiceProvider extends ServiceProvider
             config(['app.debug' => false]);
         }
 
+        // Sự kiện caro gom theo request, gửi 1 lần sau khi trả response — xem App\Services\CaroRealtimeService
+        $this->app->singleton(\App\Services\CaroRealtimeService::class);
+
         // Thay repository của nwidart/laravel-modules bằng bản nhớ kết quả quét Modules/ trong 1
         // request, xem App\Support\MemoizedModuleRepository. Đăng ký ở register() (chạy sau
         // LaravelModulesServiceProvider::register() nhưng trước mọi boot()) nên đè được binding

@@ -616,18 +616,18 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
 
 /*
 |--------------------------------------------------------------------------
-| Caro trực tuyến 2 người (khách đã đăng nhập) — ghép trận ngẫu nhiên hoặc mời bạn; đủ N trận thắng nhận voucher (source = caro)
-| GET    /api/games/caro                      → Luật chơi, tiến độ (pending_wins / wins_required), số người online, trận đang dở
-| POST   /api/games/caro/queue                → Vào hàng chờ; GET cùng đường dẫn mỗi 2-3 giây để giữ chỗ và nhận trận (status = matched)
+| Caro trực tuyến 2 hoặc 3 người (khách đã đăng nhập) — ghép trận ngẫu nhiên hoặc mời bạn; đủ N trận thắng nhận voucher (source = caro)
+| GET    /api/games/caro                      → Luật chơi, tiến độ (pending_wins / wins_required), số người online, trận đang dở, mã người chơi, lời mời đến
+| POST   /api/games/caro/queue                → Vào hàng chờ (players = 2 | 3); GET cùng đường dẫn mỗi 2-3 giây để giữ chỗ và nhận trận (status = matched)
 | DELETE /api/games/caro/queue                → Rời hàng chờ
-| GET    /api/games/caro/invites              → Lời mời mình đang gửi (outgoing)
-| POST   /api/games/caro/invites              → Lấy mã mời (kèm link / lời nhắn) gửi cho bạn; phone (tuỳ chọn) → báo cho khách có SĐT đó
+| GET    /api/games/caro/invites              → Lời mời mình đang gửi (outgoing) và lời mời đến (incoming)
+| POST   /api/games/caro/invites              → Lấy mã mời (kèm link / lời nhắn) gửi cho bạn; players = 2 | 3; phone / player_code (tuỳ chọn) → báo cho khách đó
 | GET    /api/games/caro/invites/{code}       → Xem lời mời theo mã (người mời hỏi lại tới khi accepted; bạn nhập mã để xem trước)
-| POST   /api/games/caro/invites/{code}/accept  → Nhận lời mời → vào trận
-| DELETE /api/games/caro/invites/{code}       → Huỷ lời mời (người mời)
-| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invited)
+| POST   /api/games/caro/invites/{code}/accept  → Nhận lời mời → vào trận (3 người: vào phòng chờ, đủ 2 bạn thì vào trận)
+| DELETE /api/games/caro/invites/{code}       → Huỷ lời mời (người mời) / rời phòng chờ 3 người (bạn đã nhận)
+| GET    /api/games/caro/matches/{id}         → Trạng thái trận (WS: caro.matched / caro.updated / caro.invited / caro.invite_updated)
 | POST   /api/games/caro/matches/{id}/move    → Đánh 1 nước (x, y)
-| POST   /api/games/caro/matches/{id}/resign  → Đầu hàng
+| POST   /api/games/caro/matches/{id}/resign  → Đầu hàng (3 người: bị loại, 2 người còn lại đánh tiếp)
 | GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
 |--------------------------------------------------------------------------
 */

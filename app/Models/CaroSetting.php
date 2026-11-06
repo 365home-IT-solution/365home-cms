@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 class CaroSetting extends Model
 {
     protected $fillable = [
-        'is_enabled', 'board_size', 'win_length', 'block_two_ends', 'turn_seconds', 'match_wait_seconds',
+        'is_enabled', 'board_size', 'win_length', 'block_two_ends', 'turn_seconds', 'three_player_enabled', 'match_wait_seconds',
         'invite_enabled', 'invite_expire_minutes', 'invite_wins_count', 'invite_share_url_base',
         'milestones', 'streak_days', 'invite_bonus_enabled', 'invite_bonus_daily_cap', 'reminder_enabled', 'reminder_hours_before',
         'max_caro_coupons_per_order', 'min_moves_to_count', 'daily_counted_wins_cap', 'same_opponent_daily_cap',
@@ -19,6 +19,7 @@ class CaroSetting extends Model
     protected $casts = [
         'is_enabled'              => 'boolean',
         'block_two_ends'          => 'boolean',
+        'three_player_enabled'    => 'boolean',
         'invite_enabled'          => 'boolean',
         'invite_wins_count'       => 'boolean',
         'invite_expire_minutes'   => 'integer',

@@ -78,6 +78,10 @@ class CaroGameSettings extends Page
                 TextInput::make('turn_seconds')->label('Thời gian mỗi lượt')->suffix('giây')
                     ->helperText('Hết giờ chưa đánh thì xử thua.')
                     ->numeric()->integer()->minValue(10)->maxValue(120)->required(),
+                Toggle::make('three_player_enabled')->label('Cho chơi 3 người')
+                    ->helperText('Quân X → O → △ đi lần lượt, cùng luật trên. Đầu hàng / hết giờ thì bị loại, 2 người còn lại đánh tiếp tới khi có người thắng.')
+                    ->inline(false)
+                    ->columnSpan(2),
             ]),
 
             Section::make('Không có người trực tuyến & mời bạn')

@@ -59,4 +59,26 @@ class CaroBoardTest extends TestCase
         $this->assertSame('x', $board->at(7, 8));
         $this->assertNull($board->at(0, 0));
     }
+
+    public function test_from_moves_uses_stored_side_for_three_players(): void
+    {
+        $board = CaroBoard::fromMoves(15, [[7, 7, 'x'], [8, 8, 'o'], [9, 9, 't'], [6, 6, 'o']]);
+
+        $this->assertSame('x', $board->at(7, 7));
+        $this->assertSame('t', $board->at(9, 9));
+        $this->assertSame('o', $board->at(6, 6));
+    }
+
+    public function test_block_two_ends_by_two_different_opponents(): void
+    {
+        $board = new CaroBoard(15);
+        foreach (range(2, 6) as $x) {
+            $board->place($x, 0, 't');
+        }
+        $board->place(1, 0, 'x');
+        $board->place(7, 0, 'o');
+
+        $this->assertNull($board->winningLine(4, 0, 5, true));
+        $this->assertCount(5, $board->winningLine(4, 0, 5, false));
+    }
 }

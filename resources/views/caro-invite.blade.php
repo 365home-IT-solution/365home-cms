@@ -3,6 +3,7 @@
 @php
     $status = $invite['status'] ?? null;
     $isOpen = $status === 'pending' && ($invite['seconds_left'] ?? 0) > 0;
+    $mode   = ($invite['player_count'] ?? 2) === 3 ? 'Caro 3 người' : 'Caro';
 @endphp
 <!DOCTYPE html>
 <html lang="vi">
@@ -12,7 +13,7 @@
     <meta name="robots" content="noindex">
     <title>Lời mời đấu Caro — 365Home</title>
     <meta name="description" content="Nhập mã {{ $code }} trong app 365Home để vào trận Caro.">
-    <meta property="og:title" content="{{ $invite ? $invite['inviter']['name'] . ' mời bạn đấu Caro' : 'Lời mời đấu Caro' }} — 365Home">
+    <meta property="og:title" content="{{ $invite ? $invite['inviter']['name'] . ' mời bạn đấu ' . $mode : 'Lời mời đấu Caro' }} — 365Home">
     <meta property="og:description" content="Mở app 365Home → Mini game Caro → nhập mã {{ $code }}. Thắng đủ trận nhận voucher giảm giá!">
     <meta property="og:type" content="website">
     <meta name="theme-color" content="#2B5257">
@@ -223,7 +224,7 @@
             <span class="o">O</span><span></span><span>X</span>
         </div>
 
-        <h1>{{ $invite ? $invite['inviter']['name'] . ' mời bạn đấu Caro!' : 'Lời mời đấu Caro' }}</h1>
+        <h1>{{ $invite ? $invite['inviter']['name'] . ' mời bạn đấu ' . $mode . '!' : 'Lời mời đấu Caro' }}</h1>
         <p class="sub">Thắng đủ số trận để nhận voucher giảm giá đặt phòng trên 365Home.</p>
 
         <div class="code-box">
@@ -233,10 +234,13 @@
                  data-seconds="{{ $isOpen ? (int) $invite['seconds_left'] : 0 }}">
                 @if ($isOpen)
                     Còn hiệu lực <span id="countdown"></span>
+                    @if (($invite['player_count'] ?? 2) === 3)
+                        · còn {{ $invite['slots_left'] }} chỗ
+                    @endif
                 @elseif (! $invite)
                     Không tìm thấy lời mời — kiểm tra lại mã với bạn của bạn.
                 @elseif ($status === 'accepted')
-                    Lời mời này đã có người nhận.
+                    Lời mời này đã đủ người.
                 @else
                     Lời mời đã hết hạn — nhờ bạn gửi mã mới nhé.
                 @endif

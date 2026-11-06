@@ -4,25 +4,25 @@ declare(strict_types=1);
 
 namespace App\Support;
 
-// Bàn cờ caro dựng lại từ danh sách nước đi — kiểm tra thắng. Không đụng DB, xem App\Services\CaroService.
+// Bàn cờ caro (2 hoặc 3 người) dựng lại từ danh sách nước đi — kiểm tra thắng. Không đụng DB, xem App\Services\CaroService.
 // Toạ độ: x là cột, y là hàng, cùng chạy 0 .. size - 1.
 class CaroBoard
 {
     private const DIRECTIONS = [[1, 0], [0, 1], [1, 1], [1, -1]];
 
-    /** @var array<int, array<int, string>> [y][x] => 'x' | 'o' */
+    /** @var array<int, array<int, string>> [y][x] => 'x' | 'o' | 't' */
     private array $cells = [];
 
     private int $count = 0;
 
     public function __construct(public readonly int $size) {}
 
-    /** @param array<int, array{0: int, 1: int}> $moves X đi trước nên nước chẵn là X */
+    /** @param array<int, array{0: int, 1: int, 2?: string}> $moves Có phần tử thứ 3 (trận 3 người) thì là quân, không thì nước chẵn là X */
     public static function fromMoves(int $size, array $moves): self
     {
         $board = new self($size);
-        foreach ($moves as $i => [$x, $y]) {
-            $board->place((int) $x, (int) $y, $i % 2 === 0 ? 'x' : 'o');
+        foreach ($moves as $i => $move) {
+            $board->place((int) $move[0], (int) $move[1], $move[2] ?? ($i % 2 === 0 ? 'x' : 'o'));
         }
 
         return $board;
@@ -50,8 +50,8 @@ class CaroBoard
     }
 
     /**
-     * Đường thắng đi qua quân vừa đặt ở (x, y), null nếu chưa thắng. Luật chặn 2 đầu: hàng đủ quân mà cả 2 đầu là quân đối thủ thì không tính
-     * (mép bàn không tính là bị chặn).
+     * Đường thắng đi qua quân vừa đặt ở (x, y), null nếu chưa thắng. Luật chặn 2 đầu: hàng đủ quân mà cả 2 đầu là quân đối thủ (trận 3 người:
+     * quân của bất kỳ ai khác, 2 đầu có thể là 2 người khác nhau) thì không tính (mép bàn không tính là bị chặn).
      *
      * @return array<int, array{0: int, 1: int}>|null
      */
@@ -80,8 +80,8 @@ class CaroBoard
                 continue;
             }
 
-            $opponent = $side === 'x' ? 'o' : 'x';
-            if ($blockTwoEnds && $ends[0] === $opponent && $ends[1] === $opponent) {
+            // Đầu hàng dừng ở ô không phải quân mình nên khác null là quân người khác
+            if ($blockTwoEnds && $ends[0] !== null && $ends[1] !== null) {
                 continue;
             }
 
