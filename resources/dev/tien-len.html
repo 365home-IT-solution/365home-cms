@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiến lên chơi thử</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #1f2933; --muted: #6b7785; --line: #e1e5ea;
+  --accent: #0f766e; --accent-ink: #ffffff; --accent-soft: #d9f0ed; --warn: #b45309; --warn-soft: #fef3c7;
+  --bad: #b91c1c; --bad-soft: #fee2e2; --good: #15803d; --good-soft: #dcfce7; --code-bg: #f1f3f5;
+  --felt: #1f6b45; --felt-edge: #123f29; --felt-ink: #eaf7ef; --felt-muted: #b7dcc5; --gold: #f5c542;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181d; --panel: #1c2229; --ink: #e6e9ed; --muted: #97a2af; --line: #2c343d;
+    --accent: #2dd4bf; --accent-ink: #062b27; --accent-soft: #123d39; --warn: #fbbf24; --warn-soft: #3a2f10;
+    --bad: #f87171; --bad-soft: #3b1717; --good: #4ade80; --good-soft: #123320; --code-bg: #12161b;
+    --felt: #17543a; --felt-edge: #0c2f20;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header.top { position: sticky; top: 0; z-index: 30; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+header.top h1 { font-size: 16px; margin: 0 auto 0 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--code-bg); font-size: 12px; color: var(--muted); }
+.chip b { color: var(--ink); font-weight: 600; }
+.chip.ok { background: var(--good-soft); color: var(--good); } .chip.ok b { color: var(--good); }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.card h2 { font-size: 14px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.note { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+label.inline { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; min-width: 0; }
+button.b { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+button.b.ghost { background: transparent; color: var(--accent); }
+button.b.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+button.b.sm { padding: 3px 9px; font-size: 12px; }
+button.b:disabled { opacity: .45; cursor: not-allowed; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; border: 0; background: var(--panel); color: var(--ink); padding: 6px 12px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, Consolas, monospace; }
+.hidden { display: none !important; }
+.err { color: var(--bad); font-size: 13px; min-height: 18px; }
+.lobby { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .lobby { grid-template-columns: 1fr; } }
+.login-box { max-width: 420px; margin: 40px auto; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.tabs button { flex: 1; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px; border-radius: 8px; cursor: pointer; font: inherit; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.points-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 10px; }
+.points-grid div { background: var(--code-bg); border-radius: 8px; padding: 6px; text-align: center; }
+.points-grid b { display: block; font-size: 17px; }
+
+/* Phòng chờ */
+.room-code { font: 700 30px/1 ui-monospace, Consolas, monospace; letter-spacing: 6px; padding: 10px 16px; background: var(--code-bg); border-radius: 10px; display: inline-block; }
+.seats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin: 14px 0; }
+.seat-box { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 150px; justify-content: center; text-align: center; transition: transform .2s ease, border-color .2s ease; }
+.seat-box.me { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.seat-box.empty { border-style: dashed; color: var(--muted); }
+.seat-box.ready { border-color: var(--good); }
+.seat-box .nm { font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #9ca3af; }
+.dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; background: var(--code-bg); color: var(--muted); }
+.badge.good { background: var(--good-soft); color: var(--good); } .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+/* Avatar */
+.avatar { --p: 0; position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 17px; flex: none; }
+.avatar::before { content: ""; position: absolute; inset: -5px; border-radius: 50%; background: conic-gradient(var(--ring, var(--gold)) calc(var(--p) * 1%), transparent 0); -webkit-mask: radial-gradient(circle, transparent 60%, #000 61%); mask: radial-gradient(circle, transparent 60%, #000 61%); }
+.avatar.low { --ring: #ef4444; }
+.avatar .face { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.7); }
+.avatar .crown { position: absolute; top: -12px; font-size: 14px; }
+
+/* Bàn chơi */
+.game { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; }
+@media (max-width: 1000px) { .game { grid-template-columns: 1fr; } }
+.felt { position: relative; overflow: hidden; background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-edge) 100%); border-radius: 22px; color: var(--felt-ink);
+  min-height: 620px; padding: 14px; display: grid; grid-template-areas: ". top ." "left center right" "hand hand hand"; grid-template-columns: 160px minmax(0, 1fr) 160px;
+  grid-template-rows: auto minmax(230px, 1fr) auto; gap: 10px; box-shadow: inset 0 0 0 8px rgba(0,0,0,.18), inset 0 0 60px rgba(0,0,0,.35); }
+.felt::after { content: ""; position: absolute; inset: 18px; border: 2px solid rgba(255,255,255,.06); border-radius: 16px; pointer-events: none; }
+@media (max-width: 640px) { .felt { grid-template-columns: 92px minmax(0, 1fr) 92px; padding: 10px; min-height: 540px; } }
+.seat { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 14px; position: relative; transition: background .25s ease, box-shadow .25s ease; z-index: 1; }
+.seat.top { grid-area: top; } .seat.left { grid-area: left; align-self: center; } .seat.right { grid-area: right; align-self: center; }
+.seat.active { background: rgba(245,197,66,.12); box-shadow: 0 0 0 2px rgba(245,197,66,.55), 0 0 24px rgba(245,197,66,.25); }
+.seat.out .avatar, .seat.out .backs { opacity: .45; }
+.seat .name { font-weight: 600; font-size: 13px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat .count { font-size: 12px; color: var(--felt-muted); }
+.backs { display: flex; height: 50px; }
+.backs img { width: 34px; height: 48px; margin-left: -26px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.backs img:first-child { margin-left: 0; }
+.tags { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: rgba(0,0,0,.32); color: var(--felt-ink); }
+.tag.gold { background: var(--gold); color: #3b2a00; font-weight: 600; }
+.tag.bad { background: #b91c1c; color: #fff; }
+.tag.blue { background: #2563eb; color: #fff; }
+.bubble { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); background: #fff; color: #1f2933; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 12px; box-shadow: 0 3px 10px rgba(0,0,0,.3); white-space: nowrap; animation: pop .3s cubic-bezier(.2,1.4,.4,1); z-index: 3; }
+.bubble.hot { background: #ef4444; color: #fff; }
+@keyframes pop { from { transform: translateX(-50%) scale(.4); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+.center { grid-area: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; position: relative; }
+.pile-wrap { position: relative; min-height: 120px; min-width: 200px; display: grid; place-items: center; }
+.pile, .pile-under { display: flex; justify-content: center; }
+.pile-under { position: absolute; transform: translateY(-14px) scale(.82); opacity: .35; filter: grayscale(.4); }
+.pile img, .pile-under img { width: 74px; height: 104px; margin-left: -32px; border-radius: 6px; box-shadow: 0 3px 8px rgba(0,0,0,.45); }
+.pile img:first-child, .pile-under img:first-child { margin-left: 0; }
+.pile-label { font-size: 13px; color: var(--felt-muted); min-height: 20px; }
+.pile-label b { color: var(--felt-ink); }
+.banner { background: rgba(0,0,0,.35); padding: 6px 14px; border-radius: 999px; font-size: 13px; }
+.banner.gold { background: var(--gold); color: #3b2a00; font-weight: 600; animation: glow 1.6s ease-in-out infinite; }
+.banner.hot { background: #ef4444; color: #fff; font-weight: 600; animation: glow 1s ease-in-out infinite; }
+@keyframes glow { 50% { box-shadow: 0 0 18px rgba(245,197,66,.8); } }
+.handzone { grid-area: hand; display: flex; flex-direction: column; align-items: center; gap: 8px; border-radius: 16px; padding: 8px 4px 6px; transition: background .25s ease, box-shadow .25s ease; position: relative; z-index: 2; }
+.handzone.active { background: rgba(245,197,66,.08); box-shadow: 0 0 0 2px rgba(245,197,66,.6); }
+.me-line { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.me-line .avatar { width: 40px; height: 40px; font-size: 14px; }
+.hand { display: flex; justify-content: center; padding-top: 24px; max-width: 100%; perspective: 900px; }
+.hand button { border: 0; padding: 0; background: none; cursor: pointer; margin-left: -38px; transition: transform .15s ease; border-radius: 6px; }
+.hand button:first-child { margin-left: 0; }
+.hand button img { width: 84px; height: 118px; display: block; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,.4); transition: box-shadow .15s ease; }
+.hand button:hover { transform: translateY(-8px); }
+.hand button.sel { transform: translateY(-24px); }
+.hand button.sel img { box-shadow: 0 0 0 3px var(--gold), 0 6px 14px rgba(0,0,0,.5); }
+.hand button.must img { box-shadow: 0 0 0 3px #60a5fa, 0 2px 5px rgba(0,0,0,.4); }
+.hand button.gone { visibility: hidden; }
+.hand button.deal-in { animation: flipIn .45s ease both; }
+@keyframes flipIn { from { transform: rotateY(90deg) translateY(10px); opacity: 0; } to { transform: rotateY(0) translateY(0); opacity: 1; } }
+.hand button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .seat.left .backs img:not(:first-child), .seat.right .backs img:not(:first-child) { display: none; }
+  .seat .name { font-size: 12px; max-width: 86px; } .avatar { width: 42px; height: 42px; font-size: 14px; }
+  .hand button { margin-left: -44px; } .hand button img { width: 62px; height: 87px; }
+  .pile img, .pile-under img { width: 54px; height: 76px; margin-left: -22px; }
+}
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+.actions button.b { min-width: 92px; }
+.felt button.b.ghost { color: var(--felt-ink); border-color: rgba(255,255,255,.5); }
+.felt button.b.danger { color: #fecaca; border-color: #fca5a5; }
+#btnPlay.hot { background: #ef4444; border-color: #ef4444; color: #fff; animation: glow 1s ease-in-out infinite; }
+.timer { width: 240px; height: 6px; background: rgba(0,0,0,.3); border-radius: 3px; overflow: hidden; }
+.timer i { display: block; height: 100%; background: var(--gold); transition: width .25s linear; }
+.timer.low i { background: #ef4444; }
+.log { max-height: 560px; overflow: auto; font-size: 12.5px; }
+.log div { padding: 4px 0; border-bottom: 1px dashed var(--line); animation: fadeIn .3s ease; }
+.log .me { color: var(--accent); font-weight: 600; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } }
+
+/* Hiệu ứng */
+#fx { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
+#fx img.fly { position: fixed; border-radius: 5px; box-shadow: 0 4px 12px rgba(0,0,0,.45); will-change: transform; }
+.burst { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); font: 900 64px/1 system-ui, sans-serif; color: #fff; letter-spacing: 2px;
+  text-shadow: 0 0 18px #ef4444, 0 0 36px #f97316, 0 4px 0 #7f1d1d; pointer-events: none; z-index: 5; white-space: nowrap; }
+.burst.gold { text-shadow: 0 0 18px #f5c542, 0 0 36px #f59e0b, 0 4px 0 #78350f; }
+.confetti { position: fixed; width: 8px; height: 12px; border-radius: 2px; z-index: 45; pointer-events: none; }
+.felt.flash::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, rgba(239,68,68,.35), transparent 70%); animation: flash .6s ease forwards; z-index: 0; }
+@keyframes flash { to { opacity: 0; } }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2933; color: #fff; padding: 9px 16px; border-radius: 8px; z-index: 60; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.3); max-width: 90vw; animation: fadeIn .2s ease; }
+.toast.bad { background: #b91c1c; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; animation: fadeIn .2s ease; }
+.modal .card { width: min(760px, 100%); max-height: 90vh; overflow: auto; margin: 0; animation: zoomIn .35s cubic-bezier(.2,1.3,.4,1); }
+@keyframes zoomIn { from { transform: scale(.85); opacity: 0; } }
+.big { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
+.mini { display: flex; flex-wrap: wrap; gap: 2px; }
+.mini img { width: 28px; height: 40px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { *, *::before { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Tiến lên miền Nam · chơi thử</h1>
+  <span id="hdrUser" class="chip hidden"></span>
+  <span id="hdrPoints" class="chip ok hidden"></span>
+  <button id="btnLogout" class="b ghost sm hidden" type="button">Đăng xuất</button>
+</header>
+
+<main>
+  <!-- Đăng nhập -->
+  <section id="vLogin" class="hidden">
+    <div class="card login-box">
+      <h2>Đăng nhập tài khoản khách để chơi</h2>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="true" data-tab="pw">Mật khẩu</button>
+        <button type="button" role="tab" aria-selected="false" data-tab="otp">OTP Zalo</button>
+      </div>
+      <form id="fPw">
+        <div class="row"><label class="f" style="flex:1">Số điện thoại<input name="phone" inputmode="tel" placeholder="09xxxxxxxx" required></label></div>
+        <div class="row"><label class="f" style="flex:1">Mật khẩu<input name="password" type="password" required></label></div>
+        <button class="b" type="submit" style="width:100%">Đăng nhập</button>
+      </form>
+      <form id="fOtp" class="hidden">
+        <div class="row" style="align-items:flex-end"><label class="f" style="flex:1">Số điện thoại<input name="phone" inputmode="tel" placeholder="09xxxxxxxx" required></label>
+          <button class="b ghost" type="button" id="btnSendOtp">Gửi OTP</button></div>
+        <div class="row"><label class="f" style="flex:1">Mã OTP<input name="otp" inputmode="numeric" maxlength="6"></label></div>
+        <button class="b" type="submit" style="width:100%">Xác nhận</button>
+      </form>
+      <p class="err" id="loginErr"></p>
+    </div>
+  </section>
+
+  <!-- Sảnh -->
+  <section id="vLobby" class="hidden">
+    <p id="disabledNote" class="card hidden" style="color:var(--warn)">Game đang tắt. Bật trong Filament → Tiến lên — Ván chơi → Cài đặt Tiến lên.</p>
+    <div class="lobby">
+      <div>
+        <div class="card">
+          <h2>Chơi với người</h2>
+          <div class="row">
+            <span class="muted">Số chỗ:</span>
+            <div class="seg" id="maxSeg">
+              <button type="button" data-v="2" aria-pressed="false">2</button>
+              <button type="button" data-v="3" aria-pressed="false">3</button>
+              <button type="button" data-v="4" aria-pressed="true">4</button>
+            </div>
+            <label class="inline"><input type="checkbox" id="chkPublic" checked> Công khai</label>
+            <button class="b" type="button" id="btnCreateRoom">Tạo phòng</button>
+          </div>
+          <div class="row">
+            <input id="inpCode" class="mono" placeholder="Mã phòng" maxlength="8" style="width:140px;text-transform:uppercase">
+            <button class="b ghost" type="button" id="btnJoin">Vào phòng</button>
+            <button class="b ghost" type="button" id="btnQuick">Ghép nhanh</button>
+            <button class="b ghost hidden" type="button" id="btnBackRoom">Quay lại phòng</button>
+          </div>
+          <table><thead><tr><th>Phòng công khai đang chờ</th><th>Chủ phòng</th><th>Người</th><th></th></tr></thead><tbody id="publicBody"></tbody></table>
+        </div>
+        <div class="card">
+          <h2>Chơi với máy</h2>
+          <div class="row">
+            <span class="muted">Số máy:</span>
+            <div class="seg" id="botSeg">
+              <button type="button" data-v="1" aria-pressed="false">1</button>
+              <button type="button" data-v="2" aria-pressed="false">2</button>
+              <button type="button" data-v="3" aria-pressed="true">3</button>
+            </div>
+            <button class="b" type="button" id="btnStart">Chia bài</button>
+            <button class="b ghost hidden" type="button" id="btnResume">Chơi tiếp ván dở</button>
+          </div>
+          <div class="points-grid" id="pointsGrid"></div>
+          <p class="note" id="capNote"></p>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>Đổi điểm lấy voucher</h2>
+          <table><thead><tr><th>Quà</th><th>Điểm</th><th></th></tr></thead><tbody id="rewardBody"></tbody></table>
+          <p class="note" id="rewardNote"></p>
+        </div>
+        <div class="card">
+          <h2>Lịch sử ván</h2>
+          <table><thead><tr><th>Lúc</th><th>Chế độ</th><th>Về</th><th>Điểm thưởng</th></tr></thead><tbody id="historyBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Phòng chờ -->
+  <section id="vRoom" class="hidden">
+    <div class="card">
+      <h2><span>Phòng chờ <span id="roomPublic" class="badge"></span></span><button class="b danger sm" type="button" id="btnLeaveRoom">Rời phòng</button></h2>
+      <div class="row">
+        <span class="room-code" id="roomCode"></span>
+        <button class="b ghost sm" type="button" id="btnCopyCode">Sao chép mã</button>
+        <span class="note" style="margin:0">Gửi mã cho người khác, hoặc mở tab khác bằng tài khoản khác (từ /game-tester → 6. Tiến lên) rồi nhập mã.</span>
+      </div>
+      <div class="seats-grid" id="roomSeats"></div>
+      <div class="row">
+        <button class="b" type="button" id="btnReady">Sẵn sàng</button>
+        <button class="b" type="button" id="btnRoomStart">Bắt đầu</button>
+        <span class="note" id="roomHint" style="margin:0"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bàn chơi -->
+  <section id="vGame" class="hidden">
+    <div class="game">
+      <div class="felt" id="felt">
+        <div class="seat top hidden" data-pos="top"></div>
+        <div class="seat left hidden" data-pos="left"></div>
+        <div class="seat right hidden" data-pos="right"></div>
+        <div class="center" id="center">
+          <div id="banner"></div>
+          <div class="pile-wrap"><div class="pile-under" id="pileUnder"></div><div class="pile" id="pile"></div></div>
+          <div class="pile-label" id="pileLabel"></div>
+        </div>
+        <div class="handzone" id="handzone">
+          <div class="me-line" id="meLine"></div>
+          <div class="timer hidden" id="timer"><i></i></div>
+          <div class="hand" id="hand"></div>
+          <div class="actions">
+            <button class="b" type="button" id="btnPlay">Đánh</button>
+            <button class="b ghost" type="button" id="btnPass">Bỏ lượt</button>
+            <button class="b ghost" type="button" id="btnHint">Gợi ý</button>
+            <button class="b ghost" type="button" id="btnClear">Bỏ chọn</button>
+            <button class="b danger sm" type="button" id="btnForfeit">Bỏ ván</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Diễn biến <span class="badge" id="modeBadge"></span></h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="fx" aria-hidden="true"></div>
+
+<div class="modal hidden" id="resultModal">
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <p class="big" id="resultTitle"></p>
+    <p class="note" id="resultSub"></p>
+    <table><thead><tr><th>Người chơi</th><th>Hạng</th><th>Điểm ván</th><th>Điểm thưởng</th><th>Bài còn lại</th></tr></thead><tbody id="resultBody"></tbody></table>
+    <div id="resultExtra" class="note" style="margin-top:10px"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="b ghost" type="button" id="btnLobby">Về sảnh</button>
+      <button class="b" type="button" id="btnAgain">Ván mới</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const CARD_DIR = '/images/tien-len/cards/';
+  const BACK = CARD_DIR + '2B.svg';
+  const TOKEN_KEY = 'tien_len_tester_token';
+  const POS = { 2: { 1: 'top' }, 3: { 1: 'right', 2: 'left' }, 4: { 1: 'right', 2: 'top', 3: 'left' } };
+  const COLORS = ['#0f766e', '#7c3aed', '#c2410c', '#2563eb', '#be185d', '#4d7c0f'];
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, REDUCED ? 0 : ms));
+  const img = (code) => CARD_DIR + code.replace('10', 'T') + '.svg';
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  // Token lưu theo TỪNG TAB (sessionStorage) để mỗi tab chơi bằng 1 tài khoản khác nhau
+  const store = { get() { try { return sessionStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }, set(v) { try { v ? sessionStorage.setItem(TOKEN_KEY, v) : sessionStorage.removeItem(TOKEN_KEY); } catch (e) {} } };
+
+  const S = {
+    token: store.get(), me: null, overview: null,
+    mode: null, roomId: null, room: null, matchId: null, lastEv: 0, ackMatch: undefined,
+    state: null, view: null, busy: false, selected: new Set(), hints: null, hintIdx: -1,
+    bots: 3, maxPlayers: 4, pollTimer: null, lobbyTimer: null, tick: null, refresh: null, polling: false, epoch: 0,
+  };
+
+  // ---------- API ----------
+  async function api(method, path, body) {
+    const res = await fetch('/api' + path, {
+      method,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (res.status === 401 && path !== '/auth/login') { logout(true); throw new Error('Phiên đăng nhập đã hết.'); }
+    return { status: res.status, ok: res.ok, data };
+  }
+  const msgOf = (r) => r.data?.message || Object.values(r.data?.errors || {})[0]?.[0] || ('Lỗi ' + r.status);
+
+  function toast(text, bad) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (bad ? ' bad' : '');
+    t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+
+  function show(viewId) {
+    for (const id of ['vLogin', 'vLobby', 'vRoom', 'vGame']) $(id).classList.toggle('hidden', id !== viewId);
+    for (const id of ['hdrUser', 'btnLogout', 'hdrPoints']) $(id).classList.toggle('hidden', !S.me);
+    if (viewId !== 'vLobby') { clearInterval(S.lobbyTimer); S.lobbyTimer = null; }
+  }
+
+  // ---------- Đăng nhập ----------
+  function saveToken(t) { S.token = t; store.set(t); }
+
+  async function afterLogin() {
+    const r = await api('GET', '/auth/me');
+    if (!r.ok) { saveToken(null); S.me = null; show('vLogin'); return; }
+    S.me = r.data?.user || r.data?.data || r.data;
+    $('hdrUser').innerHTML = 'Khách <b>' + esc(S.me.fullname || S.me.phone || '') + '</b>';
+    const ov = await api('GET', '/games/tien-len');
+    if (ov.ok && ov.data.data.current_room_id) return openRoom(ov.data.data.current_room_id);
+    await loadLobby();
+  }
+
+  function logout(expired) {
+    if (S.token && !expired) fetch('/api/auth/logout', { method: 'POST', headers: { Accept: 'application/json', Authorization: 'Bearer ' + S.token } }).catch(() => {});
+    stopPoll(); stopTimer();
+    saveToken(null); S.me = null; S.state = null;
+    show('vLogin');
+  }
+
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+    $('fPw').classList.toggle('hidden', b.dataset.tab !== 'pw');
+    $('fOtp').classList.toggle('hidden', b.dataset.tab !== 'otp');
+    $('loginErr').textContent = '';
+  }));
+
+  $('fPw').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const r = await api('POST', '/auth/login', { phone: f.get('phone').trim(), password: f.get('password') });
+    if (!r.ok) { $('loginErr').textContent = msgOf(r); return; }
+    saveToken(r.data.token);
+    await afterLogin();
+  });
+
+  $('btnSendOtp').addEventListener('click', async () => {
+    const r = await api('POST', '/auth/send-otp', { phone: $('fOtp').phone.value.trim() });
+    $('loginErr').textContent = r.ok ? '' : msgOf(r);
+    if (r.ok) toast(r.data.message || 'Đã gửi OTP');
+  });
+
+  $('fOtp').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const r = await api('POST', '/auth/verify-otp', { phone: f.get('phone').trim(), otp: f.get('otp').trim() });
+    if (!r.ok) { $('loginErr').textContent = msgOf(r); return; }
+    if (r.data.is_new_user) { $('loginErr').textContent = 'Số này chưa có tài khoản — hãy đăng ký trên app trước.'; return; }
+    saveToken(r.data.token);
+    await afterLogin();
+  });
+
+  $('btnLogout').addEventListener('click', () => logout(false));
+
+  // ---------- Sảnh ----------
+  function segPick(segId, key) {
+    $(segId).addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      S[key] = +b.dataset.v;
+      $(segId).querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    });
+  }
+  segPick('botSeg', 'bots');
+  segPick('maxSeg', 'maxPlayers');
+
+  async function loadLobby() {
+    stopPoll();
+    S.mode = null; S.state = null;
+    const [ov, hist, rw] = await Promise.all([api('GET', '/games/tien-len'), api('GET', '/games/tien-len/matches'), api('GET', '/games/points/rewards')]);
+    if (!ov.ok) { toast(msgOf(ov), true); show('vLogin'); return; }
+    const o = S.overview = ov.data.data;
+    setPoints(o.balance);
+    $('disabledNote').classList.toggle('hidden', o.is_enabled);
+    for (const id of ['btnStart', 'btnCreateRoom', 'btnJoin', 'btnQuick']) $(id).disabled = !o.is_enabled;
+    $('btnResume').classList.toggle('hidden', !o.current_match_id);
+    $('btnBackRoom').classList.toggle('hidden', !o.current_room_id);
+    $('btnBackRoom').dataset.id = o.current_room_id || '';
+
+    const p = o.points;
+    $('pointsGrid').innerHTML = [['Nhất', p.first], ['Nhì', p.second], ['Ba', p.third], ['Bét', p.last]]
+      .map(([k, v]) => `<div><span class="muted">${k}</span><b>${v}</b></div>`).join('');
+    $('capNote').textContent = `Mỗi lần chặt +${p.chop_bonus} · Cóng / bỏ ván / rời bàn: 0 điểm · Hôm nay ${o.earned_today}`
+      + (o.daily_points_cap ? `/${o.daily_points_cap}` : '') + ` điểm · ${o.turn_seconds} giây mỗi lượt`;
+
+    const rows = (hist.data?.data || []).slice(0, 10);
+    $('historyBody').innerHTML = rows.length ? rows.map((m) => `<tr><td>${esc(m.created_at?.slice(5, 16))}</td>
+      <td>${m.mode === 'room' ? 'Phòng' : 'Với máy'} · ${m.player_count} người</td>
+      <td>${esc(m.rank_label || '—')}${m.player_status === 'left' ? ' <span class="muted">(rời)</span>' : ''}${m.status === 'abandoned' ? ' <span class="muted">(bỏ)</span>' : ''}</td><td>${m.reward_points}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">Chưa có ván nào.</td></tr>';
+
+    const rewards = rw.data?.data || [];
+    $('rewardBody').innerHTML = rewards.length ? rewards.map((x) => `<tr><td><b>${esc(x.name)}</b><br><span class="muted">${x.coupon_type === 'percentage' ? (+x.coupon_value) + '%' : Number(x.coupon_value).toLocaleString('vi-VN') + 'đ'}
+      · hạn ${x.validity_days} ngày${x.remaining !== null ? ' · còn ' + x.remaining : ''}</span></td><td>${x.points_cost}</td>
+      <td><button class="b sm" type="button" data-redeem="${x.id}" ${x.can_redeem ? '' : 'disabled'}>Đổi</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="muted">Chưa có quà. Thêm ở Filament → Điểm game — Quà đổi.</td></tr>';
+
+    show('vLobby');
+    loadPublicRooms();
+    S.lobbyTimer = setInterval(loadPublicRooms, 4000);
+  }
+
+  async function loadPublicRooms() {
+    const r = await api('GET', '/games/tien-len/rooms');
+    const list = r.data?.data || [];
+    $('publicBody').innerHTML = list.length ? list.map((x) => `<tr><td class="mono">${esc(x.code)}</td><td>${esc(x.host || '—')}</td>
+      <td>${x.players}/${x.max_players}</td><td><button class="b sm" type="button" data-join="${esc(x.code)}">Vào</button></td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">Chưa có phòng nào — tạo phòng hoặc bấm Ghép nhanh.</td></tr>';
+  }
+
+  function setPoints(balance) { $('hdrPoints').innerHTML = 'Điểm <b>' + balance + '</b>'; }
+
+  $('rewardBody').addEventListener('click', async (e) => {
+    const id = e.target.dataset?.redeem;
+    if (!id) return;
+    e.target.disabled = true;
+    const r = await api('POST', `/games/points/rewards/${id}/redeem`);
+    if (!r.ok) { toast(msgOf(r), true); e.target.disabled = false; return; }
+    $('rewardNote').innerHTML = `Đã đổi: mã <b class="mono">${esc(r.data.data.coupon.code)}</b> (vào ví voucher của khách).`;
+    await loadLobby();
+  });
+
+  $('publicBody').addEventListener('click', (e) => { const c = e.target.dataset?.join; if (c) joinRoom(c); });
+  $('btnJoin').addEventListener('click', () => joinRoom($('inpCode').value.trim()));
+  $('inpCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom($('inpCode').value.trim()); });
+  $('btnQuick').addEventListener('click', () => roomCall('POST', '/games/tien-len/rooms/quick-join', { max_players: S.maxPlayers }));
+  $('btnCreateRoom').addEventListener('click', () => roomCall('POST', '/games/tien-len/rooms', { max_players: S.maxPlayers, is_public: $('chkPublic').checked }));
+  $('btnBackRoom').addEventListener('click', () => openRoom($('btnBackRoom').dataset.id));
+
+  function joinRoom(code) { if (code) roomCall('POST', '/games/tien-len/rooms/join', { code }); }
+
+  async function roomCall(method, path, body) {
+    const r = await api(method, path, body);
+    if (!r.ok) { toast(msgOf(r), true); return; }
+    openRoom(r.data.data.room.id);
+  }
+
+  $('btnStart').addEventListener('click', () => startBotMatch());
+  $('btnResume').addEventListener('click', async () => {
+    const r = await api('GET', '/games/tien-len/matches/current');
+    if (!r.ok || !r.data.data) { toast('Không còn ván dở.', true); return loadLobby(); }
+    S.mode = 'bot'; S.lastEv = 0;
+    enterTable(r.data.data.state, [], false);
+  });
+
+  async function startBotMatch() {
+    if (S.busy) return;
+    S.busy = true;
+    const btns = [$('btnStart'), $('btnAgain')];
+    btns.forEach((b) => { b.disabled = true; b.dataset.label = b.textContent; b.textContent = 'Đang chia bài…'; });
+    const r = await api('POST', '/games/tien-len/matches', { bots: S.bots }).finally(() => {
+      S.busy = false;
+      btns.forEach((b) => { b.disabled = false; b.textContent = b.dataset.label; });
+    });
+    if (!r.ok) { toast(msgOf(r), true); return; }
+    S.mode = 'bot'; S.lastEv = 0;
+    enterTable(r.data.data.state, r.data.data.events, true);
+  }
+
+  // ---------- Phòng ----------
+  function stopPoll() { clearInterval(S.pollTimer); S.pollTimer = null; }
+
+  async function openRoom(id) {
+    stopPoll();
+    S.mode = 'room'; S.roomId = id; S.matchId = null; S.lastEv = 0; S.ackMatch = undefined; S.state = null;
+    $('log').innerHTML = '';
+    await pollRoom(true);
+    S.pollTimer = setInterval(() => pollRoom(false), 1300);
+  }
+
+  async function pollRoom(force) {
+    if (S.mode !== 'room' || (!force && (S.busy || S.polling))) return;
+    S.polling = true;
+    const epoch = S.epoch;
+    try {
+      const r = await api('GET', `/games/tien-len/rooms/${S.roomId}?after=${S.lastEv}`);
+      // Trong lúc chờ phản hồi mình vừa bấm Bắt đầu / Đánh ⇒ phản hồi này đã cũ, bỏ qua
+      if (epoch !== S.epoch || S.busy) return;
+      if (r.status === 404) { stopPoll(); toast('Bạn không còn ở trong phòng.', true); return loadLobby(); }
+      if (r.ok) await handleRoom(r.data.data);
+    } finally { S.polling = false; }
+  }
+
+  async function handleRoom(d) {
+    S.room = d.room;
+    const m = d.match;
+    // Lần đầu vào phòng: ván đã xong từ trước thì không hiện lại kết quả
+    if (S.ackMatch === undefined) S.ackMatch = m && m.status !== 'playing' ? m.id : null;
+
+    if (m && S.matchId && m.id !== S.matchId) {
+      // Ván mới bắt đầu: lấy lại sự kiện từ đầu ván
+      S.matchId = m.id; S.lastEv = 0; S.state = null;
+      S.polling = false;
+      return pollRoom(true);
+    }
+    if (m) S.matchId = m.id;
+
+    const showTable = m && (m.status === 'playing' || m.id !== S.ackMatch);
+    if (!showTable) { renderRoom(); show('vRoom'); return; }
+
+    const evs = d.events.filter((e) => e.event_no > S.lastEv);
+    if (!S.state || S.state.id !== m.id) {
+      const fromDeal = evs.length && evs[0].type === 'deal';
+      if (fromDeal && evs.length < 40) return enterTable(m, evs, true);
+      S.lastEv = Math.max(S.lastEv, m.event_count);
+      return enterTable(m, [], false); // vào giữa ván: không chạy lại cả ván
+    }
+    if (evs.length) return runEvents(evs, m);
+    if (m.seq !== S.state.seq || JSON.stringify(m.players) !== JSON.stringify(S.state.players) || m.can_chop_out_of_turn !== S.state.can_chop_out_of_turn) {
+      S.state = m; S.view = freshView(m); renderTable(); renderControls();
+    }
+  }
+
+  function renderRoom() {
+    const r = S.room;
+    $('roomCode').textContent = r.code;
+    $('roomPublic').textContent = r.is_public ? 'Công khai' : 'Riêng tư';
+    $('roomSeats').innerHTML = r.seats.map((s) => {
+      if (s.empty) {
+        return `<div class="seat-box empty"><span>Ghế ${s.seat + 1} trống</span>${r.is_host ? `<button class="b ghost sm" type="button" data-bot="1">+ Mời bot</button>` : '<span class="note">Đang chờ người vào…</span>'}</div>`;
+      }
+      return `<div class="seat-box ${s.is_me ? 'me' : ''} ${s.is_ready ? 'ready' : ''}">
+        ${avatarHtml(s.name, s.seat, s.is_bot, s.is_host)}
+        <span class="nm">${esc(s.is_me ? s.name + ' (bạn)' : s.name)}</span>
+        <span>${s.is_bot ? '<span class="badge">Bot</span>' : `<span class="dot ${s.online ? 'on' : ''}"></span> ${s.online ? 'online' : 'mất kết nối'}`}</span>
+        <span class="badge ${s.is_ready ? 'good' : 'warn'}">${s.is_host ? 'Chủ phòng' : s.is_ready ? 'Sẵn sàng' : 'Chưa sẵn sàng'}</span>
+        ${r.is_host && !s.is_me ? `<button class="b danger sm" type="button" data-kick="${s.seat}">Mời ra</button>` : ''}
+      </div>`;
+    }).join('');
+    const filled = r.seats.filter((s) => !s.empty).length;
+    $('btnReady').classList.toggle('hidden', r.is_host);
+    $('btnReady').textContent = r.is_ready ? 'Huỷ sẵn sàng' : 'Sẵn sàng';
+    $('btnRoomStart').classList.toggle('hidden', !r.is_host);
+    $('btnRoomStart').disabled = !r.can_start;
+    $('roomHint').textContent = r.is_host
+      ? (filled < 2 ? 'Cần ít nhất 2 người hoặc bot.' : r.can_start ? 'Mọi người đã sẵn sàng.' : 'Đợi mọi người bấm Sẵn sàng.')
+      : (r.is_ready ? 'Đợi chủ phòng bắt đầu…' : 'Bấm Sẵn sàng để chủ phòng bắt đầu.');
+  }
+
+  $('roomSeats').addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const r = b.dataset.kick !== undefined
+      ? await api('DELETE', `/games/tien-len/rooms/${S.roomId}/seats/${b.dataset.kick}`)
+      : await api('POST', `/games/tien-len/rooms/${S.roomId}/bots`, { count: 1 });
+    if (!r.ok) toast(msgOf(r), true);
+    pollRoom(true);
+  });
+  $('btnReady').addEventListener('click', async () => {
+    const r = await api('POST', `/games/tien-len/rooms/${S.roomId}/ready`, { ready: !S.room.is_ready });
+    if (!r.ok) toast(msgOf(r), true);
+    pollRoom(true);
+  });
+  $('btnRoomStart').addEventListener('click', async () => {
+    $('btnRoomStart').disabled = true;
+    S.epoch++;
+    const r = await api('POST', `/games/tien-len/rooms/${S.roomId}/start`);
+    if (!r.ok) { toast(msgOf(r), true); return pollRoom(true); }
+    S.room = r.data.data.room; S.matchId = r.data.data.match.id; S.lastEv = 0;
+    $('log').innerHTML = '';
+    enterTable(r.data.data.match, r.data.data.events, true);
+  });
+  $('btnLeaveRoom').addEventListener('click', leaveRoom);
+  $('btnCopyCode').addEventListener('click', () => { navigator.clipboard?.writeText(S.room.code).then(() => toast('Đã sao chép mã ' + S.room.code)); });
+
+  async function leaveRoom() {
+    stopPoll();
+    await api('POST', `/games/tien-len/rooms/${S.roomId}/leave`);
+    $('resultModal').classList.add('hidden');
+    loadLobby();
+  }
+
+  // ---------- Bàn chơi ----------
+  function nameOf(seat) {
+    if (seat === undefined || seat === null) return '';
+    if (S.state && seat === S.state.my_seat) return 'Bạn';
+    return S.state?.players?.[seat]?.name || ('Máy ' + seat);
+  }
+  function initials(name) { return (name || '?').replace(/^\[DEMO\]\s*/, '').trim().split(/\s+/).slice(-1)[0].slice(0, 2).toUpperCase(); }
+  function avatarHtml(name, seat, isBot, crown) {
+    const color = isBot ? '#475569' : COLORS[seat % COLORS.length];
+    return `<div class="avatar">${crown ? '<span class="crown">👑</span>' : ''}<div class="face" style="background:${color}">${isBot ? '🤖' : esc(initials(name))}</div></div>`;
+  }
+  const posOf = (seat) => {
+    const s = S.state, rel = (seat - s.my_seat + s.player_count) % s.player_count;
+    return rel === 0 ? 'me' : POS[s.player_count][rel];
+  };
+  const seatEl = (seat) => posOf(seat) === 'me' ? $('handzone') : document.querySelector(`.seat[data-pos="${posOf(seat)}"]`);
+
+  function freshView(s) {
+    return {
+      counts: Object.fromEntries(s.players.map((p) => [p.seat, p.card_count])),
+      passed: new Set(s.players.filter((p) => p.passed).map((p) => p.seat)),
+      finished: Object.fromEntries(s.players.filter((p) => p.finished_place).map((p) => [p.seat, p.finished_place])),
+      cong: new Set(s.players.filter((p) => p.is_cong).map((p) => p.seat)),
+      pile: s.last_play ? { seat: s.last_play.seat, cards: s.last_play.cards, label: s.last_play.label } : null,
+      under: null, bubbles: {}, hand: s.my_hand, actor: s.actor_seat, dealing: false,
+    };
+  }
+
+  async function enterTable(state, events, isNew) {
+    $('resultModal').classList.add('hidden');
+    $('modeBadge').textContent = S.mode === 'room' ? 'Phòng ' + (S.room?.code || '') : 'Chơi với máy';
+    $('btnForfeit').textContent = S.mode === 'room' ? 'Rời bàn' : 'Bỏ ván';
+    show('vGame');
+    S.state = state;
+    S.view = freshView(state);
+    if (isNew) {
+      S.view.pile = null; S.view.passed = new Set(); S.view.finished = {}; S.view.cong = new Set();
+      for (const seat of Object.keys(S.view.counts)) S.view.counts[seat] = 0;
+      S.view.hand = []; S.view.dealing = true;
+      $('log').innerHTML = '';
+    }
+    renderTable();
+    await runEvents(events || [], state);
+  }
+
+  async function runEvents(events, finalState) {
+    S.busy = true;
+    renderControls();
+    const v = S.view;
+    let prevWasChop = false;
+    for (const e of events) {
+      if (e.event_no && e.event_no <= S.lastEv) continue;
+      logEvent(e);
+      const mine = e.seat === S.state.my_seat;
+      switch (e.type) {
+        case 'deal':
+          await animateDeal(finalState);
+          break;
+        case 'play': {
+          await animatePlay(e);
+          v.counts[e.seat] = e.left;
+          v.under = v.pile;
+          v.pile = { seat: e.seat, cards: e.cards, label: e.label, chop: e.chop };
+          v.passed.delete(e.seat);
+          v.bubbles = e.chop ? { [e.seat]: e.out_of_turn ? 'Chặt ngoài lượt!' : 'Chặt!' } : {};
+          if (mine) v.hand = v.hand.filter((c) => !e.cards.some((x) => x.id === c.id));
+          v.actor = null;
+          renderTable();
+          if (e.chop) { chopFx(prevWasChop ? 'CHẶT CHỒNG!' : 'CHẶT!'); }
+          prevWasChop = !!e.chop;
+          await sleep(mine ? 200 : 520);
+          break;
+        }
+        case 'pass': v.passed.add(e.seat); v.bubbles = { [e.seat]: e.auto ? 'Hết giờ · bỏ' : 'Bỏ lượt' }; renderTable(); await sleep(mine ? 150 : 420); break;
+        case 'decline_chop': v.bubbles = { [e.seat]: 'Không chặt' }; renderTable(); await sleep(300); break;
+        case 'round_end':
+          await sweepPile(e.leader);
+          v.pile = null; v.under = null; v.passed = new Set(); prevWasChop = false;
+          v.bubbles = { [e.leader]: e.inherited ? 'Hưởng sái' : 'Mở vòng' };
+          renderTable(); await sleep(350); break;
+        case 'finish':
+          v.finished[e.seat] = e.place; renderTable();
+          if (e.place === 1) confettiAt(seatEl(e.seat));
+          await sleep(300); break;
+        case 'cong': v.cong.add(e.seat); v.bubbles = { [e.seat]: 'Cóng!' }; renderTable(); await sleep(400); break;
+        case 'instant_win': v.bubbles = { [e.seat]: 'Tới trắng!' }; renderTable(); burst('TỚI TRẮNG!', true); confettiAt(seatEl(e.seat)); await sleep(900); break;
+        case 'left': v.bubbles = { [e.seat]: 'Rời bàn' }; renderTable(); await sleep(300); break;
+        case 'auto_on': v.bubbles = { [e.seat]: 'Bot đánh thay' }; renderTable(); await sleep(300); break;
+        default: break;
+      }
+      if (e.event_no) S.lastEv = Math.max(S.lastEv, e.event_no);
+    }
+    S.state = finalState;
+    S.view = Object.assign(freshView(finalState), { under: v.under && finalState.last_play ? v.under : null });
+    S.lastEv = Math.max(S.lastEv, finalState.event_count || 0);
+    S.selected.clear(); S.hints = null; S.hintIdx = -1;
+    S.busy = false;
+    renderTable();
+    renderControls();
+    if (finalState.status !== 'playing') showResult(finalState);
+  }
+
+  function logEvent(e) {
+    const who = e.seat !== undefined ? `<span class="${e.seat === S.state.my_seat ? 'me' : ''}">${esc(nameOf(e.seat))}</span>` : '';
+    const cards = (e.cards || []).map((c) => c.code).join(' ');
+    const line = {
+      deal: () => 'Chia bài. ' + (e.must_include ? `${esc(nameOf(e.seat))} đi trước, phải đánh kèm ${e.must_include.code}.` : `${esc(nameOf(e.seat))} về nhất ván trước nên đi trước.`),
+      play: () => `${who} đánh ${esc(e.label || '')}: <b>${esc(cards)}</b>${e.chop ? ' — chặt' : ''}${e.out_of_turn ? ' ngoài lượt' : ''}${e.auto ? ' (hết giờ)' : ''}`,
+      pass: () => `${who} bỏ lượt${e.auto ? ' (hết giờ)' : ''}`,
+      decline_chop: () => `${who} không chặt ngoài lượt`,
+      round_end: () => `— Hết vòng, ${esc(nameOf(e.leader))} mở vòng mới${e.inherited ? ' (hưởng sái)' : ''}`,
+      chop_settled: () => `${esc(nameOf(e.chopper))} ăn ${e.units} của ${esc(nameOf(e.victim))} (tiền chặt)`,
+      finish: () => `${who} hết bài, về thứ ${e.place}`,
+      cong: () => `${who} bị cóng`,
+      instant_win: () => `${who} tới trắng: ${esc(e.label)}`,
+      forfeit: () => `${who} bỏ ván`,
+      left: () => `${who} rời bàn — bot đánh thay`,
+      auto_on: () => `${who} treo máy — bot đánh thay`,
+      back: () => `${who} đã quay lại`,
+      game_end: () => '— Kết thúc ván',
+    }[e.type]?.();
+    if (!line) return;
+    const d = document.createElement('div');
+    d.innerHTML = line;
+    $('log').prepend(d);
+  }
+
+  function renderTable() {
+    const s = S.state, v = S.view, n = s.player_count;
+    document.querySelectorAll('.seat').forEach((el) => el.classList.add('hidden'));
+    for (const p of s.players) {
+      if (p.seat === s.my_seat) continue;
+      const el = document.querySelector(`.seat[data-pos="${posOf(p.seat)}"]`);
+      const count = v.counts[p.seat] ?? 0;
+      const tags = [];
+      if (v.finished[p.seat]) tags.push(`<span class="tag gold">Về thứ ${v.finished[p.seat]}</span>`);
+      if (v.cong.has(p.seat)) tags.push('<span class="tag bad">Cóng</span>');
+      if (v.passed.has(p.seat)) tags.push('<span class="tag">Bỏ lượt</span>');
+      if (p.has_left) tags.push('<span class="tag bad">Đã rời</span>');
+      else if (p.is_auto) tags.push('<span class="tag blue">Bot đánh thay</span>');
+      el.classList.remove('hidden');
+      el.classList.toggle('active', !v.dealing && v.actor === p.seat && s.status === 'playing');
+      el.classList.toggle('out', !!v.finished[p.seat] || v.cong.has(p.seat));
+      el.dataset.seat = p.seat;
+      el.innerHTML = `${v.bubbles[p.seat] ? `<span class="bubble ${/Chặt|Tới|Cóng/.test(v.bubbles[p.seat]) ? 'hot' : ''}">${esc(v.bubbles[p.seat])}</span>` : ''}
+        ${avatarHtml(p.name, p.seat, p.is_bot)}
+        <span class="name" title="${esc(p.name)}">${esc(p.name)}</span>
+        <div class="backs">${Array.from({ length: Math.min(count, 13) }, () => `<img src="${BACK}" alt="">`).join('')}</div>
+        <span class="count">${count} lá</span><div class="tags">${tags.join('')}</div>`;
+    }
+
+    const me = s.players.find((p) => p.seat === s.my_seat);
+    $('meLine').innerHTML = me ? `${avatarHtml(S.me?.fullname || me.name, me.seat, false)}<b>Bạn</b>
+      ${v.finished[me.seat] ? `<span class="tag gold">Về thứ ${v.finished[me.seat]}</span>` : ''}${v.cong.has(me.seat) ? '<span class="tag bad">Cóng</span>' : ''}
+      ${v.passed.has(me.seat) ? '<span class="tag">Đã bỏ lượt</span>' : ''}` : '';
+
+    $('pile').innerHTML = v.pile ? v.pile.cards.map((c) => `<img src="${img(c.code)}" alt="${esc(c.code)}">`).join('') : '';
+    $('pileUnder').innerHTML = v.under ? v.under.cards.map((c) => `<img src="${img(c.code)}" alt="">`).join('') : '';
+    $('pileLabel').innerHTML = v.pile ? `<b>${esc(nameOf(v.pile.seat))}</b> · ${esc(v.pile.label || '')}` : (s.status === 'playing' && !v.dealing ? 'Bàn trống — người mở vòng đánh bộ bất kỳ' : '');
+
+    let banner = '';
+    if (!S.busy && !v.dealing && s.status === 'playing') {
+      if (s.interrupt) banner = '<div class="banner hot">Bạn có 4 đôi thông — chặt ngoài lượt không?</div>';
+      else if (s.can_chop_out_of_turn) banner = '<div class="banner hot">Bạn có thể chặt ngoài lượt bằng 4 đôi thông!</div>';
+      else if (s.is_my_turn && s.must_include) banner = `<div class="banner gold">Ván đầu: bộ đầu tiên phải có lá ${esc(s.must_include.code)}</div>`;
+      else if (s.is_my_turn) banner = `<div class="banner gold">Tới lượt bạn${s.last_play ? '' : ' — mở vòng'}</div>`;
+      else if (s.actor_seat !== null) banner = `<div class="banner">Chờ ${esc(nameOf(s.actor_seat))}…</div>`;
+    }
+    if (v.bubbles[s.my_seat]) banner += `<div class="banner">${esc(v.bubbles[s.my_seat])}</div>`;
+    $('banner').innerHTML = banner;
+
+    $('handzone').classList.toggle('active', !S.busy && s.is_my_turn);
+    $('hand').innerHTML = v.hand.map((c, i) => `<button type="button" data-id="${c.id}" aria-pressed="${S.selected.has(c.id)}" aria-label="${esc(c.code)}"
+      class="${S.selected.has(c.id) ? 'sel' : ''} ${s.must_include && s.must_include.id === c.id ? 'must' : ''} ${v.justDealt ? 'deal-in' : ''}"
+      style="${v.justDealt ? `animation-delay:${i * 45}ms` : ''}"><img src="${img(c.code)}" alt=""></button>`).join('');
+    v.justDealt = false;
+  }
+
+  function renderControls() {
+    const s = S.state;
+    const live = !!s && !S.busy && s.status === 'playing';
+    const mine = live && s.is_my_turn;
+    const freeChop = live && s.can_chop_out_of_turn;
+    $('btnPlay').disabled = !(mine || freeChop) || S.selected.size === 0;
+    $('btnPlay').textContent = s?.interrupt ? 'Chặt' : (!mine && freeChop ? '⚡ Chặt ngoài lượt' : 'Đánh');
+    $('btnPlay').classList.toggle('hot', !mine && freeChop);
+    $('btnPass').disabled = !mine || !s.can_pass;
+    $('btnPass').textContent = s?.interrupt ? 'Không chặt' : 'Bỏ lượt';
+    $('btnHint').disabled = !(mine || freeChop);
+    $('btnClear').disabled = S.selected.size === 0;
+    $('btnForfeit').disabled = S.busy || !s || s.status !== 'playing';
+    startTimer();
+  }
+
+  $('hand').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-id]');
+    if (!b || S.busy) return;
+    const id = +b.dataset.id;
+    S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id);
+    renderTable(); renderControls();
+  });
+
+  $('btnClear').addEventListener('click', () => { S.selected.clear(); renderTable(); renderControls(); });
+
+  $('btnHint').addEventListener('click', async () => {
+    if (!S.hints) {
+      const r = await api('GET', `/games/tien-len/matches/${S.state.id}/hints`);
+      S.hints = r.ok ? r.data.data : [];
+    }
+    if (!S.hints.length) { toast('Không có bộ nào chặn được — hãy bỏ lượt.'); return; }
+    S.hintIdx = (S.hintIdx + 1) % S.hints.length;
+    S.selected = new Set(S.hints[S.hintIdx].cards.map((c) => c.id));
+    toast(`Gợi ý ${S.hintIdx + 1}/${S.hints.length}: ${S.hints[S.hintIdx].label}`);
+    renderTable(); renderControls();
+  });
+
+  $('btnPlay').addEventListener('click', () => act('play', { cards: [...S.selected], seq: S.state.seq }));
+  $('btnPass').addEventListener('click', () => act('pass', { seq: S.state.seq }));
+  $('btnForfeit').addEventListener('click', () => {
+    if (S.mode === 'room') { if (confirm('Rời bàn? Bot sẽ đánh thay bạn và bạn không có điểm ván này.')) leaveRoom(); return; }
+    if (confirm('Bỏ ván này? Ván bị xử thua và không có điểm.')) act('forfeit', {});
+  });
+
+  async function act(kind, body) {
+    if (S.busy) return;
+    S.busy = true; S.epoch++; renderControls();
+    const r = await api('POST', `/games/tien-len/matches/${S.state.id}/${kind}`, body);
+    S.busy = false;
+    if (r.status === 409 && r.data?.data) { toast(msgOf(r), true); await runEvents(r.data.data.events || [], r.data.data.state); return; }
+    if (!r.ok) { toast(msgOf(r), true); renderControls(); return; }
+    await runEvents(r.data.data.events, r.data.data.state);
+  }
+
+  // ---------- Đồng hồ lượt ----------
+  function stopTimer() { clearInterval(S.tick); clearTimeout(S.refresh); S.tick = S.refresh = null; }
+  function startTimer() {
+    stopTimer();
+    const s = S.state;
+    document.querySelectorAll('.avatar').forEach((a) => a.style.setProperty('--p', 0));
+    const bar = $('timer');
+    if (!s || S.busy || s.status !== 'playing' || !s.turn_deadline || s.actor_seat === null) { bar.classList.add('hidden'); return; }
+    const end = new Date(s.turn_deadline).getTime(), total = s.turn_seconds * 1000;
+    bar.classList.toggle('hidden', !s.is_my_turn);
+    const tick = () => {
+      // Tìm lại avatar mỗi nhịp vì bàn có thể vừa vẽ lại
+      const ring = s.actor_seat === s.my_seat ? $('meLine').querySelector('.avatar') : seatEl(s.actor_seat)?.querySelector('.avatar');
+      const left = Math.max(0, end - Date.now()), pct = left / total * 100;
+      bar.firstElementChild.style.width = pct + '%';
+      bar.classList.toggle('low', left < 5000);
+      if (ring) { ring.style.setProperty('--p', pct.toFixed(1)); ring.classList.toggle('low', left < 5000); }
+    };
+    tick();
+    S.tick = setInterval(tick, 200);
+    // Chơi với máy: hết giờ + 6 giây thì hỏi lại server để BE tự xử lý lượt. Phòng: vòng hỏi phòng định kỳ đã làm việc này.
+    if (S.mode === 'bot' && s.is_my_turn) {
+      S.refresh = setTimeout(async () => {
+        if (S.busy) return;
+        const r = await api('GET', `/games/tien-len/matches/${s.id}`);
+        if (r.ok) await runEvents(r.data.data.events, r.data.data.state);
+      }, Math.max(0, end - Date.now()) + 6000);
+    }
+  }
+
+  // ---------- Hiệu ứng ----------
+  function centerOf(el) { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+
+  function fly(src, from, to, { w = 74, h = 104, delay = 0, dur = 380, rot = 0, fromScale = 1, toScale = 1, fade = false } = {}) {
+    if (REDUCED) return Promise.resolve();
+    const el = document.createElement('img');
+    el.src = src; el.className = 'fly';
+    Object.assign(el.style, { width: w + 'px', height: h + 'px', left: (from.x - w / 2) + 'px', top: (from.y - h / 2) + 'px', opacity: delay ? 0 : 1 });
+    $('fx').appendChild(el);
+    const anim = el.animate([
+      { transform: `translate(0,0) rotate(0deg) scale(${fromScale})`, opacity: 1 },
+      { transform: `translate(${to.x - from.x}px,${to.y - from.y}px) rotate(${rot}deg) scale(${toScale})`, opacity: fade ? 0 : 1 },
+    ], { duration: dur, delay, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' });
+    return anim.finished.then(() => el.remove(), () => el.remove());
+  }
+
+  async function animateDeal(finalState) {
+    const s = S.state, v = S.view, n = s.player_count;
+    const from = centerOf($('pile'));
+    const targets = s.players.map((p) => (p.seat === s.my_seat ? centerOf($('hand')) : centerOf(seatEl(p.seat).querySelector('.backs') || seatEl(p.seat))));
+    const jobs = [];
+    for (let k = 0; k < 13; k++) {
+      for (let i = 0; i < n; i++) {
+        const seat = (s.players[i].seat);
+        const t = targets[i];
+        jobs.push(fly(BACK, from, { x: t.x + rand(-6, 6), y: t.y + rand(-4, 4) }, { w: 44, h: 62, dur: 260, delay: (k * n + i) * 16, rot: rand(-25, 25) })
+          .then(() => { v.counts[seat] = Math.min(13, (v.counts[seat] || 0) + 1); if (k % 3 === 2 || k === 12) renderSeatCounts(); }));
+      }
+    }
+    await Promise.all(jobs);
+    v.dealing = false;
+    v.hand = finalState.my_hand.length ? finalState.my_hand : v.hand;
+    // Bài trên tay của mình là bài lúc chia: lấy từ state cuối + các lá mình đã đánh (ván với máy, máy đánh trước thì tay mình chưa đổi)
+    v.justDealt = true;
+    renderTable();
+    await sleep(600);
+  }
+
+  function renderSeatCounts() {
+    for (const p of S.state.players) {
+      if (p.seat === S.state.my_seat) continue;
+      const el = seatEl(p.seat);
+      if (!el) continue;
+      const count = S.view.counts[p.seat] ?? 0;
+      el.querySelector('.backs').innerHTML = Array.from({ length: Math.min(count, 13) }, () => `<img src="${BACK}" alt="">`).join('');
+      el.querySelector('.count').textContent = count + ' lá';
+    }
+  }
+
+  async function animatePlay(e) {
+    const pile = centerOf($('pile'));
+    const n = e.cards.length, gap = Math.min(42, 300 / Math.max(n, 1));
+    const mine = e.seat === S.state.my_seat;
+    let from;
+    if (mine) {
+      from = e.cards.map((c) => {
+        const b = document.querySelector(`#hand button[data-id="${c.id}"]`);
+        const p = b ? centerOf(b) : centerOf($('hand'));
+        b?.classList.add('gone');
+        return p;
+      });
+    } else {
+      const el = seatEl(e.seat);
+      const p = centerOf(el?.querySelector('.avatar') || el);
+      from = e.cards.map(() => p);
+    }
+    $('pile').animate([{ opacity: 1 }, { opacity: 0.35 }], { duration: 250, fill: 'forwards' });
+    await Promise.all(e.cards.map((c, i) => fly(img(c.code), from[i], { x: pile.x + (i - (n - 1) / 2) * gap, y: pile.y }, {
+      delay: i * 45, dur: e.chop ? 300 : 420, rot: rand(-8, 8), fromScale: mine ? 1.1 : 0.45,
+    })));
+  }
+
+  async function sweepPile(leader) {
+    if (REDUCED || !$('pile').children.length) return;
+    const target = centerOf(seatEl(leader) || $('pile'));
+    const pile = centerOf($('pile'));
+    const dx = (target.x - pile.x) * 0.35, dy = (target.y - pile.y) * 0.35;
+    const anims = [...$('pile').children, ...$('pileUnder').children].map((el) => el.animate(
+      [{ transform: 'none', opacity: 1 }, { transform: `translate(${dx}px,${dy}px) scale(.6) rotate(${rand(-20, 20)}deg)`, opacity: 0 }],
+      { duration: 420, easing: 'ease-in', fill: 'forwards' }));
+    await Promise.all(anims.map((a) => a.finished.catch(() => {})));
+  }
+
+  function burst(text, gold) {
+    if (REDUCED) return;
+    const b = document.createElement('div');
+    b.className = 'burst' + (gold ? ' gold' : '');
+    b.textContent = text;
+    $('felt').appendChild(b);
+    b.animate([
+      { transform: 'translate(-50%,-50%) scale(.2) rotate(-12deg)', opacity: 0 },
+      { transform: 'translate(-50%,-50%) scale(1.25) rotate(4deg)', opacity: 1, offset: .35 },
+      { transform: 'translate(-50%,-50%) scale(1) rotate(0)', opacity: 1, offset: .7 },
+      { transform: 'translate(-50%,-60%) scale(1.05)', opacity: 0 },
+    ], { duration: 1100, easing: 'ease-out' }).finished.then(() => b.remove());
+  }
+
+  function chopFx(text) {
+    burst(text);
+    if (REDUCED) return;
+    const f = $('felt');
+    f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash');
+    f.animate([{ transform: 'translate(0,0)' }, { transform: 'translate(-8px,3px)' }, { transform: 'translate(7px,-4px)' }, { transform: 'translate(-5px,2px)' }, { transform: 'translate(3px,-1px)' }, { transform: 'translate(0,0)' }],
+      { duration: 420, easing: 'ease-out' });
+  }
+
+  function confettiAt(el) {
+    if (REDUCED || !el) return;
+    const o = centerOf(el);
+    const colors = ['#f5c542', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#fff'];
+    for (let i = 0; i < 46; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      Object.assign(c.style, { left: o.x + 'px', top: o.y + 'px', background: colors[i % colors.length] });
+      document.body.appendChild(c);
+      const ang = rand(0, Math.PI * 2), dist = rand(60, 220);
+      c.animate([
+        { transform: 'translate(0,0) rotate(0)', opacity: 1 },
+        { transform: `translate(${Math.cos(ang) * dist}px,${Math.sin(ang) * dist - 60}px) rotate(${rand(180, 720)}deg)`, opacity: 1, offset: .6 },
+        { transform: `translate(${Math.cos(ang) * dist * 1.1}px,${Math.sin(ang) * dist + 140}px) rotate(${rand(720, 1080)}deg)`, opacity: 0 },
+      ], { duration: rand(1100, 1700), easing: 'cubic-bezier(.2,.7,.4,1)' }).finished.then(() => c.remove());
+    }
+  }
+
+  // ---------- Kết quả ----------
+  function showResult(s) {
+    stopTimer();
+    const res = s.result, rw = res.reward || {};
+    $('resultTitle').textContent = res.instant_win
+      ? `${nameOf(res.instant_win.seat)} tới trắng — ${res.instant_win.label}`
+      : (res.my_rank_label ? `Bạn về ${res.my_rank_label.toLowerCase()}` : 'Kết thúc ván');
+    $('resultSub').textContent = s.status === 'abandoned' ? 'Ván bị huỷ / bỏ — không có điểm thưởng.'
+      : `+${res.reward_points} điểm (${rw.rank_points ?? 0} theo hạng + ${rw.chop_bonus ?? 0} thưởng chặt)${rw.daily_cap_reached ? ' — đã chạm trần điểm hôm nay' : ''}`;
+    $('resultBody').innerHTML = res.ranking.map((p) => `<tr><td>${p.rank === 1 ? '🏆 ' : ''}<b>${esc(p.seat === s.my_seat ? 'Bạn' : p.name)}</b>${p.has_left ? ' <span class="muted">(đã rời)</span>' : ''}</td>
+      <td>${esc(p.rank_label)}${p.is_cong ? ' · cóng' : ''}</td><td>${p.score > 0 ? '+' : ''}${p.score}</td>
+      <td>${p.reward_points === null ? '<span class="muted">bot</span>' : '+' + p.reward_points}</td>
+      <td><div class="mini">${(res.hands[p.seat] || []).map((c) => `<img src="${img(c.code)}" alt="${esc(c.code)}">`).join('') || '—'}</div></td></tr>`).join('');
+    const extra = [];
+    for (const c of res.chops) extra.push(`${nameOf(c.chopper)} chặt ${nameOf(c.victim)} (${c.units})`);
+    for (const p of res.penalties) {
+      const cards = p.cards.map((c) => c.code).join(' ');
+      extra.push(`${p.kind === 'cong' ? 'Cóng' : 'Thối'}: ${nameOf(p.seat)} đền ${nameOf(p.to)} ${p.units}${cards ? ` (${cards})` : ''}`);
+    }
+    $('resultExtra').textContent = extra.join(' · ');
+    $('btnAgain').textContent = S.mode === 'room' ? 'Về phòng' : 'Ván mới';
+    $('btnLobby').textContent = S.mode === 'room' ? 'Rời phòng' : 'Về sảnh';
+    $('resultModal').classList.remove('hidden');
+    if (res.my_rank === 1) setTimeout(() => confettiAt($('resultTitle')), 250);
+    api('GET', '/games/tien-len').then((r) => r.ok && setPoints(r.data.data.balance));
+  }
+
+  $('btnLobby').addEventListener('click', () => {
+    $('resultModal').classList.add('hidden');
+    S.mode === 'room' ? leaveRoom() : loadLobby();
+  });
+  $('btnAgain').addEventListener('click', () => {
+    $('resultModal').classList.add('hidden');
+    // Về phòng: lấy trạng thái phòng mới nhất (ghế, sẵn sàng đã bị reset sau ván) rồi mới vẽ — không dùng dữ liệu phòng từ trước ván
+    if (S.mode === 'room') { S.ackMatch = S.state.id; S.state = null; S.epoch++; pollRoom(true); return; }
+    S.bots = S.state.player_count - 1;
+    startBotMatch();
+  });
+
+  // ---------- Khởi động ----------
+  // Mở từ /game-tester: /tien-len-tester#ctok=TOKEN_KHÁCH ⇒ dùng token đó cho tab này, xoá hash khỏi thanh địa chỉ
+  const hashToken = new URLSearchParams(location.hash.slice(1)).get('ctok');
+  if (hashToken) { saveToken(hashToken); history.replaceState(null, '', location.pathname); }
+  S.token ? afterLogin().catch(() => show('vLogin')) : show('vLogin');
+})();
+</script>
+</body>
+</html>

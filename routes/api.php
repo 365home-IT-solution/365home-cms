@@ -17,6 +17,9 @@ use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\MiniGameController;
+use App\Http\Controllers\Api\TienLenController;
+use App\Http\Controllers\Api\TienLenRoomController;
+use App\Http\Controllers\Api\GamePointController;
 use App\Http\Controllers\Api\ScratchCardController;
 use App\Http\Controllers\Api\CaroController;
 use App\Http\Controllers\Api\CollectionController;
@@ -677,5 +680,70 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
     Route::post('pick',    [MiniGameController::class, 'pick'])->name('pick');
     Route::post('mark',    [MiniGameController::class, 'mark'])->name('mark');
     Route::post('unmark',  [MiniGameController::class, 'unmark'])->name('unmark');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Tiến lên miền Nam (khách đã đăng nhập chơi với 1–3 bot) — BE giữ bài + chạy bot, mỗi nước đi trả { state, events }. Xem TienLenController.
+| GET  /api/games/tien-len                         → Luật điểm, điểm hôm nay, số dư, ván đang dở
+| POST /api/games/tien-len/matches                 → Chia ván mới (bots 1..3); ván dở bị xử thua
+| GET  /api/games/tien-len/matches?page=           → Lịch sử ván
+| GET  /api/games/tien-len/matches/current         → Ván đang dở (null nếu không có)
+| GET  /api/games/tien-len/matches/{id}            → Trạng thái ván (quá giờ lượt thì BE tự xử lý lượt trước)
+| POST /api/games/tien-len/matches/{id}/play       → Đánh (cards[], seq) — 422 sai luật, 409 seq lệch / hết giờ (kèm state mới)
+| POST /api/games/tien-len/matches/{id}/pass       → Bỏ lượt / không chặt ngoài lượt (seq)
+| GET  /api/games/tien-len/matches/{id}/hints      → Gợi ý các bộ đánh được
+| GET  /api/games/tien-len/matches/{id}/events?after= → Sự kiện có event_no > after
+| POST /api/games/tien-len/matches/{id}/forfeit    → Bỏ ván với bot (thua, 0 điểm) / rời phòng (bot đánh thay)
+| Phòng nhiều người (mời bằng mã / ghép nhanh, chủ phòng mời bot):
+| GET  .../rooms?max_players= · POST .../rooms · POST .../rooms/join (code) · POST .../rooms/quick-join · GET .../rooms/current
+| GET  .../rooms/{id}?after= · POST .../rooms/{id}/ready|bots|start|leave · DELETE .../rooms/{id}/seats/{seat}
+| Realtime: kênh private-tien-len.room.{id}, sự kiện "updated" (xác thực POST /api/broadcasting/auth)
+|--------------------------------------------------------------------------
+*/
+// Bộ đếm throttle riêng (prefix tien-len) — throttle:N,1 không prefix dùng chung 1 bộ đếm cho mọi route của khách, chơi nhanh sẽ làm 429 các API khác.
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:240,1,tien-len'])->prefix('games/tien-len')->name('api.games.tien-len.')->group(function () {
+    Route::get('/',                        [TienLenController::class, 'overview'])->name('overview');
+    Route::get('matches',                  [TienLenController::class, 'index'])->name('matches.index');
+    Route::post('matches',                 [TienLenController::class, 'start'])->name('matches.start')->middleware('throttle:30,1,tien-len-start');
+    Route::get('matches/current',          [TienLenController::class, 'current'])->name('matches.current');
+    Route::get('matches/{id}',             [TienLenController::class, 'show'])->name('matches.show');
+    Route::post('matches/{id}/play',       [TienLenController::class, 'play'])->name('matches.play');
+    Route::post('matches/{id}/pass',       [TienLenController::class, 'pass'])->name('matches.pass');
+    Route::get('matches/{id}/hints',       [TienLenController::class, 'hints'])->name('matches.hints');
+    Route::get('matches/{id}/events',      [TienLenController::class, 'events'])->name('matches.events');
+    Route::post('matches/{id}/forfeit',    [TienLenController::class, 'forfeit'])->name('matches.forfeit');
+
+    // Phòng nhiều người — xem TienLenRoomController
+    Route::get('rooms',                    [TienLenRoomController::class, 'index'])->name('rooms.index');
+    Route::post('rooms',                   [TienLenRoomController::class, 'store'])->name('rooms.store')->middleware('throttle:30,1,tien-len-start');
+    Route::post('rooms/join',              [TienLenRoomController::class, 'join'])->name('rooms.join');
+    Route::post('rooms/quick-join',        [TienLenRoomController::class, 'quickJoin'])->name('rooms.quick-join');
+    Route::get('rooms/current',            [TienLenRoomController::class, 'current'])->name('rooms.current');
+    Route::get('rooms/{id}',               [TienLenRoomController::class, 'show'])->name('rooms.show');
+    Route::post('rooms/{id}/ready',        [TienLenRoomController::class, 'ready'])->name('rooms.ready');
+    Route::post('rooms/{id}/bots',         [TienLenRoomController::class, 'addBots'])->name('rooms.bots');
+    Route::delete('rooms/{id}/seats/{seat}', [TienLenRoomController::class, 'removeSeat'])->whereNumber('seat')->name('rooms.seats.destroy');
+    Route::post('rooms/{id}/start',        [TienLenRoomController::class, 'start'])->name('rooms.start')->middleware('throttle:30,1,tien-len-start');
+    Route::post('rooms/{id}/leave',        [TienLenRoomController::class, 'leave'])->name('rooms.leave');
+});
+
+// Xác thực kênh Reverb private cho KHÁCH (Bearer token Sanctum) — /broadcasting/auth mặc định chỉ dùng guard web của admin.
+// Hiện dùng cho kênh private-tien-len.room.{roomId} (xem routes/channels.php).
+Route::post('broadcasting/auth', fn (\Illuminate\Http\Request $request) => \Illuminate\Support\Facades\Broadcast::auth($request))
+    ->middleware(['auth:sanctum', 'customer.active'])->name('api.broadcasting.auth');
+
+/*
+|--------------------------------------------------------------------------
+| Điểm game (khách đã đăng nhập) — thắng mini game được điểm, đổi điểm lấy voucher (vào GET /api/coupons/mine, source = game_points)
+| GET  /api/games/points?type=&page=           → Số dư + lịch sử
+| GET  /api/games/points/rewards               → Danh mục quà đang mở đổi
+| POST /api/games/points/rewards/{id}/redeem   → Đổi quà
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('games/points')->name('api.games.points.')->group(function () {
+    Route::get('/',                    [GamePointController::class, 'me'])->name('me');
+    Route::get('rewards',              [GamePointController::class, 'rewards'])->name('rewards');
+    Route::post('rewards/{id}/redeem', [GamePointController::class, 'redeem'])->whereNumber('id')->name('redeem')->middleware('throttle:10,1');
 });
 

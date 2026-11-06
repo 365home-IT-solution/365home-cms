@@ -48,6 +48,11 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Tiến lên: xử lý lượt quá giờ không ai gọi API, xử thua ván với bot bỏ dở quá 30 phút, đóng phòng không còn ai.
+        $schedule->command('tien-len:expire-idle')
+            ->everyMinute()
+            ->withoutOverlapping();
+
         // Hợp đồng mẫu Điều 7: tự động gia hạn hợp đồng đến hạn (không bên nào thông báo chấm dứt) và nhắc trước 7 ngày.
         $schedule->command('partners:renew-contracts')
             ->dailyAt('00:30')

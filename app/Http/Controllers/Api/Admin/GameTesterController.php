@@ -26,7 +26,7 @@ use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
 
 /**
- * CÔNG CỤ THỬ mini game (trang /game-tester) — chỉ bật khi GAME_TESTER_ENABLED=true và chỉ Super Admin dùng được.
+ * CÔNG CỤ THỬ mini game (trang /game-tester) — chỉ chạy khi bật ở CMS (Filament → Quản lý API → Thử mini game) và chỉ Super Admin dùng được.
  * Tạo khách [DEMO], mô phỏng đơn đặt phòng đi qua đúng hook thật (Order::updated) để thử thẻ cào / mảnh ghép / giới thiệu mà không cần app.
  * Mọi dữ liệu demo gắn tên khách "[DEMO] …" nên dọn được bằng POST reset.
  */
@@ -223,7 +223,7 @@ class GameTesterController extends Controller
 
     private function guard(Request $request): void
     {
-        abort_unless(config('app.game_tester_enabled'), 404);
+        abort_unless(\App\Models\GameTesterSetting::enabled(), 404);
         abort_unless($request->user()?->isSuperAdmin(), 403, 'Chỉ Super Admin được dùng công cụ thử.');
     }
 
