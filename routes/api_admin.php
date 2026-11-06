@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\Admin\AllowanceTypeController;
 use App\Http\Controllers\Api\Admin\CccdDeclarationController as AdminCccdDeclarationController;
 use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
 use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
+use App\Http\Controllers\Api\Admin\TienLenAdminController;
+use App\Http\Controllers\Api\Admin\GamePointAdminController;
 use App\Http\Controllers\Api\Admin\CollectionAdminController;
 use App\Http\Controllers\Api\Admin\ReferralAdminController;
 use App\Http\Controllers\Api\Admin\GameTesterController;
@@ -1167,7 +1169,39 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/referral')
 
 /*
 |--------------------------------------------------------------------------
-| Công cụ thử mini game (trang /game-tester) — 404 nếu GAME_TESTER_ENABLED=false, chỉ Super Admin. Xem GameTesterController.
+| Mini game Tiến lên miền Nam — cấu hình & xem ván (Super Admin), xem TienLenAdminController
+| GET|PUT /api/admin/games/tien-len/settings · GET .../matches?status=&mode=&customer_id=&search=&from=&to= · GET .../matches/{id} · GET .../stats
+| GET .../rooms?status=&search= (phòng nhiều người)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/tien-len')->name('api.admin.games.tien-len.')->group(function () {
+    Route::get('settings', [TienLenAdminController::class, 'showSettings'])->name('settings.show');
+    Route::match(['put', 'patch'], 'settings', [TienLenAdminController::class, 'updateSettings'])->name('settings.update');
+    Route::get('matches', [TienLenAdminController::class, 'matches'])->name('matches.index');
+    Route::get('matches/{id}', [TienLenAdminController::class, 'show'])->name('matches.show');
+    Route::get('stats', [TienLenAdminController::class, 'stats'])->name('stats');
+    Route::get('rooms', [TienLenAdminController::class, 'rooms'])->name('rooms.index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Điểm game — danh mục quà đổi voucher, lịch sử, cộng/trừ tay (Super Admin), xem GamePointAdminController
+| GET|POST .../rewards · PUT|DELETE .../rewards/{id} · GET .../transactions · GET .../customers/{id} · POST .../adjust
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/points')->name('api.admin.games.points.')->group(function () {
+    Route::get('rewards', [GamePointAdminController::class, 'rewards'])->name('rewards.index');
+    Route::post('rewards', [GamePointAdminController::class, 'storeReward'])->name('rewards.store');
+    Route::put('rewards/{id}', [GamePointAdminController::class, 'updateReward'])->whereNumber('id')->name('rewards.update');
+    Route::delete('rewards/{id}', [GamePointAdminController::class, 'destroyReward'])->whereNumber('id')->name('rewards.destroy');
+    Route::get('transactions', [GamePointAdminController::class, 'transactions'])->name('transactions');
+    Route::get('customers/{id}', [GamePointAdminController::class, 'customer'])->name('customers.show');
+    Route::post('adjust', [GamePointAdminController::class, 'adjust'])->name('adjust');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Công cụ thử mini game (trang /game-tester) — 404 nếu đang tắt ở CMS (Thử mini game), chỉ Super Admin. Xem GameTesterController.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/dev')->name('api.admin.games.dev.')->group(function () {

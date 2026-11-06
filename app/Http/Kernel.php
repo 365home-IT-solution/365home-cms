@@ -70,6 +70,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'livewire.secure'   => \App\Http\Middleware\SecureLivewireRequests::class,
         'customer.active'   => \App\Http\Middleware\EnsureCustomerIsActive::class,
+        'game.tester'       => \App\Http\Middleware\EnsureGameTesterAccess::class,
         'admin.api'         => \App\Http\Middleware\AdminApiAuth::class,
         'tenant.api'        => \App\Http\Middleware\TenantApiAuth::class,
         'ttlock.card-app'   => \App\Http\Middleware\AuthorizeTtlockCardApp::class,

@@ -12,12 +12,14 @@ use Illuminate\Support\Facades\Route;
 // admin — thay vì phải sửa từng route/middleware, chặn đứng lỗi tại điểm chung này.
 Route::get('/login', fn () => redirect(\Filament\Facades\Filament::getLoginUrl()))->name('login');
 
-// Trang thử mini game (thẻ cào / mảnh ghép / giới thiệu) — chỉ máy dev, bật bằng GAME_TESTER_ENABLED=true.
-Route::get('/game-tester', function () {
-    abort_unless(config('app.game_tester_enabled'), 404);
-
-    return response(file_get_contents(resource_path('dev/game-tester.html')))->header('Content-Type', 'text/html; charset=UTF-8');
-})->name('game-tester');
+// Trang thử mini game — dùng được cả trên server (xem App\Http\Middleware\EnsureGameTesterAccess):
+//  - Bật / tắt ở CMS: Filament → Quản lý API → Thử mini game. Tắt ⇒ 404.
+//  - Bắt buộc đăng nhập CMS bằng Super Admin: chưa đăng nhập ⇒ chuyển tới trang đăng nhập CMS rồi quay lại; tài khoản khác ⇒ 403.
+//  - /game-tester: thẻ cào, mảnh ghép, giới thiệu, ví voucher (token admin cấp sẵn). /tien-len-tester: chơi Tiến lên bằng tài khoản khách.
+Route::middleware(['web', 'game.tester'])->group(function () {
+    Route::get('/game-tester', [\App\Http\Controllers\GameTesterPageController::class, 'hub'])->name('game-tester');
+    Route::get('/tien-len-tester', [\App\Http\Controllers\GameTesterPageController::class, 'tienLen'])->name('tien-len-tester');
+});
 
 // "Chuyển đổi tài khoản" — bước commit thật sự, xem giải thích trong AccountSwitchController.
 Route::middleware('web')->group(function () {

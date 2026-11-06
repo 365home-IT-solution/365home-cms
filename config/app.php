@@ -46,8 +46,6 @@ return [
 
     'otp_bypass_enabled' => (bool) env('OTP_BYPASS_ENABLED', false),
 
-    // Trang thử mini game /game-tester + API /api/admin/games/dev/* (tạo khách [DEMO], mô phỏng đơn). Chỉ bật ở máy dev.
-    'game_tester_enabled' => (bool) env('GAME_TESTER_ENABLED', false),
     'fcm_bypass_enabled' => (bool) env('FCM_BYPASS_ENABLED', false),
 
     /*

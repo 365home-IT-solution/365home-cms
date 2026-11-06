@@ -103,6 +103,7 @@ aside.log pre { margin: 0; padding: 8px 10px; background: var(--code-bg); font-s
 #toast div.bad { background: var(--bad); color: #fff; }
 .empty { color: var(--muted); padding: 12px 0; }
 </style>
+<!--GT_BOOT-->
 </head>
 <body>
 
@@ -121,21 +122,11 @@ aside.log pre { margin: 0; padding: 8px 10px; background: var(--code-bg); font-s
     <button data-tab="collection">3. Mảnh ghép</button>
     <button data-tab="referral">4. Giới thiệu bạn bè</button>
     <button data-tab="wallet">5. Ví voucher</button>
+    <button data-link="tien-len" title="Mở trang chơi Tiến lên ở tab mới, đăng nhập sẵn bằng khách đang chọn">6. Tiến lên ↗</button>
   </nav>
 
   <!-- ============ THIẾT LẬP ============ -->
   <section data-pane="setup">
-    <div class="card">
-      <h2>Đăng nhập Super Admin</h2>
-      <p class="note">Công cụ này gọi đúng các API thật. Cần tài khoản Super Admin; token chỉ lưu trong trình duyệt này.</p>
-      <div class="row">
-        <label class="f">Email<input id="admEmail" type="email" style="width:240px" value="support@goldenbeeltd.vn"></label>
-        <label class="f">Mật khẩu<input id="admPass" type="password" style="width:200px"></label>
-        <button class="b" id="btnAdminLogin">Đăng nhập</button>
-        <button class="b ghost" id="btnAdminLogout">Thoát</button>
-      </div>
-    </div>
-
     <div class="card">
       <h2>Dữ liệu mẫu</h2>
       <p class="note">“Nạp dữ liệu mẫu” tạo bộ giải thẻ cào (có giải dự phòng), bật cả 3 trò và tạo 1 chiến dịch mảnh ghép kèm ảnh. “Dọn demo” xoá khách [DEMO] cùng thẻ, mảnh, giới thiệu, voucher và đơn của họ.</p>
@@ -350,7 +341,9 @@ function toast(msg, bad = false) {
 
 /* ---------- trạng thái ---------- */
 const S = {
-  adminToken: store.get('adminToken', ''),
+  // Token admin do máy chủ cấp sẵn theo phiên Super Admin trên CMS (hết hạn sau vài giờ — tải lại trang để cấp mới)
+  adminToken: window.GT_BOOT?.adminToken || '',
+  adminName: window.GT_BOOT?.adminName || '',
   tokens: store.get('tokens', {}),         // customerId -> token
   customers: [], customer: store.get('customer', null),
   branches: [], rooms: [], campaigns: [], pcCampaign: null,
@@ -395,11 +388,11 @@ async function call(method, path, opts, okMsg) {
   return r.data;
 }
 const needCustomer = () => { if (!S.customer) { toast('Hãy chọn / tạo một khách demo ở tab 1', true); return false; } return true; };
-const needAdmin = () => { if (!S.adminToken) { toast('Hãy đăng nhập Super Admin ở tab 1', true); return false; } return true; };
+const needAdmin = () => { if (!S.adminToken) { toast('Phiên thử đã hết hạn — tải lại trang', true); return false; } return true; };
 
 /* ---------- header + tabs ---------- */
 function renderChips() {
-  const a = $('#chipAdmin'); a.className = 'chip ' + (S.adminToken ? 'ok' : 'off'); a.innerHTML = 'Admin: <b>' + (S.adminToken ? 'đã đăng nhập' : 'chưa đăng nhập') + '</b>';
+  const a = $('#chipAdmin'); a.className = 'chip ' + (S.adminToken ? 'ok' : 'off'); a.innerHTML = 'Super Admin: <b>' + esc(S.adminToken ? S.adminName : 'phiên hết hạn — tải lại trang') + '</b>';
   const c = $('#chipCustomer'); c.className = 'chip ' + (S.customer ? 'ok' : 'off'); c.innerHTML = 'Khách: <b>' + esc(S.customer ? S.customer.fullname : 'chưa chọn') + '</b>';
 }
 function showTab(name) {
@@ -408,20 +401,24 @@ function showTab(name) {
   store.set('tab', name);
   ({ scratch: loadCards, collection: loadCamps, referral: loadRef, wallet: loadWallet, setup: loadOrders })[name]?.();
 }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.link === 'tien-len') {
+    // Truyền token khách qua hash (không gửi lên máy chủ) — trang Tiến lên tự đăng nhập, không dùng API login nên không đăng xuất app của khách
+    const tok = S.customer && S.tokens[S.customer.id];
+    window.open('/tien-len-tester' + (tok ? '#ctok=' + encodeURIComponent(tok) : ''), '_blank');
+    return;
+  }
+  showTab(b.dataset.tab);
+});
 
 /* ============ 1. THIẾT LẬP ============ */
-$('#btnAdminLogin').onclick = async () => {
-  const d = await call('POST', '/api/admin/login', { json: { email: $('#admEmail').value, password: $('#admPass').value }, as: 'none' }, 'Đăng nhập thành công');
-  if (d?.token) { S.adminToken = d.token; store.set('adminToken', d.token); renderChips(); loadContext(); }
-};
-$('#btnAdminLogout').onclick = () => { S.adminToken = ''; store.set('adminToken', ''); renderChips(); };
-
 async function loadContext() {
   if (!S.adminToken) return;
   const r = await api('GET', '/api/admin/games/dev/context', { as: 'admin' });
-  if (r.status === 404) { toast('Công cụ thử đang tắt (GAME_TESTER_ENABLED=false)', true); return; }
-  if (!r.ok) { toast(errMsg(r), true); if (r.status === 401) { S.adminToken = ''; store.set('adminToken', ''); renderChips(); } return; }
+  if (r.status === 404) { toast('Trang thử đang tắt trên CMS (Quản lý API → Thử mini game)', true); return; }
+  if (!r.ok) { if (r.status === 401) { S.adminToken = ''; renderChips(); toast('Phiên thử đã hết hạn — tải lại trang', true); } else toast(errMsg(r), true); return; }
   S.branches = r.data.branches; S.rooms = r.data.rooms; S.customers = r.data.customers;
   const bOpts = S.branches.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
   const rOpts = S.rooms.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
@@ -761,10 +758,9 @@ $('#btnReloadWallet').onclick = loadWallet;
 $('#btnClearLog').onclick = () => $('#logList').innerHTML = '';
 
 /* ---------- khởi động ---------- */
-// Mở nhanh bằng đường dẫn có hash (không gửi lên máy chủ): /game-tester#adm=TOKEN&tab=scratch&cust=ID&ctok=TOKEN_KHACH
+// Mở nhanh bằng đường dẫn có hash (không gửi lên máy chủ): /game-tester#tab=scratch&cust=ID&ctok=TOKEN_KHACH
 {
   const h = new URLSearchParams(location.hash.slice(1));
-  if (h.get('adm')) { S.adminToken = h.get('adm'); store.set('adminToken', S.adminToken); }
   if (h.get('cust') && h.get('ctok')) { S.tokens[h.get('cust')] = h.get('ctok'); store.set('tokens', S.tokens); S.pendingCust = h.get('cust'); }
   if (h.get('tab')) store.set('tab', h.get('tab'));
 }
