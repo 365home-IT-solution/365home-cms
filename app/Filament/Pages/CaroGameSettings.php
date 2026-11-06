@@ -76,16 +76,16 @@ class CaroGameSettings extends Page
                 TextInput::make('win_length')->label('Số quân liền để thắng')->numeric()->integer()->minValue(4)->maxValue(6)->required(),
                 Toggle::make('block_two_ends')->label('Chặn 2 đầu không tính thắng')->inline(false),
                 TextInput::make('turn_seconds')->label('Thời gian mỗi lượt')->suffix('giây')
-                    ->helperText('Hết giờ chưa đánh thì xử thua.')
+                    ->helperText('Hết giờ chưa đánh thì xử thua (trận 3 người: bị loại).')
                     ->numeric()->integer()->minValue(10)->maxValue(120)->required(),
                 Toggle::make('three_player_enabled')->label('Cho chơi 3 người')
-                    ->helperText('Quân X → O → △ đi lần lượt, cùng luật trên. Đầu hàng / hết giờ thì bị loại, 2 người còn lại đánh tiếp tới khi có người thắng.')
+                    ->helperText('Quân X → O → △ đi lần lượt, cùng luật trên. Đầu hàng / hết giờ thì bị loại, 2 người còn lại đánh tiếp tới khi có người thắng. Chỉ bật khi bản app hỗ trợ 3 người đã lên store — app cũ nhận lời mời 3 người sẽ không hiển thị đúng.')
                     ->inline(false)
                     ->columnSpan(2),
             ]),
 
             Section::make('Không có người trực tuyến & mời bạn')
-                ->description('Không ghép được ai thì khách tiếp tục chờ; app gợi ý mời bạn vào đấu (theo số điện thoại hoặc gửi link/mã).')
+                ->description('Không ghép được ai thì khách tiếp tục chờ; app gợi ý mời bạn vào đấu — gửi link/mã mời, hoặc mời đích danh theo số điện thoại / mã người chơi (bạn nhận thông báo và thấy lời mời trong mục lời mời đến). Lời mời 3 người mở phòng chờ, đủ 2 bạn nhận thì vào trận.')
                 ->columns(2)
                 ->schema([
                     Toggle::make('invite_enabled')->label('Cho mời bạn vào đấu')->live()->inline(false),
@@ -93,7 +93,7 @@ class CaroGameSettings extends Page
                         ->helperText('Chờ ghép bấy nhiêu giây chưa có ai thì app hiện gợi ý mời bạn.')
                         ->numeric()->integer()->minValue(5)->maxValue(300)->required(),
                     TextInput::make('invite_expire_minutes')->label('Hạn lời mời')->suffix('phút')
-                        ->helperText('Quá hạn chưa ai nhận thì lời mời tự hết hiệu lực.')
+                        ->helperText('Quá hạn chưa đủ người nhận thì lời mời tự hết hiệu lực. Lời mời 3 người cần 2 bạn cùng vào nên đừng đặt quá ngắn.')
                         ->numeric()->integer()->minValue(1)->maxValue(1440)->required()
                         ->visible(fn (Get $get) => (bool) $get('invite_enabled')),
                     Toggle::make('invite_wins_count')->label('Trận mời bạn được tính trận thắng')
@@ -138,7 +138,7 @@ class CaroGameSettings extends Page
                     ->helperText('Mã không độc quyền cộng dồn được với nhau; giới hạn này chặn gom quá nhiều mã. Bỏ trống = không giới hạn.')
                     ->numeric()->integer()->minValue(1)->maxValue(20),
                 Toggle::make('invite_bonus_enabled')->label('Thưởng mời bạn mới')
-                    ->helperText('Bạn chưa từng chơi Caro nhận lời mời và chơi xong trận đầu → cả người mời và bạn +1 trận vào tiến độ.')
+                    ->helperText('Bạn chưa từng chơi Caro nhận lời mời và chơi xong trận đầu → cả người mời và bạn +1 trận vào tiến độ. Trận 3 người có 2 bạn mới thì người mời được tính 2 lần (vẫn theo giới hạn / ngày).')
                     ->live()->inline(false),
                 TextInput::make('invite_bonus_daily_cap')->label('Tối đa lần thưởng mời bạn / ngày (người mời)')
                     ->helperText('Bỏ trống = không giới hạn.')
@@ -154,13 +154,13 @@ class CaroGameSettings extends Page
 
             Section::make('Chống thông đồng')->columns(2)->schema([
                 TextInput::make('min_moves_to_count')->label('Số nước tối thiểu khi thắng do đối thủ bỏ cuộc')
-                    ->helperText('Đối thủ đầu hàng/hết giờ khi trận chưa đủ số nước này thì trận thắng không được tính.')
+                    ->helperText('Đối thủ đầu hàng/hết giờ (trận 3 người: người cuối cùng bị loại) khi trận chưa đủ số nước này thì trận thắng không được tính.')
                     ->numeric()->integer()->minValue(0)->maxValue(200)->required(),
                 TextInput::make('daily_counted_wins_cap')->label('Tối đa trận thắng được tính / ngày')
                     ->helperText('Bỏ trống = không giới hạn.')
                     ->numeric()->integer()->minValue(1),
                 TextInput::make('same_opponent_daily_cap')->label('Tối đa trận thắng được tính trước cùng 1 đối thủ / ngày')
-                    ->helperText('Bỏ trống = không giới hạn. Chặn 2 tài khoản đánh thả cho nhau, nhất là qua lời mời.')
+                    ->helperText('Bỏ trống = không giới hạn. Chặn 2 tài khoản đánh thả cho nhau, nhất là qua lời mời. Trận 3 người: đã thắng đủ số lần trước 1 trong 2 người thua thì không tính.')
                     ->numeric()->integer()->minValue(1),
             ]),
 
