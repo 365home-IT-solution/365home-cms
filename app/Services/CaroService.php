@@ -190,13 +190,15 @@ class CaroService
             return $stat->player_code;
         }
 
+        // 2 request cùng lúc (mở màn caro lần đầu): chỉ ghi khi chưa có mã, request sau đọc lại mã request trước đã ghi
         for ($attempt = 0; ; $attempt++) {
             $code = $this->randomCode(self::PLAYER_CODE_LENGTH);
 
             try {
-                CaroPlayerStat::updateOrCreate(['customer_id' => $customerId], ['player_code' => $code]);
+                CaroPlayerStat::firstOrCreate(['customer_id' => $customerId]);
+                CaroPlayerStat::whereKey($customerId)->whereNull('player_code')->update(['player_code' => $code]);
 
-                return $code;
+                return CaroPlayerStat::whereKey($customerId)->value('player_code');
             } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
                 if ($attempt >= 5) {
                     throw $e;
