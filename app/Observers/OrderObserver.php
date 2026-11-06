@@ -165,7 +165,7 @@ class OrderObserver
         $this->broadcastSlotStatusChanged($order);
 
         if (in_array($order->status, ['paid', 'deposit'], true)) {
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
+            $this->send($order, $order->status === 'paid' ? 'Đơn đã thanh toán đầy đủ' : 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             app(CouponUsageLedger::class)->confirm($order);
         }
 
@@ -332,11 +332,11 @@ class OrderObserver
             app(CouponUsageLedger::class)->release($order);
         }
 
-        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
-        // báo cho admin (xem created()).
+        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm đơn mới thực sự
+        // báo cho admin (xem created()); tiêu đề nói rõ đã trả đủ để phân biệt với đơn chỉ đặt cọc.
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
+            $this->send($order, 'Đơn đã thanh toán đầy đủ', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
@@ -401,7 +401,7 @@ class OrderObserver
         }
 
         $map = [
-            'paid'      => ['title' => 'Đơn đã thanh toán đủ',  'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
+            'paid'      => ['title' => 'Đơn đã thanh toán đầy đủ', 'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
             'refunded'  => ['title' => 'Đơn đã hoàn tiền',      'icon' => 'heroicon-o-arrow-uturn-left', 'color' => 'info'],
