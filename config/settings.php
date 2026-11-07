@@ -13,6 +13,7 @@ return [
         \App\Settings\CouponSettings::class,
         \App\Settings\ManualPaymentSettings::class,
         \App\Settings\CashPaymentSettings::class,
+        \App\Settings\VoucherScopeSettings::class,
     ],
 
     /*
