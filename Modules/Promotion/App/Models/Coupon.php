@@ -63,7 +63,8 @@ class Coupon extends Model
             if ($user && ! $user->isSuperAdmin() && $coupon->isDirty('funded_by')) {
                 $coupon->funded_by = self::FUNDED_PARTNER;
             }
-            if ($coupon->funded_by === self::FUNDED_PARTNER && $coupon->partner_id === null) {
+            // Để trống funded_by thì DB tự điền 'partner' — mã do hệ thống tự cấp (không thuộc đối tác nào) không ghi cột này nên phải bắt cả null
+            if (in_array($coupon->funded_by, [self::FUNDED_PARTNER, null], true) && $coupon->partner_id === null) {
                 $coupon->funded_by = self::FUNDED_PLATFORM;
             }
             if ($coupon->funded_by !== self::FUNDED_SHARED) {

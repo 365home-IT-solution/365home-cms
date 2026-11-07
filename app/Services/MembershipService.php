@@ -506,10 +506,16 @@ class MembershipService
             'end_at'             => $tier->auto_issue_coupon_days ? now()->addDays($tier->auto_issue_coupon_days) : null,
             'is_active'          => true,
             'is_exclusive'       => true,
+            'funded_by'          => Coupon::FUNDED_PLATFORM,
             'customer_id'        => $customer->id,
             'auto_issue_tier_id' => $tier->id,
             'created_by'         => $this->superAdminId(),
         ]);
+
+        $categoryIds = $this->checkinRewardCategoryIds($tier);
+        if (! empty($categoryIds)) {
+            $coupon->categories()->sync($categoryIds);
+        }
 
         app(NotificationFcmService::class)->sendToCustomer(
             $customer,
@@ -521,6 +527,37 @@ class MembershipService
         );
 
         return $coupon;
+    }
+
+    /**
+     * Chi nhánh được dùng mã điểm danh của hạng: có chọn chi nhánh thì đúng các chi nhánh đó; chỉ chọn đối tác thì mọi chi nhánh gốc
+     * hiện có của các đối tác đó (chi nhánh mở sau được tính cho mã cấp sau); không chọn gì = [] (mọi chi nhánh). Bỏ qua id đã bị xoá.
+     * Đã chọn mà không còn chi nhánh nào (bị xoá sau khi lưu) thì ghi cảnh báo và cấp không giới hạn — không cấp cho khách 1 mã không dùng được.
+     *
+     * @return array<int, int>
+     */
+    public function checkinRewardCategoryIds(MembershipTier $tier): array
+    {
+        if (empty($tier->auto_issue_category_ids) && empty($tier->auto_issue_partner_ids)) {
+            return [];
+        }
+
+        $ids = \Modules\Category\Entities\Category::query()->withoutGlobalScopes()
+            ->whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->when(
+                ! empty($tier->auto_issue_category_ids),
+                fn ($q) => $q->whereIn('id', $tier->auto_issue_category_ids),
+                fn ($q) => $q->whereIn('partner_id', $tier->auto_issue_partner_ids),
+            )
+            ->pluck('id')
+            ->all();
+
+        if (empty($ids)) {
+            \Illuminate\Support\Facades\Log::warning('Mã điểm danh: đối tác / chi nhánh đã chọn ở hạng không còn chi nhánh nào — cấp mã không giới hạn', ['tier_id' => $tier->id]);
+        }
+
+        return $ids;
     }
 
     /**

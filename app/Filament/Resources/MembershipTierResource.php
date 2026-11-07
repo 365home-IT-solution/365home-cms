@@ -193,6 +193,31 @@ class MembershipTierResource extends Resource
                     ->placeholder('Không giới hạn')
                     ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
+                Select::make('auto_issue_partner_ids')
+                    ->label('Áp dụng cho đối tác')
+                    ->multiple()
+                    ->searchable()
+                    ->live()
+                    ->options(fn () => \App\Models\Partner::query()->withoutGlobalScopes()
+                        ->where('partner_type', '!=', \App\Models\Partner::TYPE_MINIHOUSE)
+                        ->orderBy('name')
+                        ->pluck('name', 'id'))
+                    ->helperText('Mã điểm danh dùng được ở mọi chi nhánh của các đối tác đã chọn (kể cả chi nhánh mở sau này, với mã cấp sau). Để trống cả ô này và ô chi nhánh = áp dụng ở TẤT CẢ đối tác. Chỉ áp cho mã cấp từ lúc lưu, mã đã cấp giữ nguyên.')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                Select::make('auto_issue_category_ids')
+                    ->label('Chỉ một số chi nhánh (không bắt buộc)')
+                    ->multiple()
+                    ->searchable()
+                    ->options(fn (Get $get) => \Modules\Category\Entities\Category::query()
+                        ->whereNull('parent_id')
+                        ->where('category_type', 'product')
+                        ->when($get('auto_issue_partner_ids'), fn ($q, $partnerIds) => $q->whereIn('partner_id', $partnerIds))
+                        ->orderBy('name')
+                        ->pluck('name', 'id'))
+                    ->helperText('Chọn khi chỉ muốn áp dụng ở vài chi nhánh cụ thể (gồm cả khu vực con) — có chọn thì ô đối tác chỉ dùng để lọc danh sách này.')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
                 TextInput::make('auto_issue_notify_title')
                     ->label('Tiêu đề thông báo')
                     ->maxLength(255)
