@@ -155,8 +155,6 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_value_max'   => $data['auto_issue_coupon_value_max'] ?? null,
             'auto_issue_coupon_days'        => $data['auto_issue_coupon_days'] ?? 7,
             'auto_issue_coupon_usage_limit' => $data['auto_issue_coupon_usage_limit'] ?? null,
-            'auto_issue_partner_ids'        => $data['auto_issue_partner_ids'] ?? null,
-            'auto_issue_category_ids'       => $data['auto_issue_category_ids'] ?? null,
             'auto_issue_notify_title'       => $data['auto_issue_notify_title'] ?? null,
             'auto_issue_notify_body'        => $data['auto_issue_notify_body'] ?? null,
             'auto_issue_notify_url'         => $data['auto_issue_notify_url'] ?? null,
@@ -196,7 +194,7 @@ class MembershipTierController extends Controller
             'welcome_coupon_days', 'welcome_coupon_usage_limit', 'is_active',
             'auto_issue_enabled', 'auto_issue_interval_days', 'auto_issue_coupon_type',
             'auto_issue_coupon_value', 'auto_issue_coupon_value_max', 'auto_issue_coupon_days',
-            'auto_issue_coupon_usage_limit', 'auto_issue_partner_ids', 'auto_issue_category_ids', 'auto_issue_notify_title', 'auto_issue_notify_body',
+            'auto_issue_coupon_usage_limit', 'auto_issue_notify_title', 'auto_issue_notify_body',
             'auto_issue_notify_url', 'checkin_reminder_enabled', 'checkin_reminder_times',
         ])->toArray());
 
@@ -336,12 +334,6 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_value_max'   => 'nullable|numeric|min:0|gte:auto_issue_coupon_value',
             'auto_issue_coupon_days'        => 'nullable|integer|min:1',
             'auto_issue_coupon_usage_limit' => 'nullable|integer|min:1',
-            // Đối tác được dùng mã điểm danh (mọi chi nhánh của họ); chi nhánh (category gốc) để thu hẹp thêm — cả hai rỗng = mọi đối tác.
-            // Chỉ áp cho mã cấp sau khi lưu.
-            'auto_issue_partner_ids'        => 'nullable|array',
-            'auto_issue_partner_ids.*'      => 'string|exists:partners,id',
-            'auto_issue_category_ids'       => 'nullable|array',
-            'auto_issue_category_ids.*'     => 'integer|exists:categories,id',
             'auto_issue_notify_title'       => 'nullable|string|max:255',
             'auto_issue_notify_body'        => 'nullable|string|max:500',
             // URL/deep-link app mở khi khách bấm vào thông báo mã khuyến mãi tự động — cùng field
@@ -415,8 +407,6 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_value_max'   => $tier->auto_issue_coupon_value_max,
             'auto_issue_coupon_days'        => $tier->auto_issue_coupon_days,
             'auto_issue_coupon_usage_limit' => $tier->auto_issue_coupon_usage_limit,
-            'auto_issue_partner_ids'        => $tier->auto_issue_partner_ids ?? [],
-            'auto_issue_category_ids'       => $tier->auto_issue_category_ids ?? [],
             'auto_issue_notify_title'       => $tier->auto_issue_notify_title,
             'auto_issue_notify_body'        => $tier->auto_issue_notify_body,
             'auto_issue_notify_url'         => $tier->auto_issue_notify_url,

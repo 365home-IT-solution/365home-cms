@@ -37,8 +37,6 @@ class MembershipTier extends Model
         'auto_issue_coupon_value_max',
         'auto_issue_coupon_days',
         'auto_issue_coupon_usage_limit',
-        'auto_issue_partner_ids',
-        'auto_issue_category_ids',
         'auto_issue_notify_title',
         'auto_issue_notify_body',
         'auto_issue_notify_url',
@@ -58,8 +56,6 @@ class MembershipTier extends Model
         'auto_issue_coupon_value_max'   => 'decimal:2',
         'auto_issue_coupon_days'        => 'integer',
         'auto_issue_coupon_usage_limit' => 'integer',
-        'auto_issue_partner_ids'        => 'array',
-        'auto_issue_category_ids'       => 'array',
         'checkin_reminder_enabled'      => 'boolean',
         'checkin_reminder_times'        => 'array',
     ];
