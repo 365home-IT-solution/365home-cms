@@ -70,10 +70,7 @@ class ManageVoucherScopeSettings extends SettingsPage
                     ->multiple()
                     ->searchable()
                     ->live()
-                    ->options(fn () => Partner::query()->withoutGlobalScopes()
-                        ->where('partner_type', '!=', Partner::TYPE_MINIHOUSE)
-                        ->orderBy('name')
-                        ->pluck('name', 'id'))
+                    ->options(fn (Get $get) => $this->partnerOptions((array) $get("{$scope}_partner_ids")))
                     ->helperText('Mã dùng được ở mọi phòng của các đối tác đã chọn — cả phòng chưa gắn chi nhánh và chi nhánh mở sau này.')
                     ->requiredWithout("{$scope}_category_ids")
                     ->validationMessages(['required_without' => 'Chọn ít nhất 1 đối tác hoặc 1 chi nhánh.']),
@@ -90,6 +87,35 @@ class ManageVoucherScopeSettings extends SettingsPage
                         ->pluck('name', 'id'))
                     ->helperText('Chọn khi chỉ muốn áp dụng ở vài chi nhánh cụ thể (gồm cả khu vực con) — có chọn thì ô đối tác chỉ dùng để lọc danh sách này.'),
             ]);
+    }
+
+    /**
+     * Đối tác đã có phòng — mỗi lần đăng ký hợp tác lại tạo thêm 1 bản ghi đối tác (cùng tên, chưa duyệt / đã dừng, không có phòng);
+     * chọn nhầm bản đó thì voucher không dùng được ở đâu. Kèm số chi nhánh / phòng để phân biệt đối tác trùng tên. Đối tác đã chọn
+     * trước đó vẫn hiện (dù nay không còn phòng) để không mất khỏi ô chọn.
+     *
+     * @param  array<int, string>  $selected
+     * @return array<string, string>
+     */
+    private function partnerOptions(array $selected): array
+    {
+        $rooms = \Modules\Product\App\Models\Product::query()->withoutGlobalScopes()
+            ->whereNotNull('partner_id')
+            ->selectRaw('partner_id, COUNT(*) as c')->groupBy('partner_id')->pluck('c', 'partner_id');
+        $branches = Category::query()->withoutGlobalScopes()
+            ->whereNull('parent_id')->where('category_type', 'product')->whereNotNull('partner_id')
+            ->selectRaw('partner_id, COUNT(*) as c')->groupBy('partner_id')->pluck('c', 'partner_id');
+
+        return Partner::query()->withoutGlobalScopes()
+            ->where('partner_type', '!=', Partner::TYPE_MINIHOUSE)
+            ->where(fn ($q) => $q->whereIn('id', $rooms->keys())->orWhereIn('id', $selected))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->mapWithKeys(fn (Partner $p) => [$p->id => $p->name . ' · ' . implode(', ', array_filter([
+                ($branches[$p->id] ?? 0) ? $branches[$p->id] . ' chi nhánh' : null,
+                ($rooms[$p->id] ?? 0) . ' phòng',
+            ]))])
+            ->all();
     }
 
     // Select multiple trả chuỗi id; chi nhánh lưu dạng số
