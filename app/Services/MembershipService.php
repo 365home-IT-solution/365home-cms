@@ -506,10 +506,14 @@ class MembershipService
             'end_at'             => $tier->auto_issue_coupon_days ? now()->addDays($tier->auto_issue_coupon_days) : null,
             'is_active'          => true,
             'is_exclusive'       => true,
+            'funded_by'          => Coupon::FUNDED_PLATFORM,
             'customer_id'        => $customer->id,
             'auto_issue_tier_id' => $tier->id,
             'created_by'         => $this->superAdminId(),
         ]);
+
+        // Đối tác / chi nhánh được dùng mã điểm danh — cấu hình chung ở "Phạm vi voucher tự tặng"
+        \App\Support\VoucherScope::restrict($coupon, \App\Support\VoucherScope::CHECKIN);
 
         app(NotificationFcmService::class)->sendToCustomer(
             $customer,

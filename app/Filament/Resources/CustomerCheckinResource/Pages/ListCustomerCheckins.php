@@ -13,6 +13,13 @@ class ListCustomerCheckins extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [];
+        return [
+            \Filament\Actions\Action::make('voucherScope')
+                ->label('Đối tác / chi nhánh áp dụng mã')
+                ->icon('heroicon-o-map-pin')
+                ->color('gray')
+                ->visible(fn () => \App\Filament\Pages\Setting\ManageVoucherScopeSettings::canAccess())
+                ->url(\App\Filament\Pages\Setting\ManageVoucherScopeSettings::getUrl()),
+        ];
     }
 }

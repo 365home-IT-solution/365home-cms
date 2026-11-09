@@ -1179,9 +1179,12 @@ class CaroService
             'created_by'      => User::role(config('filament-shield.super_admin.name'))->value('id'),
         ]);
 
-        // Phạm vi chi nhánh của giải → voucher (Coupon::appliesToRoom kiểm tra cả khu vực con)
+        // Phạm vi chi nhánh của giải → voucher (Coupon::appliesToRoom kiểm tra cả khu vực con); giải không chọn chi nhánh thì theo
+        // phạm vi chung của mini game (App\Settings\VoucherScopeSettings)
         if ($prize->categories->isNotEmpty()) {
             $coupon->categories()->sync($prize->categories->pluck('id'));
+        } else {
+            \App\Support\VoucherScope::restrict($coupon, \App\Support\VoucherScope::MINIGAME);
         }
 
         return $coupon;

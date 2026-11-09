@@ -165,7 +165,7 @@ class OrderObserver
         $this->broadcastSlotStatusChanged($order);
 
         if (in_array($order->status, ['paid', 'deposit'], true)) {
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
+            $this->send($order, $order->status === 'paid' ? 'Đơn đã thanh toán đầy đủ' : 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             app(CouponUsageLedger::class)->confirm($order);
         }
 
@@ -198,33 +198,52 @@ class OrderObserver
      */
     public function updated(Order $order): void
     {
+        // Ghi huỷ đơn tiền mặt và chốt hoa hồng đều saveQuietly() trên CHÍNH $order — mỗi lần lưu đặt lại getChanges()/getOriginal()
+        // của model, nên phải chạy SAU phần audit/thông báo bên dưới. Chạy trước thì wasChanged('status') thành false và mọi thông báo
+        // "đã thanh toán", tích điểm, trừ lượt mã... bị bỏ qua im lặng (đã xảy ra từ khi đơn được chốt hoa hồng ngay lúc paid, 11/2026).
+        // Điều kiện tính trước khi có lần lưu nào; finally để vẫn chốt khi phần thông báo dừng sớm hoặc lỗi.
+
         // Đơn đã chốt hoa hồng TỪ TRƯỚC lần cập nhật này? (dùng cho việc tính lại bên dưới, tránh chốt rồi tính lại ngay trong cùng một lần lưu)
         $wasFinalized = $order->commission_finalized_at !== null;
 
         // Đơn tiền mặt đang chờ thu bị huỷ (dù huỷ bằng đường nào): ghi lúc / nguồn huỷ và kiểm tra tỷ lệ huỷ của đối tác / khách (chống "đi cửa sau").
-        if ($order->payment_method === 'cod' && $order->wasChanged('status') && $order->getOriginal('status') === 'pending'
-            && in_array($order->status, \App\Services\Payment\CancellationGuardService::CANCELLED_STATUSES, true)) {
-            app(\App\Services\Payment\CancellationGuardService::class)->recordCancellation($order);
-        }
+        $cashCancelled = $order->payment_method === 'cod' && $order->wasChanged('status') && $order->getOriginal('status') === 'pending'
+            && in_array($order->status, \App\Services\Payment\CancellationGuardService::CANCELLED_STATUSES, true);
 
         // Đơn hoàn thành (trả phòng) hoặc bị hoàn mà đối tác vẫn giữ một phần tiền → chốt hoa hồng + khoản 365home bù.
-        if ($order->wasChanged(['status', 'order_status', 'refund_amount'])) {
-            try {
-                app(\App\Services\OrderCommissionService::class)->finalize($order);
-            } catch (\Throwable $e) {
-                report($e);
-            }
-        }
+        $shouldFinalize = $order->wasChanged(['status', 'order_status', 'refund_amount']);
 
         // Đơn đã chốt hoa hồng mà sau đó đổi giá/hoàn tiền/đổi mã giảm giá → tính lại (bảng đã gửi thì báo Super Admin, không tự đổi số).
-        if ($wasFinalized && $order->wasChanged(['amount', 'full_amount', 'deposit_paid_amount', 'coupon_codes', 'coupon_discount_amounts', 'discounts', 'status', 'refund_amount'])) {
-            try {
-                app(\App\Services\OrderCommissionService::class)->recalculateAfterChange($order->fresh());
-            } catch (\Throwable $e) {
-                report($e);
+        $shouldRecalculate = $wasFinalized && $order->wasChanged(['amount', 'full_amount', 'deposit_paid_amount', 'coupon_codes', 'coupon_discount_amounts', 'discounts', 'status', 'refund_amount']);
+
+        try {
+            $this->handleUpdated($order);
+        } finally {
+            if ($cashCancelled) {
+                app(\App\Services\Payment\CancellationGuardService::class)->recordCancellation($order);
+            }
+
+            if ($shouldFinalize) {
+                try {
+                    app(\App\Services\OrderCommissionService::class)->finalize($order);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
+            if ($shouldRecalculate) {
+                try {
+                    app(\App\Services\OrderCommissionService::class)->recalculateAfterChange($order->fresh());
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
         }
+    }
 
+    // Audit + realtime + thông báo + tích điểm khi đơn đổi — tách khỏi updated() để chạy trước các bước saveQuietly() ở đó.
+    private function handleUpdated(Order $order): void
+    {
         // Luồng khách tự đặt qua app (BuildsRoomBooking) KHÔNG set category_id ngay lúc tạo đơn —
         // chỉ được PaymentController::handleSuccessfulPayment() backfill sau khi thanh toán thành
         // công, nên phải bắt cả ở đây (created() chỉ đủ cho đơn admin tạo trực tiếp, đã có
@@ -313,11 +332,11 @@ class OrderObserver
             app(CouponUsageLedger::class)->release($order);
         }
 
-        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
-        // báo cho admin (xem created()).
+        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm đơn mới thực sự
+        // báo cho admin (xem created()); tiêu đề nói rõ đã trả đủ để phân biệt với đơn chỉ đặt cọc.
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
+            $this->send($order, 'Đơn đã thanh toán đầy đủ', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
@@ -382,7 +401,7 @@ class OrderObserver
         }
 
         $map = [
-            'paid'      => ['title' => 'Đơn đã thanh toán đủ',  'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
+            'paid'      => ['title' => 'Đơn đã thanh toán đầy đủ', 'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
             'refunded'  => ['title' => 'Đơn đã hoàn tiền',      'icon' => 'heroicon-o-arrow-uturn-left', 'color' => 'info'],

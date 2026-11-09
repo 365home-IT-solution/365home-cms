@@ -46,6 +46,7 @@ class Coupon extends Model
         'auto_issue_tier_id',
         'funded_by',
         'partner_share_pct',
+        'allowed_partner_ids',
     ];
 
     // Ai chịu tiền giảm của mã (xem App\Services\OrderCommissionService): đối tác / 365home / đồng tài trợ.
@@ -63,7 +64,8 @@ class Coupon extends Model
             if ($user && ! $user->isSuperAdmin() && $coupon->isDirty('funded_by')) {
                 $coupon->funded_by = self::FUNDED_PARTNER;
             }
-            if ($coupon->funded_by === self::FUNDED_PARTNER && $coupon->partner_id === null) {
+            // Để trống funded_by thì DB tự điền 'partner' — mã do hệ thống tự cấp (không thuộc đối tác nào) không ghi cột này nên phải bắt cả null
+            if (in_array($coupon->funded_by, [self::FUNDED_PARTNER, null], true) && $coupon->partner_id === null) {
                 $coupon->funded_by = self::FUNDED_PLATFORM;
             }
             if ($coupon->funded_by !== self::FUNDED_SHARED) {
@@ -79,6 +81,7 @@ class Coupon extends Model
     ];
 
     protected $casts = [
+        'allowed_partner_ids' => 'array',
         'start_at' => 'datetime',
         'end_at' => 'datetime',
         'is_active' => 'boolean',
@@ -245,7 +248,7 @@ class Coupon extends Model
             default          => false,
         };
 
-        return $applies && $this->passesBranchRestriction($roomId) && $this->partnerHasJoined($roomId);
+        return $applies && $this->passesBranchRestriction($roomId) && $this->passesPartnerRestriction($roomId) && $this->partnerHasJoined($roomId);
     }
 
     /**
@@ -269,6 +272,17 @@ class Coupon extends Model
         return \App\Models\CouponPartnerParticipation::query()
             ->where('coupon_id', $this->id)->where('is_enabled', true)
             ->whereIn('category_id', $branchIds)->exists();
+    }
+
+    // Voucher hệ thống tự tặng chỉ dùng được ở phòng của các đối tác đã đồng ý (allowed_partner_ids, xem App\Support\VoucherScope) —
+    // so thẳng với đối tác sở hữu phòng nên áp cả phòng chưa gắn chi nhánh và chi nhánh mở sau.
+    private function passesPartnerRestriction(string $roomId): bool
+    {
+        if (empty($this->allowed_partner_ids)) {
+            return true;
+        }
+
+        return Product::withoutGlobalScopes()->whereKey($roomId)->whereIn('partner_id', $this->allowed_partner_ids)->exists();
     }
 
     private function passesBranchRestriction(string $roomId): bool
@@ -338,7 +352,8 @@ class Coupon extends Model
 
             case 'specific_slot':
                 return $this->roomTimeSlots()->where('room_time_slot_id', $slot->id)->exists()
-                    && $this->passesBranchRestriction((string) $slot->room_id);
+                    && $this->passesBranchRestriction((string) $slot->room_id)
+                    && $this->passesPartnerRestriction((string) $slot->room_id);
 
             default:
                 return false;

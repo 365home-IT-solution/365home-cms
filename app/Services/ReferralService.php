@@ -292,7 +292,7 @@ class ReferralService
             $code = 'RF' . strtoupper(Str::random(6));
         } while (Coupon::withoutGlobalScopes()->where('code', $code)->exists());
 
-        return Coupon::create([
+        $coupon = Coupon::create([
             'partner_id'      => null,
             'funded_by'       => Coupon::FUNDED_PLATFORM,
             'source'          => 'referral',
@@ -313,5 +313,9 @@ class ReferralService
             'customer_id'     => $customer->id,
             'created_by'      => User::role(config('filament-shield.super_admin.name'))->value('id'),
         ]);
+
+        \App\Support\VoucherScope::restrict($coupon, \App\Support\VoucherScope::MINIGAME);
+
+        return $coupon;
     }
 }
