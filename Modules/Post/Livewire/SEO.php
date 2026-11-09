@@ -269,11 +269,6 @@ class SEO extends Component
             return false;
         }
 
-        // Kiểm tra xem field có phải là URL slug không
-        if ($this->isSlug($field)) {
-            return str_contains($field, $this->slugify($primaryKeyword));
-        }
-
         return $this->fieldContainsKeyword($field, $primaryKeyword);
     }
 
@@ -583,7 +578,7 @@ class SEO extends Component
         // Google: từ khóa trong URL chỉ là tín hiệu rất nhỏ — URL dễ đọc, ngắn, ổn định mới là chính.
         if ($this->containsKeyword($slug)) {
             $score = 100;
-        } elseif (collect($this->getSecondaryKeywords())->contains(fn ($k) => str_contains($slug, $this->slugify($k)))) {
+        } elseif (collect($this->getSecondaryKeywords())->contains(fn ($k) => $this->slugContainsKeyword($slug, $k))) {
             $score = 75;
             $tips[] = 'nên chứa từ khóa chính';
         } else {
@@ -1156,10 +1151,28 @@ class SEO extends Component
         }
 
         if ($this->isSlug($field)) {
-            return str_contains($field, $this->slugify($keyword));
+            return $this->slugContainsKeyword($field, $keyword);
         }
 
         return str_contains($this->matchText($field), $this->matchText($keyword));
+    }
+
+    protected function slugContainsKeyword(string $slug, string $keyword): bool
+    {
+        $keywordSlug = $this->slugify($keyword);
+
+        if ($keywordSlug !== '' && str_contains($slug, $keywordSlug)) {
+            return true;
+        }
+
+        // Từ khóa lịch trình thường viết tắt 2N1Đ, còn URL nên viết đầy đủ để dễ đọc.
+        $expanded = preg_replace_callback(
+            '/(^|-)(\d+)n(\d+)d(?=-|$)/',
+            fn (array $matches): string => $matches[1].$matches[2].'-ngay-'.$matches[3].'-dem',
+            $keywordSlug
+        );
+
+        return $expanded !== $keywordSlug && str_contains($slug, $expanded);
     }
 
     protected function analyzeSecondaryKeywords(): void
@@ -1179,7 +1192,7 @@ class SEO extends Component
             $inTitle       = $this->fieldContainsKeyword($titleTag.' '.$this->title, $keyword);
             $inDescription = $this->fieldContainsKeyword($this->description ?? '', $keyword);
             $inContent     = $this->fieldContainsKeyword($plainContent, $keyword);
-            $inUrl         = $this->slug !== '' && str_contains($this->slug, $this->slugify($keyword));
+            $inUrl         = $this->slug !== '' && $this->slugContainsKeyword($this->slug, $keyword);
 
             $count   = $this->countKeyword($keyword, $plainContent);
             $density = $wordCount > 0 ? round(($count / $wordCount) * 100, 2) : 0.0;

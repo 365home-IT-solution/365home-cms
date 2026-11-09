@@ -14,6 +14,7 @@ use App\Games\TienLen\Rules;
 use App\Games\TienLen\StaleMatchException;
 use App\Models\Customer;
 use App\Models\GamePointTransaction;
+use App\Models\GamePointWallet;
 use App\Models\TienLenMatch;
 use App\Models\TienLenMatchPlayer;
 use App\Models\TienLenMove;
@@ -36,7 +37,8 @@ use Illuminate\Support\Facades\Log;
  *  - Hết giờ lượt: request kế tiếp của BẤT KỲ ai trong ván (hoặc lệnh tien-len:expire-idle mỗi phút) tự xử lý lượt đó.
  *    Hết giờ AUTO_AFTER_TIMEOUTS lần liền ⇒ bot đánh thay cho tới khi người đó gọi API lại.
  *  - Rời giữa ván (phòng): bot đánh nốt ghế đó, người rời 0 điểm. Ván với bot: bỏ ván = xử thua.
- *  - Điểm thưởng theo hạng + thưởng chặt (TienLenSetting), từng người riêng; cóng / bỏ ván / rời / đang bị bot đánh thay lúc hết ván = 0;
+ *  - Điểm thưởng theo hạng + thưởng chặt (TienLenSetting), từng người riêng — CHỈ khi bàn có ≥ 2 người thật (chơi một mình với bot = 0);
+ *    cóng / bỏ ván / rời / đang bị bot đánh thay lúc hết ván = 0;
  *    áp trần điểm/ngày theo từng khách.
  */
 class TienLenService
@@ -277,12 +279,17 @@ class TienLenService
         $setting = TienLenSetting::current();
         $mine    = $viewer !== null && $playing && ! ($seats[$viewer]['left'] ?? false);
 
+        $balances = self::pointBalances(array_column($seats, 'customer_id'));
+
         $players = [];
         for ($s = 0; $s < $game->players; $s++) {
             $place = array_search($s, $game->finished, true);
+            $cid   = $seats[$s]['customer_id'] ?? null;
             $players[] = [
                 'seat'           => $s,
                 'name'           => $seats[$s]['name'] ?? ('Máy ' . $s),
+                // Số dư ví điểm Tiến lên của người chơi (bot: null) — hiện trên bàn cạnh tên
+                'points'         => $cid ? ($balances[$cid] ?? 0) : null,
                 'is_me'          => $s === $viewer,
                 'is_bot'         => (bool) ($seats[$s]['is_bot'] ?? $s !== self::HUMAN),
                 'is_auto'        => (bool) ($seats[$s]['auto'] ?? false), // người thật đang được bot đánh thay (treo máy / đã rời)
@@ -363,6 +370,19 @@ class TienLenService
             $rank === 2       => 'Nhì',
             default           => 'Ba',
         };
+    }
+
+    /**
+     * Số dư ví điểm của nhiều khách trong 1 truy vấn (khách chưa có ví ⇒ không có trong mảng, coi là 0).
+     *
+     * @param  array<int, string|null>  $customerIds
+     * @return array<string, int>
+     */
+    public static function pointBalances(array $customerIds): array
+    {
+        $ids = array_values(array_unique(array_filter($customerIds)));
+
+        return $ids ? GamePointWallet::whereIn('customer_id', $ids)->pluck('balance', 'customer_id')->map(fn ($b) => (int) $b)->all() : [];
     }
 
     private static function resultPayload(TienLenMatch $match, Game $game, ?int $viewer): array
@@ -591,6 +611,8 @@ class TienLenService
     {
         $r       = $game->result;
         $rewards = [];
+        // Chỉ cộng điểm khi bàn có ít nhất 2 người thật (chơi một mình với bot = 0 điểm)
+        $hasHumanOpponent = count(array_filter($seats, fn (array $s) => ! $s['is_bot'])) >= 2;
 
         foreach ($seats as $i => $s) {
             if ($s['is_bot']) {
@@ -598,7 +620,7 @@ class TienLenService
             }
 
             $rank  = (int) $r['ranks'][$i];
-            $zero  = $abandoned || $s['left'] || $s['auto'] || $r['forfeit'] === $i || in_array($i, $game->cong, true);
+            $zero  = ! $hasHumanOpponent || $abandoned || $s['left'] || $s['auto'] || $r['forfeit'] === $i || in_array($i, $game->cong, true);
             $chops = count(array_filter($r['chops'], fn (array $c) => $c['chopper'] === $i));
             $base  = $zero ? 0 : $setting->pointsForRank($rank, $game->players);
             $bonus = $zero ? 0 : $chops * $setting->chop_bonus_points;
@@ -617,7 +639,8 @@ class TienLenService
             $this->points->earn((string) $s['customer_id'], $total, GamePointTransaction::SOURCE_TIEN_LEN,
                 $match->room_id ? $match->id . ':' . $i : $match->id, 'Tiến lên: về ' . mb_strtolower(self::rankLabel($rank, $game->players)));
 
-            $rewards[$i] = ['rank_points' => $base, 'chop_bonus' => $bonus, 'chops' => $chops, 'daily_cap_reached' => $capped, 'total' => $total];
+            $rewards[$i] = ['rank_points' => $base, 'chop_bonus' => $bonus, 'chops' => $chops, 'daily_cap_reached' => $capped, 'total' => $total,
+                'no_human_opponent' => ! $hasHumanOpponent];
 
             TienLenMatchPlayer::where('match_id', $match->id)->where('customer_id', $s['customer_id'])->update([
                 'rank'          => $rank,

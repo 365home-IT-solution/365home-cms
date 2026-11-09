@@ -232,6 +232,8 @@ class TienLenRoomService
         $isHost  = $room->host_customer_id === $viewerId;
         $ready   = $rows->every(fn (TienLenRoomSeat $s) => $s->is_bot || $s->is_ready || $s->customer_id === $room->host_customer_id);
 
+        $balances = TienLenService::pointBalances($rows->where('is_bot', false)->pluck('customer_id')->all());
+
         $seats = [];
         for ($i = 0; $i < $room->max_players; $i++) {
             $s = $rows->get($i);
@@ -241,6 +243,7 @@ class TienLenRoomService
                 'is_bot'   => $s->is_bot,
                 'name'     => $s->is_bot ? 'Máy ' . ($i + 1) : ($s->customer?->fullname ?: 'Khách'),
                 'is_me'    => $s->customer_id === $viewerId,
+                'points'   => $s->is_bot ? null : ($balances[$s->customer_id] ?? 0),
                 'is_host'  => ! $s->is_bot && $s->customer_id === $room->host_customer_id,
                 'is_ready' => $s->is_bot || $s->is_ready || $s->customer_id === $room->host_customer_id,
                 'online'   => $s->is_bot || ($s->last_seen_at && $s->last_seen_at->gte(now()->subSeconds(self::ONLINE_SECONDS))),

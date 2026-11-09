@@ -90,8 +90,16 @@ class RoomSearchService
         $timeTo           = $ctx['timeTo'];
         $geoActive        = $ctx['geoActive'];
 
-        $perPage = (int) ($validated['per_page'] ?? 20);
-        $rooms   = $query->paginate($perPage);
+        // Khi tìm quanh một vị trí, trả toàn bộ phòng nằm trong bán kính ở cùng một trang. Query đã
+        // orderBy(distance) trong applyFilters(), vì vậy client nhận đủ kết quả theo thứ tự gần → xa
+        // mà không phải tự tải các trang tiếp theo (và có thể bỏ sót phòng trong khu vực tìm thấy).
+        if ($geoActive) {
+            $perPage = max(1, (clone $query)->count());
+            $rooms   = $query->paginate($perPage, ['*'], 'page', 1);
+        } else {
+            $perPage = (int) ($validated['per_page'] ?? 20);
+            $rooms   = $query->paginate($perPage);
+        }
 
         // Ảnh/trạng thái/toà nhà của phòng MiniHouse (mapRoom() → mapMinihouseRoom()).
         $this->attachMinihouseData(collect($rooms->items()));
@@ -355,9 +363,19 @@ class RoomSearchService
             ? $branches->sortBy('distance')->values()
             : $branches->sortByDesc('has_promotion')->values();
 
-        $total    = $branches->count();
-        $lastPage = $total > 0 ? (int) ceil($total / $perPage) : 1;
-        $items    = $branches->slice(($page - 1) * $perPage, $perPage)->values();
+        $total = $branches->count();
+
+        // Tương tự danh sách phòng: tìm theo toạ độ phải hiển thị hết chi nhánh trong bán kính,
+        // đã được sort theo khoảng cách nhỏ nhất của phòng thuộc chi nhánh ở phía trên.
+        if ($geoActive) {
+            $page     = 1;
+            $perPage  = max(1, $total);
+            $lastPage = 1;
+            $items    = $branches;
+        } else {
+            $lastPage = $total > 0 ? (int) ceil($total / $perPage) : 1;
+            $items    = $branches->slice(($page - 1) * $perPage, $perPage)->values();
+        }
 
         return [
             'data' => $items->all(),

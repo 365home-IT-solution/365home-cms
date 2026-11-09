@@ -94,6 +94,11 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .seat.out .avatar, .seat.out .backs { opacity: .45; }
 .seat .name { font-weight: 600; font-size: 13px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seat .count { font-size: 12px; color: var(--felt-muted); }
+/* Điểm ví của người chơi — hiện ngay dưới tên */
+.pts { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: var(--gold); background: rgba(0,0,0,.28); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pts.bot { color: var(--felt-muted); font-weight: 600; }
+.pts .plus { color: #4ade80; }
+.seat-box .pts { background: var(--accent-soft, rgba(0,0,0,.06)); color: inherit; }
 .backs { display: flex; height: 50px; }
 .backs img { width: 34px; height: 48px; margin-left: -26px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
 .backs img:first-child { margin-left: 0; }
@@ -135,7 +140,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .hand button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
 @media (max-width: 640px) {
   .seat.left .backs img:not(:first-child), .seat.right .backs img:not(:first-child) { display: none; }
-  .seat .name { font-size: 12px; max-width: 86px; } .avatar { width: 42px; height: 42px; font-size: 14px; }
+  .seat .name { font-size: 12px; max-width: 86px; } .seat .pts { font-size: 11px; padding: 1px 6px; } .seat .pts .u { display: none; } .avatar { width: 42px; height: 42px; font-size: 14px; }
   .hand button { margin-left: -44px; } .hand button img { width: 62px; height: 87px; }
   .pile img, .pile-under img { width: 54px; height: 76px; margin-left: -22px; }
 }
@@ -601,6 +606,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       return `<div class="seat-box ${s.is_me ? 'me' : ''} ${s.is_ready ? 'ready' : ''}">
         ${avatarHtml(s.name, s.seat, s.is_bot, s.is_host)}
         <span class="nm">${esc(s.is_me ? s.name + ' (bạn)' : s.name)}</span>
+        ${s.is_bot ? '' : ptsHtml(s, false)}
         <span>${s.is_bot ? '<span class="badge">Bot</span>' : `<span class="dot ${s.online ? 'on' : ''}"></span> ${s.online ? 'online' : 'mất kết nối'}`}</span>
         <span class="badge ${s.is_ready ? 'good' : 'warn'}">${s.is_host ? 'Chủ phòng' : s.is_ready ? 'Sẵn sàng' : 'Chưa sẵn sàng'}</span>
         ${r.is_host && !s.is_me ? `<button class="b danger sm" type="button" data-kick="${s.seat}">Mời ra</button>` : ''}
@@ -776,6 +782,13 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     $('log').prepend(d);
   }
 
+  // Điểm ví của người chơi; hết ván thì kèm "+N" điểm vừa nhận ở ván này
+  function ptsHtml(p, withWon = true) {
+    if (p.is_bot || p.points === null || p.points === undefined) return '<span class="pts bot">Bot</span>';
+    const won = withWon && S.state?.result?.ranking?.find((r) => r.seat === p.seat)?.reward_points;
+    return `<span class="pts" title="Điểm tích luỹ đổi voucher">⭐ ${Number(p.points).toLocaleString('vi-VN')}<span class="u"> điểm</span>${won ? ` <span class="plus">+${won}</span>` : ''}</span>`;
+  }
+
   function renderTable() {
     const s = S.state, v = S.view, n = s.player_count;
     document.querySelectorAll('.seat').forEach((el) => el.classList.add('hidden'));
@@ -796,12 +809,13 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       el.innerHTML = `${v.bubbles[p.seat] ? `<span class="bubble ${/Chặt|Tới|Cóng/.test(v.bubbles[p.seat]) ? 'hot' : ''}">${esc(v.bubbles[p.seat])}</span>` : ''}
         ${avatarHtml(p.name, p.seat, p.is_bot)}
         <span class="name" title="${esc(p.name)}">${esc(p.name)}</span>
+        ${ptsHtml(p)}
         <div class="backs">${Array.from({ length: Math.min(count, 13) }, () => `<img src="${BACK}" alt="">`).join('')}</div>
         <span class="count">${count} lá</span><div class="tags">${tags.join('')}</div>`;
     }
 
     const me = s.players.find((p) => p.seat === s.my_seat);
-    $('meLine').innerHTML = me ? `${avatarHtml(S.me?.fullname || me.name, me.seat, false)}<b>Bạn</b>
+    $('meLine').innerHTML = me ? `${avatarHtml(S.me?.fullname || me.name, me.seat, false)}<b title="${esc(me.name)}">${esc(me.name)} (bạn)</b>${ptsHtml(me)}
       ${v.finished[me.seat] ? `<span class="tag gold">Về thứ ${v.finished[me.seat]}</span>` : ''}${v.cong.has(me.seat) ? '<span class="tag bad">Cóng</span>' : ''}
       ${v.passed.has(me.seat) ? '<span class="tag">Đã bỏ lượt</span>' : ''}` : '';
 
