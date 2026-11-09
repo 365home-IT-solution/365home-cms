@@ -211,7 +211,19 @@ class SEO extends Component
                 'lowercase' => true,
                 'normalize_whitespace' => true
             ]);
-            return str_contains($normalizedField, $normalizedKeyword);
+            if (str_contains($normalizedField, $normalizedKeyword)) {
+                return true;
+            }
+
+            // Từ khóa lịch trình thường viết tắt 2N1Đ, còn URL nên viết đầy đủ để dễ đọc.
+            $expandedKeyword = preg_replace_callback(
+                '/(^|-)(\d+)n(\d+)d(?=-|$)/',
+                fn (array $matches): string => $matches[1] . $matches[2] . '-ngay-' . $matches[3] . '-dem',
+                $normalizedKeyword
+            );
+
+            return $expandedKeyword !== $normalizedKeyword
+                && str_contains($normalizedField, $expandedKeyword);
         }
 
         // Nếu không phải slug, chuẩn hóa cả field và keyword
@@ -577,7 +589,12 @@ class SEO extends Component
             mb_strtolower($plainContent, 'UTF-8'),
             mb_strtolower($primaryKeyword, 'UTF-8')
         );
-        $primaryDensity = $wordCount > 0 ? ($primaryCount / $wordCount) * 100 : 0;
+        // Mật độ phải tính số từ mà cụm khóa chiếm trong bài. Nếu chỉ chia số lần xuất hiện
+        // cho tổng số từ thì cụm nhiều từ như "Cần Thơ 2N1Đ" luôn bị chấm thấp giả tạo.
+        $keywordWordCount = max(1, $this->countWords($primaryKeyword));
+        $primaryDensity = $wordCount > 0
+            ? (($primaryCount * $keywordWordCount) / $wordCount) * 100
+            : 0;
 
         // Đánh giá mật độ từ khóa chính
         if ($primaryDensity < 0.5) {
