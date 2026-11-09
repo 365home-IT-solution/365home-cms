@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 class TienLenSetting extends Model
 {
     protected $fillable = [
-        'is_enabled', 'turn_seconds', 'points_first', 'points_second', 'points_third', 'points_last', 'chop_bonus_points', 'daily_points_cap',
+        'is_enabled', 'turn_seconds', 'points_first', 'points_second', 'points_third', 'points_last', 'chop_bonus_points', 'daily_points_cap', 'default_card_deck',
     ];
 
     protected $casts = [
@@ -36,6 +36,8 @@ class TienLenSetting extends Model
             'points_last'       => 'sometimes|integer|min:0|max:100000',
             'chop_bonus_points' => 'sometimes|integer|min:0|max:100000',
             'daily_points_cap'  => 'sometimes|integer|min:0|max:10000000',
+            // Bộ bài cho khách chưa tự chọn (xem TienLenDeckService::DECKS)
+            'default_card_deck' => 'sometimes|string|in:' . implode(',', \App\Services\TienLenDeckService::keys()),
         ];
     }
 

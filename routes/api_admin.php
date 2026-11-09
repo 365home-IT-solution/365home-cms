@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Admin\CccdDeclarationController as AdminCccdDeclara
 use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
 use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
 use App\Http\Controllers\Api\Admin\TienLenAdminController;
+use App\Http\Controllers\Api\Admin\TienLenCardDeckAdminController;
 use App\Http\Controllers\Api\Admin\GamePointAdminController;
 use App\Http\Controllers\Api\Admin\CollectionAdminController;
 use App\Http\Controllers\Api\Admin\ReferralAdminController;
@@ -1172,6 +1173,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/referral')
 | Mini game Tiến lên miền Nam — cấu hình & xem ván (Super Admin), xem TienLenAdminController
 | GET|PUT /api/admin/games/tien-len/settings · GET .../matches?status=&mode=&customer_id=&search=&from=&to= · GET .../matches/{id} · GET .../stats
 | GET .../rooms?status=&search= (phòng nhiều người)
+| GET|POST .../card-decks · GET|POST|PUT|DELETE .../card-decks/{id} · POST .../card-decks/{id}/default (bộ bài)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/tien-len')->name('api.admin.games.tien-len.')->group(function () {
@@ -1181,6 +1183,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/tien-len')
     Route::get('matches/{id}', [TienLenAdminController::class, 'show'])->name('matches.show');
     Route::get('stats', [TienLenAdminController::class, 'stats'])->name('stats');
     Route::get('rooms', [TienLenAdminController::class, 'rooms'])->name('rooms.index');
+
+    // Bộ bài — xem TienLenCardDeckAdminController (sửa có file thì gửi POST multipart)
+    Route::get('card-decks', [TienLenCardDeckAdminController::class, 'index'])->name('card-decks.index');
+    Route::post('card-decks', [TienLenCardDeckAdminController::class, 'store'])->name('card-decks.store');
+    Route::get('card-decks/{id}', [TienLenCardDeckAdminController::class, 'show'])->whereNumber('id')->name('card-decks.show');
+    Route::match(['post', 'put', 'patch'], 'card-decks/{id}', [TienLenCardDeckAdminController::class, 'update'])->whereNumber('id')->name('card-decks.update');
+    Route::post('card-decks/{id}/default', [TienLenCardDeckAdminController::class, 'makeDefault'])->whereNumber('id')->name('card-decks.default');
+    Route::delete('card-decks/{id}', [TienLenCardDeckAdminController::class, 'destroy'])->whereNumber('id')->name('card-decks.destroy');
 });
 
 /*

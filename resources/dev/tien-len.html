@@ -94,6 +94,15 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .seat.out .avatar, .seat.out .backs { opacity: .45; }
 .seat .name { font-weight: 600; font-size: 13px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seat .count { font-size: 12px; color: var(--felt-muted); }
+/* Chọn bộ bài ở sảnh */
+.decks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.deck { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 8px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.deck.on { border-color: var(--accent, #2563eb); box-shadow: 0 0 0 2px var(--accent-soft, rgba(37,99,235,.15)); }
+.deck:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.deck-cards { display: flex; }
+.deck-cards img { width: 40px; height: 56px; border-radius: 4px; margin-left: -16px; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.deck-cards img:first-child { margin-left: 0; }
+.deck-name { font-size: 13px; font-weight: 600; }
 /* Điểm ví của người chơi — hiện ngay dưới tên */
 .pts { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: var(--gold); background: rgba(0,0,0,.28); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
 .pts.bot { color: var(--felt-muted); font-weight: 600; }
@@ -252,6 +261,10 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       </div>
       <div>
         <div class="card">
+          <h2>Bộ bài</h2>
+          <div class="decks" id="deckList"></div>
+        </div>
+        <div class="card">
           <h2>Đổi điểm lấy voucher</h2>
           <table><thead><tr><th>Quà</th><th>Điểm</th><th></th></tr></thead><tbody id="rewardBody"></tbody></table>
           <p class="note" id="rewardNote"></p>
@@ -333,7 +346,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 <script>
 (() => {
   const CARD_DIR = '/images/tien-len/cards/';
-  const BACK = CARD_DIR + '2B.svg';
+  // Ảnh lá bài lấy từ API (mỗi lá có image theo bộ bài khách chọn); không có thì dùng SVG cũ
+  const back = () => S.deck?.back_url || CARD_DIR + '2B.svg';
   const TOKEN_KEY = 'tien_len_tester_token';
   const POS = { 2: { 1: 'top' }, 3: { 1: 'right', 2: 'left' }, 4: { 1: 'right', 2: 'top', 3: 'left' } };
   const COLORS = ['#0f766e', '#7c3aed', '#c2410c', '#2563eb', '#be185d', '#4d7c0f'];
@@ -341,7 +355,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const sleep = (ms) => new Promise((r) => setTimeout(r, REDUCED ? 0 : ms));
-  const img = (code) => CARD_DIR + code.replace('10', 'T') + '.svg';
+  const img = (c) => c.image || CARD_DIR + c.code.replace('10', 'T') + '.svg';
   const rand = (a, b) => a + Math.random() * (b - a);
 
   // Token lưu theo TỪNG TAB (sessionStorage) để mỗi tab chơi bằng 1 tài khoản khác nhau
@@ -454,7 +468,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     const [ov, hist, rw] = await Promise.all([api('GET', '/games/tien-len'), api('GET', '/games/tien-len/matches'), api('GET', '/games/points/rewards')]);
     if (!ov.ok) { toast(msgOf(ov), true); show('vLogin'); return; }
     const o = S.overview = ov.data.data;
+    S.deck = o.card_deck;
     setPoints(o.balance);
+    loadDecks();
     $('disabledNote').classList.toggle('hidden', o.is_enabled);
     for (const id of ['btnStart', 'btnCreateRoom', 'btnJoin', 'btnQuick']) $(id).disabled = !o.is_enabled;
     $('btnResume').classList.toggle('hidden', !o.current_match_id);
@@ -491,6 +507,27 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <td>${x.players}/${x.max_players}</td><td><button class="b sm" type="button" data-join="${esc(x.code)}">Vào</button></td></tr>`).join('')
       : '<tr><td colspan="4" class="muted">Chưa có phòng nào — tạo phòng hoặc bấm Ghép nhanh.</td></tr>';
   }
+
+  async function loadDecks() {
+    const r = await api('GET', '/games/tien-len/card-decks');
+    if (r.ok) renderDecks(r.data.data);
+  }
+
+  function renderDecks(d) {
+    S.deck = d.decks.find((x) => x.is_selected) || S.deck;
+    $('deckList').innerHTML = d.decks.map((x) => `<button type="button" class="deck ${x.is_selected ? 'on' : ''}" data-deck="${esc(x.key)}" aria-pressed="${x.is_selected}">
+      <span class="deck-cards"><img src="${esc(x.back_url)}" alt="">${x.sample_cards.slice(0, 3).map((c) => `<img src="${esc(c.image)}" alt="${esc(c.code)}">`).join('')}</span>
+      <span class="deck-name">${esc(x.name)}${x.is_selected ? ' <span class="badge good">Đang dùng</span>' : ''}</span></button>`).join('');
+  }
+
+  $('deckList').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-deck]');
+    if (!b || b.classList.contains('on')) return;
+    const r = await api('PUT', '/games/tien-len/card-decks/selected', { deck: b.dataset.deck });
+    if (!r.ok) return toast(msgOf(r), true);
+    renderDecks(r.data.data);
+    toast('Đã đổi bộ bài');
+  });
 
   function setPoints(balance) { $('hdrPoints').innerHTML = 'Điểm <b>' + balance + '</b>'; }
 
@@ -790,6 +827,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   }
 
   function renderTable() {
+    if (S.state?.card_deck) S.deck = S.state.card_deck;
     const s = S.state, v = S.view, n = s.player_count;
     document.querySelectorAll('.seat').forEach((el) => el.classList.add('hidden'));
     for (const p of s.players) {
@@ -810,7 +848,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
         ${avatarHtml(p.name, p.seat, p.is_bot)}
         <span class="name" title="${esc(p.name)}">${esc(p.name)}</span>
         ${ptsHtml(p)}
-        <div class="backs">${Array.from({ length: Math.min(count, 13) }, () => `<img src="${BACK}" alt="">`).join('')}</div>
+        <div class="backs">${Array.from({ length: Math.min(count, 13) }, () => `<img src="${back()}" alt="">`).join('')}</div>
         <span class="count">${count} lá</span><div class="tags">${tags.join('')}</div>`;
     }
 
@@ -819,8 +857,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       ${v.finished[me.seat] ? `<span class="tag gold">Về thứ ${v.finished[me.seat]}</span>` : ''}${v.cong.has(me.seat) ? '<span class="tag bad">Cóng</span>' : ''}
       ${v.passed.has(me.seat) ? '<span class="tag">Đã bỏ lượt</span>' : ''}` : '';
 
-    $('pile').innerHTML = v.pile ? v.pile.cards.map((c) => `<img src="${img(c.code)}" alt="${esc(c.code)}">`).join('') : '';
-    $('pileUnder').innerHTML = v.under ? v.under.cards.map((c) => `<img src="${img(c.code)}" alt="">`).join('') : '';
+    $('pile').innerHTML = v.pile ? v.pile.cards.map((c) => `<img src="${img(c)}" alt="${esc(c.code)}">`).join('') : '';
+    $('pileUnder').innerHTML = v.under ? v.under.cards.map((c) => `<img src="${img(c)}" alt="">`).join('') : '';
     $('pileLabel').innerHTML = v.pile ? `<b>${esc(nameOf(v.pile.seat))}</b> · ${esc(v.pile.label || '')}` : (s.status === 'playing' && !v.dealing ? 'Bàn trống — người mở vòng đánh bộ bất kỳ' : '');
 
     let banner = '';
@@ -837,7 +875,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     $('handzone').classList.toggle('active', !S.busy && s.is_my_turn);
     $('hand').innerHTML = v.hand.map((c, i) => `<button type="button" data-id="${c.id}" aria-pressed="${S.selected.has(c.id)}" aria-label="${esc(c.code)}"
       class="${S.selected.has(c.id) ? 'sel' : ''} ${s.must_include && s.must_include.id === c.id ? 'must' : ''} ${v.justDealt ? 'deal-in' : ''}"
-      style="${v.justDealt ? `animation-delay:${i * 45}ms` : ''}"><img src="${img(c.code)}" alt=""></button>`).join('');
+      style="${v.justDealt ? `animation-delay:${i * 45}ms` : ''}"><img src="${img(c)}" alt=""></button>`).join('');
     v.justDealt = false;
   }
 
@@ -951,7 +989,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       for (let i = 0; i < n; i++) {
         const seat = (s.players[i].seat);
         const t = targets[i];
-        jobs.push(fly(BACK, from, { x: t.x + rand(-6, 6), y: t.y + rand(-4, 4) }, { w: 44, h: 62, dur: 260, delay: (k * n + i) * 16, rot: rand(-25, 25) })
+        jobs.push(fly(back(), from, { x: t.x + rand(-6, 6), y: t.y + rand(-4, 4) }, { w: 44, h: 62, dur: 260, delay: (k * n + i) * 16, rot: rand(-25, 25) })
           .then(() => { v.counts[seat] = Math.min(13, (v.counts[seat] || 0) + 1); if (k % 3 === 2 || k === 12) renderSeatCounts(); }));
       }
     }
@@ -970,7 +1008,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       const el = seatEl(p.seat);
       if (!el) continue;
       const count = S.view.counts[p.seat] ?? 0;
-      el.querySelector('.backs').innerHTML = Array.from({ length: Math.min(count, 13) }, () => `<img src="${BACK}" alt="">`).join('');
+      el.querySelector('.backs').innerHTML = Array.from({ length: Math.min(count, 13) }, () => `<img src="${back()}" alt="">`).join('');
       el.querySelector('.count').textContent = count + ' lá';
     }
   }
@@ -993,7 +1031,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       from = e.cards.map(() => p);
     }
     $('pile').animate([{ opacity: 1 }, { opacity: 0.35 }], { duration: 250, fill: 'forwards' });
-    await Promise.all(e.cards.map((c, i) => fly(img(c.code), from[i], { x: pile.x + (i - (n - 1) / 2) * gap, y: pile.y }, {
+    await Promise.all(e.cards.map((c, i) => fly(img(c), from[i], { x: pile.x + (i - (n - 1) / 2) * gap, y: pile.y }, {
       delay: i * 45, dur: e.chop ? 300 : 420, rot: rand(-8, 8), fromScale: mine ? 1.1 : 0.45,
     })));
   }
@@ -1062,7 +1100,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     $('resultBody').innerHTML = res.ranking.map((p) => `<tr><td>${p.rank === 1 ? '🏆 ' : ''}<b>${esc(p.seat === s.my_seat ? 'Bạn' : p.name)}</b>${p.has_left ? ' <span class="muted">(đã rời)</span>' : ''}</td>
       <td>${esc(p.rank_label)}${p.is_cong ? ' · cóng' : ''}</td><td>${p.score > 0 ? '+' : ''}${p.score}</td>
       <td>${p.reward_points === null ? '<span class="muted">bot</span>' : '+' + p.reward_points}</td>
-      <td><div class="mini">${(res.hands[p.seat] || []).map((c) => `<img src="${img(c.code)}" alt="${esc(c.code)}">`).join('') || '—'}</div></td></tr>`).join('');
+      <td><div class="mini">${(res.hands[p.seat] || []).map((c) => `<img src="${img(c)}" alt="${esc(c.code)}">`).join('') || '—'}</div></td></tr>`).join('');
     const extra = [];
     for (const c of res.chops) extra.push(`${nameOf(c.chopper)} chặt ${nameOf(c.victim)} (${c.units})`);
     for (const p of res.penalties) {

@@ -13,6 +13,7 @@ use App\Models\GamePointTransaction;
 use App\Models\TienLenMatchPlayer;
 use App\Models\TienLenSetting;
 use App\Services\GamePointService;
+use App\Services\TienLenDeckService;
 use App\Services\TienLenRoomService;
 use App\Services\TienLenService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -58,7 +59,32 @@ class TienLenController extends Controller
             'current_room_id'  => $rooms->current($customer)?->id,
             'card_ranks'       => Card::RANKS,
             'card_suits'       => Card::SUITS,
+            'card_deck'        => TienLenDeckService::summary(TienLenDeckService::selectedFor((string) $customer->id)),
         ]]);
+    }
+
+    /**
+     * GET /api/games/tien-len/card-decks — mọi bộ bài (đều miễn phí) + bộ khách đang dùng.
+     */
+    public function cardDecks(Request $request): JsonResponse
+    {
+        $selected = TienLenDeckService::selectedFor((string) $request->user()->id);
+
+        return response()->json(['data' => ['selected' => $selected, 'decks' => TienLenDeckService::catalog($selected)]]);
+    }
+
+    /**
+     * PUT /api/games/tien-len/card-decks/selected — chọn bộ bài. Body: deck (key). Đổi được cả khi đang chơi, lần lấy state sau dùng ảnh bộ mới.
+     */
+    public function selectCardDeck(Request $request): JsonResponse
+    {
+        $data = $request->validate(['deck' => 'required|string|in:' . implode(',', TienLenDeckService::keys())], [
+            'deck.in' => 'Bộ bài không tồn tại.',
+        ]);
+
+        TienLenDeckService::select((string) $request->user()->id, $data['deck']);
+
+        return $this->cardDecks($request);
     }
 
     /**
