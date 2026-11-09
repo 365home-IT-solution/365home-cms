@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\TienLenMatchResource\Pages;
 
+use App\Filament\Resources\TienLenCardDeckResource;
 use App\Filament\Resources\TienLenMatchResource;
 use App\Models\GameTesterSetting;
 use App\Models\TienLenSetting;
+use App\Services\TienLenDeckService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -30,6 +33,12 @@ class ListTienLenMatches extends ListRecords
                 ->color('gray')
                 ->url(fn () => route('tien-len-tester'), shouldOpenInNewTab: true)
                 ->visible(fn () => GameTesterSetting::enabled()),
+
+            Action::make('cardDecks')
+                ->label('Bộ bài')
+                ->icon('heroicon-o-rectangle-stack')
+                ->color('gray')
+                ->url(fn () => TienLenCardDeckResource::getUrl('index')),
 
             Action::make('settings')
                 ->label('Cài đặt Tiến lên')
@@ -57,6 +66,10 @@ class ListTienLenMatches extends ListRecords
                         TextInput::make('daily_points_cap')->label('Trần điểm / ngày')->helperText('0 = không giới hạn.')
                             ->numeric()->integer()->minValue(0)->maxValue(10000000)->required(),
                     ]),
+
+                    Select::make('default_card_deck')->label('Bộ bài mặc định')
+                        ->helperText('Áp dụng cho khách chưa tự chọn bộ bài trong app.')
+                        ->options(TienLenDeckService::options())->native(false)->required(),
                 ])
                 ->action(function (array $data): void {
                     TienLenSetting::current()->update($data);

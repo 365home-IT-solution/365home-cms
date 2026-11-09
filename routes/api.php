@@ -661,6 +661,8 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix(
 | GET  /api/games/tien-len/matches/{id}/hints      → Gợi ý các bộ đánh được
 | GET  /api/games/tien-len/matches/{id}/events?after= → Sự kiện có event_no > after
 | POST /api/games/tien-len/matches/{id}/forfeit    → Bỏ ván với bot (thua, 0 điểm) / rời phòng (bot đánh thay)
+| GET  /api/games/tien-len/card-decks              → Các bộ bài + bộ đang dùng (mọi lá trong state có sẵn image theo bộ này)
+| PUT  /api/games/tien-len/card-decks/selected     → Chọn bộ bài (deck)
 | Phòng nhiều người (mời bằng mã / ghép nhanh, chủ phòng mời bot):
 | GET  .../rooms?max_players= · POST .../rooms · POST .../rooms/join (code) · POST .../rooms/quick-join · GET .../rooms/current
 | GET  .../rooms/{id}?after= · POST .../rooms/{id}/ready|bots|start|leave · DELETE .../rooms/{id}/seats/{seat}
@@ -679,6 +681,8 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:240,1,tien-len']
     Route::get('matches/{id}/hints',       [TienLenController::class, 'hints'])->name('matches.hints');
     Route::get('matches/{id}/events',      [TienLenController::class, 'events'])->name('matches.events');
     Route::post('matches/{id}/forfeit',    [TienLenController::class, 'forfeit'])->name('matches.forfeit');
+    Route::get('card-decks',               [TienLenController::class, 'cardDecks'])->name('card-decks.index');
+    Route::put('card-decks/selected',      [TienLenController::class, 'selectCardDeck'])->name('card-decks.select');
 
     // Phòng nhiều người — xem TienLenRoomController
     Route::get('rooms',                    [TienLenRoomController::class, 'index'])->name('rooms.index');

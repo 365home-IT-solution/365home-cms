@@ -311,7 +311,7 @@ class TienLenService
             'player_count'         => $game->players,
             'my_seat'              => $viewer,
             'first_match'          => $game->firstMatch,
-            'must_include'         => $game->mustInclude !== null ? Card::payload([$game->mustInclude])[0] : null,
+            'must_include'         => $game->mustInclude !== null ? TienLenDeckService::cards([$game->mustInclude])[0] : null,
             'turn_seat'            => $playing ? $game->turn : null,
             'actor_seat'           => $actor,
             'is_my_turn'           => $mine && $actor === $viewer,
@@ -328,10 +328,12 @@ class TienLenService
                 'type'   => $last->type,
                 'label'  => $last->label(),
                 'length' => $last->length,
-                'cards'  => Card::payload($last->cards),
+                'cards'  => TienLenDeckService::cards($last->cards),
             ] : null,
+            // Bộ bài của người xem: mọi lá trong response đã có sẵn image theo bộ này; back_url để vẽ mặt lưng bài người khác
+            'card_deck'            => TienLenDeckService::summary(TienLenDeckService::current()),
             'players'              => $players,
-            'my_hand'              => $viewer !== null ? Card::payload($game->hands[$viewer]) : [],
+            'my_hand'              => $viewer !== null ? TienLenDeckService::cards($game->hands[$viewer]) : [],
             'result'               => $match->status === TienLenMatch::STATUS_PLAYING ? null : self::resultPayload($match, $game, $viewer),
             'created_at'           => $match->created_at?->toDateTimeString(),
             'finished_at'          => $match->finished_at?->toDateTimeString(),
@@ -342,13 +344,13 @@ class TienLenService
     {
         $out = $e;
         if (isset($out['cards'])) {
-            $out['cards'] = Card::payload($out['cards']);
+            $out['cards'] = TienLenDeckService::cards($out['cards']);
         }
         if ($e['type'] === 'play') {
             $out['label'] = Combo::detect($e['cards'])?->label();
         }
         if ($e['type'] === 'deal') {
-            $out['must_include'] = ($e['must_include'] ?? null) !== null ? Card::payload([$e['must_include']])[0] : null;
+            $out['must_include'] = ($e['must_include'] ?? null) !== null ? TienLenDeckService::cards([$e['must_include']])[0] : null;
         }
         if ($e['type'] === 'instant_win') {
             $out['label'] = Rules::INSTANT_LABELS[$e['kind']] ?? $e['kind'];
@@ -359,7 +361,7 @@ class TienLenService
 
     public static function comboPayload(Combo $c): array
     {
-        return ['type' => $c->type, 'label' => $c->label(), 'cards' => Card::payload($c->cards)];
+        return ['type' => $c->type, 'label' => $c->label(), 'cards' => TienLenDeckService::cards($c->cards)];
     }
 
     public static function rankLabel(int $rank, int $players): string
@@ -412,9 +414,9 @@ class TienLenService
                 'reward_points' => isset($rewards[$seat]) ? (int) $rewards[$seat]['total'] : null,
             ])->sortBy('rank')->values(),
             'chops'         => $r['chops'],
-            'penalties'     => array_map(fn (array $p) => $p + ['cards' => Card::payload(array_merge(...array_column($p['items'], 'cards') ?: [[]]))], $r['penalties']),
+            'penalties'     => array_map(fn (array $p) => $p + ['cards' => TienLenDeckService::cards(array_merge(...array_column($p['items'], 'cards') ?: [[]]))], $r['penalties']),
             // Hết ván mới lật bài mọi người
-            'hands'         => array_map(fn (array $h) => Card::payload($h), $game->hands),
+            'hands'         => array_map(fn (array $h) => TienLenDeckService::cards($h), $game->hands),
         ];
     }
 
