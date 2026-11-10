@@ -248,7 +248,17 @@ class Coupon extends Model
             default          => false,
         };
 
-        return $applies && $this->passesBranchRestriction($roomId) && $this->passesPartnerRestriction($roomId) && $this->partnerHasJoined($roomId);
+        return $applies && ! $this->isTierTemplate() && $this->passesPartnerRestriction($roomId)
+            && $this->passesBranchRestriction($roomId) && $this->partnerHasJoined($roomId);
+    }
+
+    /**
+     * Mã MẪU của hạng thành viên (có validity_days, chưa gắn khách) chỉ để nhân bản ra mã riêng cho từng khách
+     * (MembershipService::grantTemplateCoupon()) — nhập thẳng mã mẫu thì không áp dụng.
+     */
+    public function isTierTemplate(): bool
+    {
+        return $this->validity_days !== null && $this->customer_id === null && ! $this->customers()->exists();
     }
 
     /**
@@ -274,15 +284,29 @@ class Coupon extends Model
             ->whereIn('category_id', $branchIds)->exists();
     }
 
-    // Voucher hệ thống tự tặng chỉ dùng được ở phòng của các đối tác đã đồng ý (allowed_partner_ids, xem App\Support\VoucherScope) —
-    // so thẳng với đối tác sở hữu phòng nên áp cả phòng chưa gắn chi nhánh và chi nhánh mở sau.
+    /**
+     * Giới hạn theo đối tác sở hữu phòng:
+     * - Mã của 1 đối tác (partner_id có giá trị) chỉ áp lên phòng của chính đối tác đó; mã chung 365home (null) áp mọi đối tác.
+     * - Voucher hệ thống tự tặng chỉ dùng được ở phòng của các đối tác đã đồng ý (allowed_partner_ids, xem App\Support\VoucherScope) —
+     *   so thẳng với đối tác sở hữu phòng nên áp cả phòng chưa gắn chi nhánh và chi nhánh mở sau.
+     */
     private function passesPartnerRestriction(string $roomId): bool
     {
-        if (empty($this->allowed_partner_ids)) {
+        if ($this->partner_id === null && empty($this->allowed_partner_ids)) {
             return true;
         }
 
-        return Product::withoutGlobalScopes()->whereKey($roomId)->whereIn('partner_id', $this->allowed_partner_ids)->exists();
+        $roomPartnerId = Product::withoutGlobalScopes()->whereKey($roomId)->value('partner_id');
+
+        if ($this->partner_id !== null && $roomPartnerId !== $this->partner_id) {
+            return false;
+        }
+
+        if (! empty($this->allowed_partner_ids) && ! in_array($roomPartnerId, $this->allowed_partner_ids)) {
+            return false;
+        }
+
+        return true;
     }
 
     private function passesBranchRestriction(string $roomId): bool
@@ -352,8 +376,9 @@ class Coupon extends Model
 
             case 'specific_slot':
                 return $this->roomTimeSlots()->where('room_time_slot_id', $slot->id)->exists()
-                    && $this->passesBranchRestriction((string) $slot->room_id)
-                    && $this->passesPartnerRestriction((string) $slot->room_id);
+                    && ! $this->isTierTemplate()
+                    && $this->passesPartnerRestriction((string) $slot->room_id)
+                    && $this->passesBranchRestriction((string) $slot->room_id);
 
             default:
                 return false;

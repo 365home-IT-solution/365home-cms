@@ -39,7 +39,7 @@ class RouteServiceProvider extends ServiceProvider
             // Webhook thanh toán PayOS/MoMo/VNPay — KHÔNG đăng nhập (user() luôn null) nên bị giới
             // hạn CHUNG theo IP với mọi request API khác. IP gọi webhook là của PayOS/MoMo/VNPay
             // (không phải của khách/nhân viên), nên nhiều toà nhà cùng phát sinh giao dịch trong
-            // cùng 1 phút hoàn toàn có thể vượt quá 60 request/phút — bị chặn (429) đồng nghĩa
+            // cùng 1 phút hoàn toàn có thể vượt quá 120 request/phút — bị chặn (429) đồng nghĩa
             // KHÔNG XÁC NHẬN ĐƯỢC 1 GIAO DỊCH THANH TOÁN THẬT dù khách đã trả tiền thành công. Miễn
             // trừ hẳn giới hạn cho 3 route này, cùng tiền lệ với "api/lock/callback" ở trên — an toàn
             // vì cả 3 controller đều tự xác thực chữ ký HMAC trước khi xử lý, không phụ thuộc rate
@@ -53,7 +53,7 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
         });
 
         // Đăng ký hợp tác công khai: tạo hồ sơ 5/phút + 20/giờ mỗi IP; các bước sau (giấy tờ, thông tin, gửi duyệt) 60/phút mỗi IP + mã hồ sơ —

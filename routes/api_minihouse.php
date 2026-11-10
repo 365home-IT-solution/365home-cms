@@ -376,7 +376,7 @@ Route::get('minihouse/contract-document/{document}/html', [ContractDocumentPrevi
 | niệm đặt phòng/thanh toán online ngay như Home, hợp đồng luôn do nhân viên tạo tay sau khi chốt.
 |--------------------------------------------------------------------------
 */
-Route::prefix('minihouse/public')->name('api.minihouse.public.')->middleware('throttle:60,1')->group(function () {
+Route::prefix('minihouse/public')->name('api.minihouse.public.')->middleware('throttle:120,1')->group(function () {
     Route::get('zones', [PublicZoneController::class, 'index'])->name('zones.index');
     Route::get('amenities', [PublicAmenityController::class, 'index'])->name('amenities.index');
 

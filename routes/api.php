@@ -609,7 +609,7 @@ Route::middleware(['auth:sanctum', 'customer.active'])->prefix('wishlist')->name
 | POST /api/games/scratch-cards/{id}/scratch        → Cào thẻ (gọi lại trả đúng kết quả cũ, already_claimed = true)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('games/scratch-cards')->name('api.games.scratch-cards.')->group(function () {
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('games/scratch-cards')->name('api.games.scratch-cards.')->group(function () {
     Route::get('/',              [ScratchCardController::class, 'index'])->name('index');
     Route::post('{id}/scratch',  [ScratchCardController::class, 'scratch'])->name('scratch');
 });
@@ -655,7 +655,7 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:caro'])->prefix(
 | POST /api/games/collections/{id}/redeem → Đổi thưởng 1 lần / chiến dịch (gọi lại: already_claimed = true)
 |--------------------------------------------------------------------------
 */
-Route::middleware('throttle:60,1')->prefix('games/collections')->name('api.games.collections.')->group(function () {
+Route::middleware('throttle:120,1')->prefix('games/collections')->name('api.games.collections.')->group(function () {
     Route::get('/',        [CollectionController::class, 'index'])->name('index');
     Route::get('{id}',     [CollectionController::class, 'show'])->whereNumber('id')->name('show');
     Route::post('{id}/redeem', [CollectionController::class, 'redeem'])->whereNumber('id')->middleware(['auth:sanctum', 'customer.active'])->name('redeem');
@@ -669,12 +669,12 @@ Route::middleware('throttle:60,1')->prefix('games/collections')->name('api.games
 | (Lúc đăng ký: POST /api/auth/register nhận thêm referral_code + device_id tuỳ chọn)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('referrals')->name('api.referrals.')->group(function () {
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('referrals')->name('api.referrals.')->group(function () {
     Route::get('me',     [ReferralController::class, 'me'])->name('me');
     Route::post('apply', [ReferralController::class, 'apply'])->name('apply')->middleware('throttle:10,1');
 });
 
-Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('mini-games/{code}')->name('api.mini-games.')->group(function () {
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('mini-games/{code}')->name('api.mini-games.')->group(function () {
     Route::get('/',        [MiniGameController::class, 'show'])->name('show');
     Route::post('shuffle', [MiniGameController::class, 'shuffle'])->name('shuffle');
     Route::post('pick',    [MiniGameController::class, 'pick'])->name('pick');
@@ -745,7 +745,7 @@ Route::post('broadcasting/auth', fn (\Illuminate\Http\Request $request) => \Illu
 | POST /api/games/points/rewards/{id}/redeem   → Đổi quà
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'customer.active', 'throttle:60,1'])->prefix('games/points')->name('api.games.points.')->group(function () {
+Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix('games/points')->name('api.games.points.')->group(function () {
     Route::get('/',                    [GamePointController::class, 'me'])->name('me');
     Route::get('rewards',              [GamePointController::class, 'rewards'])->name('rewards');
     Route::post('rewards/{id}/redeem', [GamePointController::class, 'redeem'])->whereNumber('id')->name('redeem')->middleware('throttle:10,1');
