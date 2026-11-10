@@ -414,12 +414,9 @@ class CouponController extends Controller
         $query = Coupon::query();
 
         if (! $user->seesAllPartners()) {
-            // Mã của đối tác mình + mã DÙNG CHUNG toàn hệ thống (partner_id null, không phải mã cá nhân
-            // của 1 khách) — mã dùng chung chỉ xem được, sửa/xoá bị chặn (guardSharedCoupon()).
-            $partnerId = $user->partner_id;
-            $query->where(fn (Builder $q) => $q
-                ->when($partnerId, fn (Builder $q2) => $q2->where('partner_id', $partnerId))
-                ->orWhere(fn (Builder $q2) => $q2->whereNull('partner_id')->whereNull('customer_id')));
+            // Chỉ mã của CHÍNH đối tác mình (giống Filament — BelongsToPartner). Mã dùng chung của 365home
+            // (partner_id null) không hiện cho đối tác; tài khoản chưa gắn đối tác thì không thấy mã nào.
+            $query->where('partner_id', $user->partner_id ?? '');
 
             $allowedCategoryIds = $user->allowedCategoryIds();
             if (! empty($allowedCategoryIds)) {
