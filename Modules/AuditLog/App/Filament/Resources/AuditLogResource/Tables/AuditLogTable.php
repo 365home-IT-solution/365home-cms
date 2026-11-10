@@ -307,7 +307,10 @@ class AuditLogTable
         }
 
         if (is_array($value)) {
-            return implode(', ', $value);
+            return implode(', ', array_map(
+                fn ($item) => is_array($item) ? json_encode($item, JSON_UNESCAPED_UNICODE) : (string) $item,
+                $value
+            ));
         }
 
         if (static::isBooleanFlagValue($field, $value)) {

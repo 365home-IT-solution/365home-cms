@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
 use App\Http\Controllers\Api\Admin\CccdDeclarationController as AdminCccdDeclarationController;
 use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
+use App\Http\Controllers\Api\Admin\VoucherScopeSettingsController;
 use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
 use App\Http\Controllers\Api\Admin\TienLenAdminController;
 use App\Http\Controllers\Api\Admin\TienLenCardDeckAdminController;
@@ -1247,8 +1248,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/approvals')->nam
 
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name('api.admin.coupons.')->group(function () {
     Route::get('/', [AdminCouponController::class, 'index'])->name('index');
-    Route::get('/{id}', [AdminCouponController::class, 'show'])->name('show');
     Route::post('/', [AdminCouponController::class, 'store'])->name('store');
+
+    // Phạm vi đối tác / chi nhánh cho voucher hệ thống tự tặng (checkin, minigame) — xem App\Support\VoucherScope.
+    // Phải đứng TRƯỚC /{id} bên dưới, nếu không "scope-settings" sẽ bị khớp nhầm thành {id}.
+    Route::get('scope-settings', [VoucherScopeSettingsController::class, 'show'])->name('scope-settings.show');
+    Route::match(['put', 'patch'], 'scope-settings', [VoucherScopeSettingsController::class, 'update'])->name('scope-settings.update');
+
+    Route::get('/{id}', [AdminCouponController::class, 'show'])->name('show');
     Route::put('/{id}', [AdminCouponController::class, 'update'])->name('update');
     Route::post('/{id}', [AdminCouponController::class, 'update'])->name('update.post');
     Route::delete('/{id}', [AdminCouponController::class, 'destroy'])->name('destroy');
