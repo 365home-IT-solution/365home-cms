@@ -33,7 +33,11 @@ class CouponController extends Controller
     public function mine(Request $request): JsonResponse
     {
         $request->validate([
-            'room_id' => 'sometimes|nullable|string|exists:products,id',
+            'room_id'       => 'sometimes|nullable|string|exists:products,id',
+            'checkin_date'  => 'sometimes|nullable|date',
+            'checkout_date' => 'sometimes|nullable|date',
+            'dates'         => 'sometimes|array',
+            'dates.*'       => 'date',
         ]);
 
         /** @var \App\Models\Customer $customer */
@@ -72,6 +76,14 @@ class CouponController extends Controller
                 ->values();
         }
 
+        // Lịch ngừng nhận voucher: KHÔNG ẩn mã bị chặn mà đánh dấu blocked + lý do để app hiện mờ kèm câu báo.
+        $room          = $roomId !== null ? Product::find($roomId) : null;
+        $dates         = self::stayDates($request);
+        $voucherBlocks = app(\App\Services\VoucherBlockService::class);
+        $blockReasons  = $room
+            ? $coupons->mapWithKeys(fn (Coupon $c) => [$c->code => $voucherBlocks->blockReason($c, $room, $dates)])->all()
+            : [];
+
         $data = $coupons->map(fn ($c) => [
             'code'            => $c->code,
             'name'            => $c->name,
@@ -89,6 +101,10 @@ class CouponController extends Controller
                 : null,
             // Nguồn voucher để app dán nhãn: membership (mặc định mã cũ) · checkin · scratch_card · collection · referral
             'source'          => $c->source ?? 'membership',
+            'voucher_group'   => \App\Services\VoucherBlockService::groupOf($c),
+            // true = chi nhánh đang ngừng nhận voucher này vào ngày đã chọn (gửi room_id + checkin_date/checkout_date hoặc dates[]).
+            'blocked'         => ! empty($blockReasons[$c->code]),
+            'blocked_reason'  => $blockReasons[$c->code] ?? null,
         ]);
 
         return response()->json(['data' => $data]);
@@ -103,9 +119,13 @@ class CouponController extends Controller
     public function check(Request $request): JsonResponse
     {
         $request->validate([
-            'coupon_code' => 'required|string',
-            'room_id'     => 'required|string',
-            'amount'      => 'required|integer|min:0',
+            'coupon_code'   => 'required|string',
+            'room_id'       => 'required|string',
+            'amount'        => 'required|integer|min:0',
+            'checkin_date'  => 'sometimes|nullable|date',
+            'checkout_date' => 'sometimes|nullable|date',
+            'dates'         => 'sometimes|array',
+            'dates.*'       => 'date',
         ]);
 
         $room = Product::where('id', $request->input('room_id'))
@@ -159,6 +179,10 @@ class CouponController extends Controller
             return response()->json(['message' => 'Mã giảm giá không áp dụng cho phòng này.'], 422);
         }
 
+        if ($reason = app(\App\Services\VoucherBlockService::class)->blockReason($coupon, $room, self::stayDates($request))) {
+            return response()->json(['message' => $reason, 'blocked' => true], 422);
+        }
+
         $discountAmount = (int) $coupon->calculateDiscount($amount);
         $finalAmount    = max(0, (int) $amount - $discountAmount);
 
@@ -172,5 +196,15 @@ class CouponController extends Controller
                 'final_amount'    => $finalAmount,
             ],
         ]);
+    }
+
+    /** Ngày ở khách đang chọn: dates[] (phòng theo giờ) hoặc các đêm checkin_date → checkout_date (phòng theo ngày). */
+    private static function stayDates(Request $request): array
+    {
+        if ($request->filled('dates')) {
+            return array_values((array) $request->input('dates'));
+        }
+
+        return \App\Services\VoucherBlockService::nights($request->input('checkin_date'), $request->input('checkout_date'));
     }
 }

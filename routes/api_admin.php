@@ -845,6 +845,33 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/phone-blocks')->
 
 /*
 |--------------------------------------------------------------------------
+| Lịch ngừng nhận voucher — "Cấu hình web" (chỉ Super Admin)
+|--------------------------------------------------------------------------
+| GET    /api/admin/voucher-blocks            → Danh sách (?active=1&per_page=) + meta_options (nhóm voucher, thứ, mixed_mode)
+| GET    /api/admin/voucher-blocks/options    → Nhóm voucher, thứ, chi nhánh chọn được (?partner_id= cho Super Admin)
+| GET    /api/admin/voucher-blocks/holidays   → Ngày lễ sắp tới trong bảng giá (?partner_id=&category_ids[]=)
+| POST   /api/admin/voucher-blocks            → Tạo: name, partner_id (Super Admin), category_ids[] (trống = mọi chi nhánh),
+|                                               all_days, use_price_board_holidays, date_ranges[]{name?,from,to}, weekdays[1..7],
+|                                               recurring_ranges[]{name?,from,to: dd/mm}, valid_from, valid_to, except_dates[],
+|                                               blocked_groups[] (platform_code|membership|checkin|game|partner_code), mixed_mode (any|all)
+| GET    /api/admin/voucher-blocks/{id}       → Chi tiết
+| PUT    /api/admin/voucher-blocks/{id}       → Sửa (gửi field nào sửa field đó; POST cũng được)
+| DELETE /api/admin/voucher-blocks/{id}       → Xoá
+| Phía khách: GET /api/coupons/mine và POST /api/coupons/check nhận thêm checkin_date/checkout_date hoặc dates[] → trả
+| blocked + blocked_reason (mine) / 422 kèm câu báo (check). Đặt phòng / sửa đơn có mã bị chặn → 422 ở coupon_codes.{i}.
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/voucher-blocks')->name('api.admin.voucher-blocks.')->group(function () {
+    Route::get('/',         [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'index'])->name('index');
+    Route::get('/options',  [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'options'])->name('options');
+    Route::get('/holidays', [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'holidays'])->name('holidays');
+    Route::post('/',        [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'store'])->name('store');
+    Route::get('/{id}',     [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'show'])->whereNumber('id')->name('show');
+    Route::match(['put', 'post'], '/{id}', [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'update'])->whereNumber('id')->name('update');
+    Route::delete('/{id}',  [\App\Http\Controllers\Api\Admin\VoucherBlockController::class, 'destroy'])->whereNumber('id')->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Cccd Declarations — Danh sách KHAI BÁO LƯU TRÚ (bảng cccd_declarations), tương ứng
 | App\Filament\Resources\CccdDeclarationResource ở CMS — xem docblock
 | App\Http\Controllers\Api\Admin\CccdDeclarationController. CHỈ đọc (list/detail); hệ thống KHÔNG

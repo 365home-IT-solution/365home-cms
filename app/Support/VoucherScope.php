@@ -25,7 +25,13 @@ class VoucherScope
         $categoryIds = $settings->{"{$scope}_category_ids"} ?? [];
 
         if ($categoryIds !== []) {
-            $ids = Category::query()->withoutGlobalScopes()->whereIn('id', $categoryIds)->pluck('id')->all();
+            // Có cả đối tác nhận ở "mọi chi nhánh" lẫn đối tác chỉ nhận ở vài chi nhánh (trang "Voucher theo đối tác"): mã chỉ
+            // gắn được 1 kiểu giới hạn, nên quy đối tác "mọi chi nhánh" ra toàn bộ chi nhánh gốc hiện có của đối tác đó.
+            $ids = Category::query()->withoutGlobalScopes()
+                ->where(fn ($q) => $q->whereIn('id', $categoryIds)
+                    ->when($partnerIds !== [], fn ($q) => $q->orWhere(fn ($q) => $q->whereNull('parent_id')
+                        ->where('category_type', 'product')->whereIn('partner_id', $partnerIds))))
+                ->pluck('id')->all();
 
             if ($ids !== []) {
                 $coupon->categories()->sync($ids);

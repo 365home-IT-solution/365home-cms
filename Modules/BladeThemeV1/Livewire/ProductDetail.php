@@ -442,6 +442,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        // Lịch ngừng nhận voucher của chi nhánh (App\Models\VoucherBlock) — xét theo ngày khách đang chọn.
+        if ($this->product && ($reason = app(\App\Services\VoucherBlockService::class)->blockReason($coupon, $this->product, $this->voucherStayDates()))) {
+            $this->couponErrorMessage = $reason;
+            return;
+        }
+
         // Kiểm tra áp dụng cho slot
         $applicableSlots = $this->getApplicableSlots($coupon);
         if (empty($applicableSlots)) {
@@ -483,6 +489,35 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             'message' => $this->couponSuccessMessage,
             'type' => 'success',
         ]);
+    }
+
+    /** Ngày ở đang chọn để xét lịch ngừng nhận voucher: các đêm (phòng theo ngày) hoặc ngày của từng khung giờ. */
+    protected function voucherStayDates(): array
+    {
+        if (((int) ($this->bookingStyle ?? 1)) === 2) {
+            return \App\Services\VoucherBlockService::nights($this->startTime ?: null, $this->endTime ?: null);
+        }
+
+        return collect($this->selectedSlots)->pluck('date')->filter()->unique()->values()->all();
+    }
+
+    /** Mã đã áp nhưng chi nhánh đang ngừng nhận vào ngày đã chọn (khách đổi ngày sau khi áp mã) — câu báo đầu tiên, null = ổn. */
+    protected function blockedAppliedCouponMessage(): ?string
+    {
+        if (! $this->product || empty($this->appliedCoupons)) {
+            return null;
+        }
+
+        $service = app(\App\Services\VoucherBlockService::class);
+        $dates   = $this->voucherStayDates();
+
+        foreach ($this->appliedCoupons as $coupon) {
+            if ($coupon instanceof \Modules\Promotion\App\Models\Coupon && ($reason = $service->blockReason($coupon, $this->product, $dates))) {
+                return "Mã \"{$coupon->code}\": {$reason} Vui lòng gỡ mã để tiếp tục.";
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1398,6 +1433,11 @@ public function confirmBooking()
     }
 
     if ($message = $this->customerBranchBlockMessage()) {
+        $this->bookingConfirmError = $message;
+        return;
+    }
+
+    if ($message = $this->blockedAppliedCouponMessage()) {
         $this->bookingConfirmError = $message;
         return;
     }

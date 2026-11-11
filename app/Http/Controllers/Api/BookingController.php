@@ -336,7 +336,8 @@ class BookingController extends Controller
                     $couponBase,
                     $room,
                     $rtsCollection,
-                    $customer
+                    $customer,
+                    array_column($slotSummary, 'date')
                 );
             }
         } else {
@@ -369,7 +370,8 @@ class BookingController extends Controller
                     $couponBase,
                     $room,
                     $rtsCollection,
-                    $customer
+                    $customer,
+                    array_column($slotSummary, 'date')
                 );
             }
         }
@@ -1088,7 +1090,8 @@ class BookingController extends Controller
         float $orderAmount,
         Product $room,
         Collection $rtsCollection,
-        \App\Models\Customer $customer
+        \App\Models\Customer $customer,
+        array $dates = []
     ): array {
         if (empty($codes)) {
             return [0, []];
@@ -1097,9 +1100,12 @@ class BookingController extends Controller
         // Loại trùng, uppercase
         $codes = array_values(array_unique(array_map('strtoupper', $codes)));
 
-        $coupons = [];
+        $coupons       = [];
+        $voucherBlocks = app(\App\Services\VoucherBlockService::class);
         foreach ($codes as $index => $code) {
             $coupon = $this->validateOneCoupon($code, $index, $room, $rtsCollection, $customer, $orderAmount);
+            // Lịch ngừng nhận voucher của chi nhánh (App\Models\VoucherBlock) — xét theo ngày ở của đơn.
+            $voucherBlocks->assertAllowed($coupon, $room, $dates, "coupon_codes.{$index}");
             $coupons[] = $coupon;
         }
 

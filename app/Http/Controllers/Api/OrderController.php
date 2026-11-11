@@ -334,7 +334,8 @@ class OrderController extends Controller
             $couponBase = max(0, $currentAmount - $promoDiscount);
 
             [$newCouponDiscount, $appliedCoupons] = $this->applyAndValidateCoupons(
-                $newCodes, $couponBase, $product, $customer
+                $newCodes, $couponBase, $product, $customer,
+                \App\Services\VoucherBlockService::datesFromOrderItems($orderItems)
             );
 
             // KHÔNG tăng used_count ở đây nữa — chỉ lưu tạm số tiền giảm/mã, việc trừ lượt dời sang
@@ -1497,11 +1498,14 @@ class OrderController extends Controller
         array $codes,
         float $baseAmount,
         ?\Modules\Product\App\Models\Product $product,
-        \App\Models\Customer $customer
+        \App\Models\Customer $customer,
+        array $dates = []
     ): array {
         if (empty($codes)) {
             return [0, []];
         }
+
+        $voucherBlocks = app(\App\Services\VoucherBlockService::class);
 
         $coupons = Coupon::whereIn('code', $codes)
             ->where('is_active', true)
@@ -1552,6 +1556,9 @@ class OrderController extends Controller
                         $field => ["Mã \"{$code}\" không áp dụng cho phòng này."],
                     ]);
                 }
+
+                // Lịch ngừng nhận voucher của chi nhánh (App\Models\VoucherBlock) — xét theo ngày ở của đơn.
+                $voucherBlocks->assertAllowed($coupon, $product, $dates, $field);
             }
 
             $validated[] = $coupon;

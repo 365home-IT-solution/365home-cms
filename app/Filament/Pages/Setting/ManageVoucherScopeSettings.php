@@ -17,11 +17,15 @@ class ManageVoucherScopeSettings extends SettingsPage
 {
     protected static string $settings = VoucherScopeSettings::class;
 
-    protected static ?int $navigationSort = 98;
+    protected static ?int $navigationSort = 93;
 
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
 
-    protected static ?string $title = 'Phạm vi voucher tự tặng';
+    protected static ?string $title = 'Nơi nhận voucher quà tặng';
+
+    // Không hiện trên menu nữa — thiết lập từng đối tác ở "Cấu hình web › Voucher theo đối tác"
+    // (App\Filament\Resources\PartnerVoucherResource). Trang này vẫn mở được để xem / sửa danh sách tổng.
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function getNavigationGroup(): ?string
     {
@@ -30,7 +34,12 @@ class ManageVoucherScopeSettings extends SettingsPage
 
     public static function getNavigationLabel(): string
     {
-        return 'Phạm vi voucher tự tặng';
+        return 'Nơi nhận voucher quà tặng';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Danh sách tổng đối tác / chi nhánh ĐƯỢC NHẬN voucher quà tặng của 365home (điểm danh, trò chơi). Thiết lập từng đối tác (kèm ngày lễ, cuối tuần…) ở "Cấu hình web › Voucher theo đối tác".';
     }
 
     public static function canAccess(): bool

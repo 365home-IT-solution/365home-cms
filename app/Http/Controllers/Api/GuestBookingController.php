@@ -295,7 +295,7 @@ class GuestBookingController extends Controller
 
             $couponBase = $basePrice - $systemDiscount;
             if (! empty($couponCodes)) {
-                [$couponDiscount, $appliedCoupons] = $this->applyGuestCoupons($couponCodes, $couponBase, $room, $rtsCollection);
+                [$couponDiscount, $appliedCoupons] = $this->applyGuestCoupons($couponCodes, $couponBase, $room, $rtsCollection, array_column($slotSummary, 'date'));
             }
         } else {
             if ($rtsCollection->isNotEmpty()) {
@@ -322,7 +322,7 @@ class GuestBookingController extends Controller
 
             $couponBase = $basePrice - $promotionDiscount - $systemDiscount;
             if (! empty($couponCodes)) {
-                [$couponDiscount, $appliedCoupons] = $this->applyGuestCoupons($couponCodes, $couponBase, $room, $rtsCollection);
+                [$couponDiscount, $appliedCoupons] = $this->applyGuestCoupons($couponCodes, $couponBase, $room, $rtsCollection, array_column($slotSummary, 'date'));
             }
         }
 
@@ -1709,7 +1709,8 @@ class GuestBookingController extends Controller
         array $codes,
         float $orderAmount,
         Product $room,
-        Collection $rtsCollection
+        Collection $rtsCollection,
+        array $dates = []
     ): array {
         if (empty($codes)) {
             return [0, []];
@@ -1717,7 +1718,8 @@ class GuestBookingController extends Controller
 
         $codes = array_values(array_unique(array_map('strtoupper', $codes)));
 
-        $coupons = [];
+        $coupons       = [];
+        $voucherBlocks = app(\App\Services\VoucherBlockService::class);
         foreach ($codes as $index => $code) {
             $coupon = Coupon::where('code', $code)
                     ->where('is_active', true)
@@ -1764,6 +1766,9 @@ class GuestBookingController extends Controller
                         $field => ["Mã \"{$code}\" không áp dụng cho phòng hoặc khung giờ này."],
                     ]);
                 }
+
+                // Lịch ngừng nhận voucher của chi nhánh (App\Models\VoucherBlock) — xét theo ngày ở của đơn.
+                $voucherBlocks->assertAllowed($coupon, $room, $dates, $field);
 
                 $coupons[] = $coupon;
         }
