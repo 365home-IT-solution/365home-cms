@@ -981,6 +981,18 @@ class ProductController extends Controller
 
             if ($gated) {
                 Product::whereIn('id', $foundIds)->get()->each(fn (Product $room) => $room->update($update));
+            } elseif (array_key_exists('room_config', $update)) {
+                // Query builder không qua hook model → tự gộp từng phòng để không ghi đè room_config.blocked_ranges (ngày khoá phòng theo ngày).
+                Product::whereIn('id', $foundIds)->get(['id', 'room_config'])->each(function (Product $room) use ($update) {
+                    $current = is_array($room->room_config) ? $room->room_config : [];
+                    $config  = \Illuminate\Support\Arr::except((array) ($update['room_config'] ?? []), 'blocked_ranges');
+                    if (array_key_exists('blocked_ranges', $current)) {
+                        $config['blocked_ranges'] = $current['blocked_ranges'];
+                    }
+
+                    $row = ['room_config' => $config ?: null] + \Illuminate\Support\Arr::except($update, 'room_config');
+                    Product::whereKey($room->id)->update(array_map(fn ($v) => is_array($v) ? json_encode($v) : $v, $row));
+                });
             } else {
                 Product::whereIn('id', $foundIds)->update($update);
             }

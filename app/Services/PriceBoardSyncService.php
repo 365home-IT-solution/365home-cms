@@ -698,6 +698,10 @@ class PriceBoardSyncService
     {
         $before = $this->snapshotPricing($product);
 
+        if (array_key_exists('room_config', $fields)) {
+            $fields['room_config'] = $this->keepBlockedRanges($product, $fields['room_config']);
+        }
+
         $product->update($fields);
 
         // Nếu không có khung giờ nào (chưa từng được seed, hoặc bảng "override" lưu rỗng), TUYỆT ĐỐI
@@ -883,6 +887,27 @@ class PriceBoardSyncService
             : (float) $basePrice * (1 + $value / 100);
 
         return max(0, (int) (round($price / 1000) * 1000));
+    }
+
+    /**
+     * room_config của bảng giá chỉ mang cấu hình giá (khách miễn phí, phụ thu...) — KHÔNG được ghi đè
+     * room_config.blocked_ranges (ngày khoá phòng theo ngày do admin đặt qua BlockTimeslotModal/
+     * RoomBlockController/DailyCalendarService). Trước đây job price-boards:sync-due (00:05 mỗi đêm,
+     * MỌI phòng) ghi nguyên room_config của item/baseline xuống phòng → sáng ra mất hết ngày khoá.
+     * Đọc lại từ DB để không dùng bản đã cũ trong bộ nhớ.
+     */
+    private function keepBlockedRanges(Product $product, mixed $incoming): ?array
+    {
+        $current = Product::withoutGlobalScopes()->whereKey($product->getKey())->first()?->room_config;
+        $current = is_array($current) ? $current : (is_array($product->room_config) ? $product->room_config : []);
+
+        $result = is_array($incoming) ? \Illuminate\Support\Arr::except($incoming, 'blocked_ranges') : null;
+
+        if (array_key_exists('blocked_ranges', $current)) {
+            $result = ($result ?? []) + ['blocked_ranges' => $current['blocked_ranges']];
+        }
+
+        return $result;
     }
 
     private function extractProductFields(Product $product): array

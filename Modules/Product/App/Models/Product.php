@@ -212,6 +212,23 @@ class Product extends Model implements HasMedia, Resourceable
         // Phòng bị xoá: yêu cầu duyệt đang chờ của phòng tự đóng, không treo mãi.
         static::deleted(fn (Product $product) => app(\App\Services\ApprovalService::class)->closeForDeletedSubject('product', $product->id));
 
+        // Ngày khoá phòng theo ngày (room_config.blocked_ranges) chỉ được đổi khi bên ghi CHỦ ĐỘNG gửi key
+        // blocked_ranges (khoá/mở khoá gửi mảng, "xoá tất cả" gửi []). Các form/API sửa cấu hình giá (SettingBook,
+        // discountSettings, áp bảng giá...) dựng room_config mới chỉ có max_free_guests/extra_guest_fee — trước
+        // đây lưu là mất sạch ngày khoá. Giữ lại blocked_ranges cũ khi bản mới không nhắc tới.
+        static::saving(function (Product $product) {
+            if (! $product->exists || ! $product->isDirty('room_config')) {
+                return;
+            }
+
+            $old = $product->getOriginal('room_config');
+            $new = $product->room_config;
+
+            if (is_array($old) && array_key_exists('blocked_ranges', $old) && ! (is_array($new) && array_key_exists('blocked_ranges', $new))) {
+                $product->setAttribute('room_config', (is_array($new) ? $new : []) + ['blocked_ranges' => $old['blocked_ranges']]);
+            }
+        });
+
         // Phòng chưa được duyệt (pending / rejected) không bao giờ bật được, dù bật bằng đường nào (API, Filament, nhập liệu...).
         static::saving(function (Product $product) {
             if (($product->approval_status ?? 'approved') !== 'approved' && $product->is_activated) {

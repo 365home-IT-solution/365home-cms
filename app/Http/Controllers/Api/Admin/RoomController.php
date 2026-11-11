@@ -556,6 +556,11 @@ class RoomController extends Controller
 
         $slotsByDate = $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
         $bookedDates = $this->dailyBookedDates($room->id, $rangeStart, $rangeEnd);
+        // Khoảng admin khoá (room_config.blocked_ranges, end tính CẢ ngày cuối — khớp BookingController/DailyCalendarService).
+        // Trước đây endpoint này chỉ xét ngày có đơn → app không thấy ngày đã khoá (kể cả khoá từ web), khoá xong đọc lại cũng như chưa khoá.
+        $fullBlocked    = $room->fullBlockedRanges();
+        $partialBlocked = $room->partialBlockedRanges();
+        $inRange        = fn (string $d, array $r) => $d >= Carbon::parse($r['start'])->toDateString() && $d <= Carbon::parse($r['end'])->toDateString();
         $basePrice   = (float) $room->price;
         $defCheckin  = $room->default_checkin  ?? '14:00';
         $defCheckout = $room->default_checkout ?? '12:00';
@@ -579,13 +584,19 @@ class RoomController extends Controller
             $subtotal           += $price;
             $totalPromoDiscount += $disc;
 
+            $isBlocked     = collect($fullBlocked)->contains(fn ($r) => $inRange($dateStr, $r));
+            $blockedRooms  = (int) collect($partialBlocked)->filter(fn ($r) => $inRange($dateStr, $r))->sum(fn ($r) => (int) $r['rooms']);
+
             $dates[] = [
                 'date'               => $dateStr,
                 'price'              => (int) $price,
                 'final_price'        => (int) $promos['final_price'],
                 'promotion_discount' => (int) $disc,
                 'has_override'       => $rts !== null,
-                'available'          => ! in_array($dateStr, $bookedDates),
+                'available'          => ! $isBlocked && ! in_array($dateStr, $bookedDates),
+                'booked'             => in_array($dateStr, $bookedDates),
+                'blocked'            => $isBlocked,
+                'blocked_rooms'      => $isBlocked ? $room->roomCapacity() : min($blockedRooms, $room->roomCapacity()),
                 'checkin'            => $rts?->checkin  ?? $defCheckin,
                 'checkout'           => $rts?->checkout ?? $defCheckout,
                 'promotions'         => $promos['applied'],
@@ -601,6 +612,16 @@ class RoomController extends Controller
             'base_price'       => (int) $basePrice,
             'default_checkin'  => $defCheckin,
             'default_checkout' => $defCheckout,
+            'capacity'         => $room->roomCapacity(),
+            // Danh sách khoảng đang khoá (giao với khoảng đang xem) — app dùng đúng start/end này cho DELETE /rooms/{id}/block.
+            'blocked_ranges'   => collect(array_merge($fullBlocked, $partialBlocked))
+                ->filter(fn ($r) => Carbon::parse($r['end'])->toDateString() >= $rangeStart->toDateString()
+                    && Carbon::parse($r['start'])->toDateString() <= $rangeEnd->toDateString())
+                ->map(fn ($r) => [
+                    'start' => Carbon::parse($r['start'])->toDateString(),
+                    'end'   => Carbon::parse($r['end'])->toDateString(),
+                    'rooms' => isset($r['rooms']) ? (int) $r['rooms'] : null,
+                ])->values()->all(),
             'dates'            => $dates,
         ];
 
