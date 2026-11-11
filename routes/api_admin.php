@@ -505,6 +505,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET  /api/admin/rooms/{id}/copy/preview?quantity=&start_number= + POST /api/admin/rooms/{id}/copy
 |                          → sao chép phòng thành N phòng mới (chỉ Super Admin), xem docblock
 |                            App\Http\Controllers\Api\Admin\RoomCopyController.
+| GET /api/admin/rooms/{id}/block
+|                          → danh sách đang khoá cho màn "Khoá phòng" (?month=YYYY-MM hoặc ?from=&to=;
+|                            bỏ trống = từ hôm nay). styles=2: blocked_ranges/blocked_dates/partial_dates;
+|                            styles=1: slots[].blocked_dates + blocked_dates gộp.
 | POST/DELETE /api/admin/rooms/{id}/block
 |                          → khoá/mở khoá lịch phòng. styles=1: body room_time_slot_ids[]+date_from+
 |                            date_to (ghi room_time_slots.settings.blocked_dates). styles=2: body
@@ -573,6 +577,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('rooms/emergency-lock/bulk', [AdminProductController::class, 'bulkEmergencyLock'])->name('rooms.emergency-lock.bulk');
     Route::post('rooms/{id}/emergency-lock', [AdminProductController::class, 'emergencyLock'])->name('rooms.emergency-lock');
     Route::delete('rooms/{id}/emergency-lock', [AdminProductController::class, 'releaseEmergencyLock'])->name('rooms.emergency-lock.release');
+    Route::get('rooms/{id}/block',    [AdminRoomBlockController::class, 'index'])->name('rooms.block.index');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');

@@ -79,10 +79,24 @@ class DailyRoomPricingController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        // Ngày admin khoá (room_config.blocked_ranges, end tính cả ngày cuối) — app tô màu ngày khoá trên lịch giá như /dates.
+        $fullBlocked = $room->fullBlockedRanges();
+        $dates = array_map(function (array $day) use ($fullBlocked) {
+            $day['blocked'] = collect($fullBlocked)->contains(
+                fn ($r) => $day['date'] >= Carbon::parse($r['start'])->toDateString() && $day['date'] <= Carbon::parse($r['end'])->toDateString()
+            );
+
+            return $day;
+        }, $dates);
+
         return response()->json([
             'room'             => ['id' => $room->id, 'name' => $room->name, 'slug' => $room->slug],
             'from'             => $from,
             'to'               => $to,
+            'blocked_ranges'   => collect(array_merge($fullBlocked, $room->partialBlockedRanges()))
+                ->filter(fn ($r) => Carbon::parse($r['end'])->toDateString() >= $from && Carbon::parse($r['start'])->toDateString() <= $to)
+                ->map(fn ($r) => ['start' => Carbon::parse($r['start'])->toDateString(), 'end' => Carbon::parse($r['end'])->toDateString(), 'rooms' => isset($r['rooms']) ? (int) $r['rooms'] : null])
+                ->values()->all(),
             'base_price'       => (int) $room->price,
             'default_checkin'  => $room->default_checkin ?? '14:00',
             'default_checkout' => $room->default_checkout ?? '12:00',

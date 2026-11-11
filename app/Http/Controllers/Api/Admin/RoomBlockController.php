@@ -49,6 +49,94 @@ class RoomBlockController extends Controller
     }
 
     /**
+     * GET /api/admin/rooms/{id}/block — danh sách đang khoá cho màn "Khoá phòng" (app vẽ lịch + nút mở khoá).
+     * Query tuỳ chọn: month=YYYY-MM hoặc from/to (Y-m-d) để lọc; bỏ trống = mọi khoá từ hôm nay trở đi.
+     * styles=2: blocked_ranges[{start,end,rooms}] (dùng nguyên start/end cho DELETE) + blocked_dates[] (từng ngày khoá trọn,
+     *           end tính cả ngày cuối) + partial_dates{Y-m-d: số phòng khoá} cho biến thể khoá một phần.
+     * styles=1: slots[{room_time_slot_id,label,blocked_dates[]}] + blocked_dates[] (gộp, ngày có ít nhất 1 khung bị khoá).
+     */
+    public function index(Request $request, string $id): JsonResponse
+    {
+        $room = $this->visibleRoom($request->user(), $id);
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $request->validate([
+            'month' => 'nullable|date_format:Y-m',
+            'from'  => 'nullable|date_format:Y-m-d',
+            'to'    => 'nullable|date_format:Y-m-d|after_or_equal:from',
+        ]);
+
+        if ($request->filled('month')) {
+            $from = Carbon::createFromFormat('Y-m', $request->query('month'))->startOfMonth()->toDateString();
+            $to   = Carbon::createFromFormat('Y-m', $request->query('month'))->endOfMonth()->toDateString();
+        } else {
+            $from = $request->query('from', now()->toDateString());
+            $to   = $request->query('to', '9999-12-31');
+        }
+
+        $base = [
+            'room'     => ['id' => $room->id, 'name' => $room->name, 'styles' => (int) $room->styles],
+            'from'     => $from,
+            'to'       => $to === '9999-12-31' ? null : $to,
+            'capacity' => $room->roomCapacity(),
+        ];
+
+        if ((int) $room->styles === 2) {
+            $config = is_array($room->room_config) ? $room->room_config : [];
+            $ranges = collect($config['blocked_ranges'] ?? [])
+                ->filter(fn ($r) => ! empty($r['start']) && ! empty($r['end']))
+                ->map(fn ($r) => [
+                    'start' => Carbon::parse($r['start'])->toDateString(),
+                    'end'   => Carbon::parse($r['end'])->toDateString(),
+                    'rooms' => isset($r['rooms']) ? (int) $r['rooms'] : null,
+                ])
+                ->filter(fn ($r) => $r['end'] >= $from && $r['start'] <= $to)
+                ->sortBy('start')->values();
+
+            $full    = [];
+            $partial = [];
+            foreach ($ranges as $r) {
+                $isPartial = $room->is_variant && $r['rooms'] && $r['rooms'] < $room->roomCapacity();
+                $day = Carbon::parse(max($r['start'], $from));
+                $end = Carbon::parse(min($r['end'], $to));
+                while ($day->lte($end)) {
+                    $d = $day->toDateString();
+                    if ($isPartial) {
+                        $partial[$d] = min($room->roomCapacity(), ($partial[$d] ?? 0) + $r['rooms']);
+                    } else {
+                        $full[$d] = true;
+                    }
+                    $day->addDay();
+                }
+            }
+            ksort($full);
+            ksort($partial);
+
+            return response()->json(['data' => $base + [
+                'blocked_ranges' => $ranges->all(),
+                'blocked_dates'  => array_keys($full),
+                'partial_dates'  => (object) array_diff_key($partial, $full),
+            ]]);
+        }
+
+        $slots = RoomTimeSlot::where('room_id', $room->id)->whereNull('date')->with('timeSlot')->get()
+            ->map(fn (RoomTimeSlot $rts) => [
+                'room_time_slot_id' => $rts->id,
+                'label'             => $rts->timeSlot?->label ?? 'Slot #' . $rts->id,
+                'blocked_dates'     => collect($rts->settings['blocked_dates'] ?? [])
+                    ->filter(fn ($d) => $d >= $from && $d <= $to)->sort()->values()->all(),
+            ])
+            ->filter(fn ($s) => ! empty($s['blocked_dates']))->values();
+
+        return response()->json(['data' => $base + [
+            'slots'         => $slots->all(),
+            'blocked_dates' => $slots->pluck('blocked_dates')->flatten()->unique()->sort()->values()->all(),
+        ]]);
+    }
+
+    /**
      * DELETE /api/admin/rooms/{id}/block
      * Cùng body shape với block() — gỡ đúng phần đã khoá khớp với các giá trị truyền vào.
      */
@@ -193,8 +281,9 @@ class RoomBlockController extends Controller
         ]);
     }
 
-    // Gỡ đúng khoảng có start/end khớp CHÍNH XÁC với request — không xử lý gỡ 1 phần của 1 khoảng
-    // (khớp hành vi đơn giản của Filament, xoá theo index trong danh sách hiển thị).
+    // Gỡ khoá theo PHẦN GIAO: mọi khoảng đang khoá chồng lên [date_from, date_to] (tính cả 2 đầu) bị cắt bỏ đúng các ngày đó,
+    // phần còn lại trước/sau được giữ thành khoảng riêng (giữ nguyên rooms nếu là khoá một phần). Trước đây bắt buộc start/end
+    // khớp CHÍNH XÁC 1 khoảng → app chọn mở 1 ngày / 1 phần khoảng hoặc khoảng gộp nhiều khoảng đều nhận 404.
     private function unblockDailyRange(Request $request, Product $room): JsonResponse
     {
         $data = $request->validate([
@@ -202,19 +291,41 @@ class RoomBlockController extends Controller
             'date_to'   => 'required|date|after_or_equal:date_from',
         ]);
 
-        $start = Carbon::parse($data['date_from'])->toDateString();
-        $end   = Carbon::parse($data['date_to'])->toDateString();
+        $from = Carbon::parse($data['date_from'])->startOfDay();
+        $to   = Carbon::parse($data['date_to'])->startOfDay();
 
         $config = is_array($room->room_config) ? $room->room_config : [];
         $ranges = $config['blocked_ranges'] ?? [];
 
-        $remaining = array_values(array_filter(
-            $ranges,
-            fn ($range) => ! (($range['start'] ?? null) === $start && ($range['end'] ?? null) === $end)
-        ));
+        $remaining = [];
+        $touched   = false;
 
-        if (count($remaining) === count($ranges)) {
-            return response()->json(['message' => 'Không tìm thấy khoảng thời gian đang khoá khớp với dữ liệu truyền lên.'], 404);
+        foreach ($ranges as $range) {
+            if (empty($range['start']) || empty($range['end'])) {
+                $remaining[] = $range;
+                continue;
+            }
+
+            $rStart = Carbon::parse($range['start'])->startOfDay();
+            $rEnd   = Carbon::parse($range['end'])->startOfDay();
+
+            if ($rEnd->lt($from) || $rStart->gt($to)) {
+                $remaining[] = $range;
+                continue;
+            }
+
+            $touched = true;
+
+            if ($rStart->lt($from)) {
+                $remaining[] = ['start' => $rStart->toDateString(), 'end' => $from->copy()->subDay()->toDateString()] + \Illuminate\Support\Arr::except($range, ['start', 'end']);
+            }
+            if ($rEnd->gt($to)) {
+                $remaining[] = ['start' => $to->copy()->addDay()->toDateString(), 'end' => $rEnd->toDateString()] + \Illuminate\Support\Arr::except($range, ['start', 'end']);
+            }
+        }
+
+        if (! $touched) {
+            return response()->json(['message' => 'Khoảng ngày này hiện không bị khoá.'], 404);
         }
 
         $config['blocked_ranges'] = $remaining;
