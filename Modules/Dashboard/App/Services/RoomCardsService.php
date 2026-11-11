@@ -64,7 +64,7 @@ class RoomCardsService
             }
         }
 
-        $products   = $productQuery->orderBy('name')->get();
+        $products   = $productQuery->displayOrder()->get();
         $productIds = $products->pluck('id')->toArray();
 
         $allItems = OrderItem::with(['order'])

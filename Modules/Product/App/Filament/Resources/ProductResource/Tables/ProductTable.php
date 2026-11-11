@@ -159,12 +159,81 @@ class ProductTable extends Table
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('created_at', 'desc')
+            // Thứ tự hiển thị phòng (dashboard, app admin, web khách) — kéo thả. Nên lọc theo đối tác / chi nhánh trước.
+            ->reorderable('sort_order')
+            ->reorderRecordsTriggerAction(fn (\Filament\Tables\Actions\Action $action, bool $isReordering) => $action
+                ->label($isReordering ? 'Xong' : 'Kéo thả thứ tự phòng')
+                ->tooltip($isReordering ? null : 'Thứ tự này dùng cho sơ đồ phòng ở dashboard, app admin và web. Nên lọc 1 đối tác / chi nhánh trước khi kéo.')
+                ->button())
+            ->headerActions([self::sortByRoomNumberAction()])
             ->filters([
                 ...ProductFilter::filter(),
                 PartnerTableHelpers::filter(),
             ])
             ->actions(ProductAction::action())
             ->bulkActions(ProductBulkAction::bulkActions());
+    }
+
+    /**
+     * "Sắp theo số phòng": đặt sort_order 1..n cho phòng của 1 đối tác theo số trong tên (001 < 101 < 102 < … < 401).
+     * Chỉ đụng các phòng người dùng được xem (ProductResource::getEloquentQuery). Cập nhật thẳng cột, không qua duyệt.
+     */
+    protected static function sortByRoomNumberAction(): \Filament\Tables\Actions\Action
+    {
+        $rooms = function (?string $partnerId) {
+            if (! $partnerId) {
+                return [];
+            }
+
+            return Product::sortByRoomNumber(
+                \Modules\Product\App\Filament\Resources\ProductResource::getEloquentQuery()
+                    ->where('partner_id', $partnerId)
+                    ->get(['id', 'name', 'sort_order'])
+            );
+        };
+        $partnerOf = fn (?string $chosen) => auth()->user()?->seesAllPartners() ? $chosen : auth()->user()?->partner_id;
+
+        return \Filament\Tables\Actions\Action::make('sortByRoomNumber')
+            ->label('Sắp theo số phòng')
+            ->icon('heroicon-o-bars-arrow-down')
+            ->color('gray')
+            ->visible(fn () => \Modules\Product\App\Filament\Resources\ProductResource::canReorder())
+            ->modalHeading('Sắp xếp phòng từ bé đến lớn theo số phòng')
+            ->modalDescription('Lấy số trong tên phòng (VD 001, 101, 102 … 401) để xếp thứ tự. Dùng cho sơ đồ phòng ở dashboard, app admin và web. Muốn chỉnh tay thì dùng "Kéo thả thứ tự phòng".')
+            ->modalSubmitActionLabel('Lưu thứ tự')
+            ->form([
+                \Filament\Forms\Components\Select::make('partner_id')
+                    ->label('Đối tác')
+                    ->options(fn () => \App\Models\Partner::query()
+                        ->whereIn('id', \Modules\Product\App\Filament\Resources\ProductResource::getEloquentQuery()->select('partner_id'))
+                        ->orderBy('name')->get(['id', 'name', 'common_name'])
+                        ->mapWithKeys(fn ($p) => [$p->id => $p->common_name ?: $p->name])->all())
+                    ->default(fn ($livewire) => data_get($livewire, 'tableFilters.partner_id.value') ?? data_get($livewire, 'tableFilters.partner.value'))
+                    ->searchable()
+                    ->required(fn () => auth()->user()?->seesAllPartners())
+                    ->visible(fn () => auth()->user()?->seesAllPartners())
+                    ->live(),
+                \Filament\Forms\Components\Placeholder::make('preview')
+                    ->label('Thứ tự sau khi lưu')
+                    ->content(function (\Filament\Forms\Get $get) use ($rooms, $partnerOf) {
+                        $list = $rooms($partnerOf($get('partner_id')));
+
+                        return $list === []
+                            ? 'Chọn đối tác để xem.'
+                            : new \Illuminate\Support\HtmlString('<ol style="margin:0;padding-left:1.4rem;list-style:decimal">'
+                                . collect($list)->map(fn (Product $r) => '<li>' . e($r->name) . '</li>')->implode('') . '</ol>');
+                    }),
+            ])
+            ->action(function (array $data) use ($rooms, $partnerOf) {
+                $list = $rooms($partnerOf($data['partner_id'] ?? null));
+                foreach ($list as $i => $room) {
+                    Product::withoutGlobalScopes()->whereKey($room->id)->update(['sort_order' => $i + 1]);
+                }
+
+                \Filament\Notifications\Notification::make()->success()
+                    ->title('Đã sắp ' . count($list) . ' phòng theo số phòng')
+                    ->send();
+            });
     }
 
     // True nếu người dùng hiện tại chỉ quản lý (các) chi nhánh mà KHÔNG chi nhánh nào có

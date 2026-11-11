@@ -128,6 +128,37 @@ class Product extends Model implements HasMedia, Resourceable
     // Cùng chỗ này ẩn luôn phòng của đối tác đang bị TẠM NGƯNG BÁN do ký quỹ (xem
     // App\Services\EscrowService) — cùng ý nghĩa "không bán online nữa", và mọi danh sách/tìm kiếm
     // công khai (API lẫn web) đều đã đi qua scope này.
+    /**
+     * Thứ tự hiển thị phòng — cùng thứ tự với web khách (Products.php sắp theo sort_order): sort_order trước, trùng thì
+     * theo tên. Đối tác chưa đặt thứ tự (mọi phòng sort_order = 0) vẫn hiện theo tên như trước. Đổi thứ tự ở "Thiết lập
+     * Phòng" (kéo thả / "Sắp theo số phòng").
+     */
+    public function scopeDisplayOrder($query)
+    {
+        return $query->orderBy($query->qualifyColumn('sort_order'))->orderBy($query->qualifyColumn('name'));
+    }
+
+    /**
+     * Thứ tự "từ bé đến lớn" theo số phòng trong tên (VD "Đơn Classic 001" < "Đôi Deluxe 101" < "Đơn Classic 401"):
+     * lấy cụm số CUỐI trong tên; phòng không có số xếp sau, theo tên.
+     *
+     * @param  iterable<Product>  $rooms
+     * @return list<Product>
+     */
+    public static function sortByRoomNumber(iterable $rooms): array
+    {
+        $rooms = collect($rooms)->values()->all();
+
+        usort($rooms, function (Product $a, Product $b) {
+            $na = preg_match_all('/\d+/', (string) $a->name, $ma) ? (int) end($ma[0]) : PHP_INT_MAX;
+            $nb = preg_match_all('/\d+/', (string) $b->name, $mb) ? (int) end($mb[0]) : PHP_INT_MAX;
+
+            return [$na, mb_strtolower((string) $a->name)] <=> [$nb, mb_strtolower((string) $b->name)];
+        });
+
+        return $rooms;
+    }
+
     public function scopeActiveBranch($query)
     {
         $suspendedPartnerIds = \App\Services\EscrowService::suspendedPartnerIds();

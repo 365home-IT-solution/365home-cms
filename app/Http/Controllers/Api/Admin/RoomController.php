@@ -75,7 +75,7 @@ class RoomController extends Controller
             $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
         }
 
-        $rooms = $query->orderBy('name')->get(['id', 'name', 'slug']);
+        $rooms = $query->displayOrder()->get(['id', 'name', 'slug']);
 
         return response()->json(['data' => $rooms]);
     }
@@ -343,7 +343,7 @@ class RoomController extends Controller
             $with['roomTimeSlots.promotions'] = fn ($q) => $q->where('is_active', true);
         }
 
-        $rooms = $query->with($with)->orderBy('name')->get();
+        $rooms = $query->with($with)->displayOrder()->get();
 
         $dateArr = ['date' => $date->format('d-m-Y'), 'day' => self::DAY_ABBREVIATIONS[$date->dayOfWeek] ?? '', 'is_today' => $date->isToday()];
 

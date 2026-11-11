@@ -65,7 +65,7 @@ class DailyCalendarService
             ->whereIn('id', array_slice(array_values(array_unique($productIds)), 0, 40))
             ->where('styles', 2)
             ->where('is_activated', true)
-            ->orderBy('name')
+            ->displayOrder()
             ->get();
 
         if ($products->isEmpty()) {
