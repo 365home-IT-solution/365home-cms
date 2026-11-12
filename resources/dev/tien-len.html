@@ -480,7 +480,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     const p = o.points;
     $('pointsGrid').innerHTML = [['Nhất', p.first], ['Nhì', p.second], ['Ba', p.third], ['Bét', p.last]]
       .map(([k, v]) => `<div><span class="muted">${k}</span><b>${v}</b></div>`).join('');
-    $('capNote').textContent = `Mỗi lần chặt +${p.chop_bonus} · Cóng / bỏ ván / rời bàn: 0 điểm · Hôm nay ${o.earned_today}`
+    const u = o.penalty_units || {};
+    $('capNote').textContent = `Điểm phạt × ${o.points_per_unit}: heo đen ${u.two_black}, heo đỏ ${u.two_red}, 3 đôi thông ${u.pair_seq_3} (+${u.pair_seq_extra}/đôi), tứ quý ${u.four}, cóng ${u.cong}, tới trắng ${u.instant}`
+      + ` · Cóng / bỏ ván / rời bàn: 0 điểm · Hôm nay ${o.earned_today}`
       + (o.daily_points_cap ? `/${o.daily_points_cap}` : '') + ` điểm · ${o.turn_seconds} giây mỗi lượt`;
 
     const rows = (hist.data?.data || []).slice(0, 10);
@@ -1096,16 +1098,14 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       ? `${nameOf(res.instant_win.seat)} tới trắng — ${res.instant_win.label}`
       : (res.my_rank_label ? `Bạn về ${res.my_rank_label.toLowerCase()}` : 'Kết thúc ván');
     $('resultSub').textContent = s.status === 'abandoned' ? 'Ván bị huỷ / bỏ — không có điểm thưởng.'
-      : `+${res.reward_points} điểm (${rw.rank_points ?? 0} theo hạng + ${rw.chop_bonus ?? 0} thưởng chặt)${rw.daily_cap_reached ? ' — đã chạm trần điểm hôm nay' : ''}`;
+      : `+${res.reward_points} điểm (${rw.rank_points ?? 0} theo hạng ${(rw.penalty_points ?? 0) >= 0 ? '+' : '−'} ${Math.abs(rw.penalty_points ?? 0)} điểm phạt)${rw.daily_cap_reached ? ' — đã chạm trần điểm hôm nay' : ''}`;
     $('resultBody').innerHTML = res.ranking.map((p) => `<tr><td>${p.rank === 1 ? '🏆 ' : ''}<b>${esc(p.seat === s.my_seat ? 'Bạn' : p.name)}</b>${p.has_left ? ' <span class="muted">(đã rời)</span>' : ''}</td>
       <td>${esc(p.rank_label)}${p.is_cong ? ' · cóng' : ''}</td><td>${p.score > 0 ? '+' : ''}${p.score}</td>
       <td>${p.reward_points === null ? '<span class="muted">bot</span>' : '+' + p.reward_points}</td>
       <td><div class="mini">${(res.hands[p.seat] || []).map((c) => `<img src="${img(c)}" alt="${esc(c.code)}">`).join('') || '—'}</div></td></tr>`).join('');
     const extra = [];
-    for (const c of res.chops) extra.push(`${nameOf(c.chopper)} chặt ${nameOf(c.victim)} (${c.units})`);
-    for (const p of res.penalties) {
-      const cards = p.cards.map((c) => c.code).join(' ');
-      extra.push(`${p.kind === 'cong' ? 'Cóng' : 'Thối'}: ${nameOf(p.seat)} đền ${nameOf(p.to)} ${p.units}${cards ? ` (${cards})` : ''}`);
+    for (const p of res.ranking) {
+      for (const l of p.penalty_lines || []) extra.push(`${p.seat === s.my_seat ? 'Bạn' : p.name}: ${l.label} ${l.units > 0 ? '+' : '−'}${Math.abs(l.units)}`);
     }
     $('resultExtra').textContent = extra.join(' · ');
     $('btnAgain').textContent = S.mode === 'room' ? 'Về phòng' : 'Ván mới';

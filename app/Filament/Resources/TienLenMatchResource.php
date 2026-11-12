@@ -7,6 +7,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TienLenMatchResource\Pages;
 use App\Filament\Resources\TienLenMatchResource\RelationManagers\MovesRelationManager;
 use App\Games\TienLen\Card;
+use App\Games\TienLen\Game;
 use App\Games\TienLen\Rules;
 use App\Models\TienLenMatch;
 use App\Services\TienLenService;
@@ -174,15 +175,20 @@ class TienLenMatchResource extends Resource
             . (in_array($seat, $r->state['cong'] ?? [], true) ? ' — cóng' : '')
             . (($result['forfeit'] ?? null) === $seat ? ' — bỏ ván' : ''))->values()->all();
 
-        foreach ($result['chops'] ?? [] as $c) {
-            $lines[] = 'Chặt: ' . self::seatName($c['chopper'], $r) . ' chặt ' . self::seatName($c['victim'], $r) . ' (' . $c['units'] . ')';
+        $game = $r->state ? Game::fromArray($r->state) : null;
+        foreach (array_keys($result['ranks'] ?? []) as $seat) {
+            foreach ($game ? TienLenService::penaltyLines($game, (int) $seat) : [] as $l) {
+                $lines[] = 'Phạt — ' . self::seatName((int) $seat, $r) . ': ' . $l['label'] . ' (' . sprintf('%+d', $l['units']) . ')';
+            }
         }
-        foreach ($result['penalties'] ?? [] as $p) {
-            $lines[] = ($p['kind'] === 'cong' ? 'Cóng: ' : 'Thối: ') . self::seatName($p['seat'], $r) . ' đền ' . self::seatName($p['to'], $r) . ' (' . $p['units'] . ')';
-        }
-        if ($r->room_id === null && ($reward = $result['reward'] ?? null)) {
-            $lines[] = 'Điểm thưởng: ' . $reward['rank_points'] . ' theo hạng + ' . $reward['chop_bonus'] . ' thưởng chặt'
-                . ($reward['daily_cap_reached'] ? ' — chạm trần ngày, nhận ' . $reward['total'] : '');
+
+        foreach ($result['rewards'] ?? [] as $seat => $reward) {
+            // Ván cũ (trước khi có điểm phạt) lưu chop_bonus thay cho penalty_points
+            $extra = array_key_exists('penalty_points', $reward)
+                ? sprintf('%+d', $reward['penalty_points']) . ' điểm phạt (' . sprintf('%+d', $reward['penalty_units']) . ' × ' . $reward['points_per_unit'] . ')'
+                : '+' . ($reward['chop_bonus'] ?? 0) . ' thưởng chặt';
+            $lines[] = 'Điểm thưởng — ' . self::seatName((int) $seat, $r) . ': ' . $reward['rank_points'] . ' theo hạng ' . $extra . ' = ' . $reward['total']
+                . ($reward['daily_cap_reached'] ? ' (chạm trần ngày)' : '');
         }
 
         return $lines;

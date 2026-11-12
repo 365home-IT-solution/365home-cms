@@ -50,8 +50,11 @@ class TienLenController extends Controller
                 'second'     => $setting->points_second,
                 'third'      => $setting->points_third,
                 'last'       => $setting->points_last,
-                'chop_bonus' => $setting->chop_bonus_points,
             ],
+            // Điểm phạt theo luật: đơn vị chặt / thối / cóng / tới trắng, mỗi đơn vị = points_per_unit điểm ví.
+            // Điểm ví mỗi ván = max(0, điểm hạng + điểm phạt × points_per_unit)
+            'penalty_units'    => $setting->penaltyUnits(),
+            'points_per_unit'  => $setting->points_per_unit,
             'daily_points_cap' => $setting->daily_points_cap,
             'earned_today'     => $points->earnedToday((string) $customer->id, GamePointTransaction::SOURCE_TIEN_LEN),
             'balance'          => $points->balance((string) $customer->id),

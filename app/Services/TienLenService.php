@@ -76,7 +76,7 @@ class TienLenService
 
             $game = Game::deal(count($seats), $this->seriesLeader(
                 TienLenMatch::where('customer_id', $customer->id)->whereNull('room_id'), $seats,
-            ));
+            ), null, $setting->penaltyUnits());
 
             return $this->createMatch($game, $seats, (string) $customer->id, null, $setting);
         });
@@ -106,7 +106,7 @@ class TienLenService
                 : self::seatEntry((string) $rs->customer_id, $rs->customer?->fullname ?: 'Khách', false, $rs->seat);
         }
 
-        $game = Game::deal(count($seats), $this->seriesLeader(TienLenMatch::where('room_id', $room->id), $seats));
+        $game = Game::deal(count($seats), $this->seriesLeader(TienLenMatch::where('room_id', $room->id), $seats), null, $setting->penaltyUnits());
         $game->freeChopSeats = array_keys(array_filter($seats, fn (array $s) => ! $s['is_bot']));
 
         return $this->createMatch($game, $seats, $room->host_customer_id, $room->id, $setting);
@@ -399,7 +399,9 @@ class TienLenService
             'my_rank'       => $myRank,
             'my_rank_label' => $myRank ? self::rankLabel($myRank, $game->players) : null,
             'reward_points' => (int) ($mine['total'] ?? ($match->room_id ? 0 : $match->reward_points)),
-            'reward'        => $mine,
+            'reward'        => $mine !== null && $viewer !== null ? $mine + ['penalty_lines' => self::penaltyLines($game, $viewer)] : $mine,
+            // Đơn vị phạt áp dụng cho ván này (chốt lúc chia bài)
+            'penalty_units' => $game->units,
             'instant_win'   => $game->instantWin ? $game->instantWin + ['label' => Rules::INSTANT_LABELS[$game->instantWin['kind']]] : null,
             'forfeit_seat'  => $r['forfeit'],
             'ranking'       => collect($r['ranks'])->map(fn ($rank, $seat) => [
@@ -410,6 +412,8 @@ class TienLenService
                 'rank'          => (int) $rank,
                 'rank_label'    => self::rankLabel((int) $rank, $game->players),
                 'score'         => $r['scores'][$seat] ?? 0,
+                'penalty_units' => (int) ($r['penalty_scores'][$seat] ?? 0),
+                'penalty_lines' => self::penaltyLines($game, (int) $seat),
                 'is_cong'       => in_array((int) $seat, $game->cong, true),
                 'reward_points' => isset($rewards[$seat]) ? (int) $rewards[$seat]['total'] : null,
             ])->sortBy('rank')->values(),
@@ -418,6 +422,72 @@ class TienLenService
             // Hết ván mới lật bài mọi người
             'hands'         => array_map(fn (array $h) => TienLenDeckService::cards($h), $game->hands),
         ];
+    }
+
+    /**
+     * Các dòng điểm phạt của 1 ghế, ví dụ "Chặt đôi heo bằng tứ quý +4", "Bị thối 3 đôi thông −3", "Cóng −2".
+     * Tổng units các dòng = result.penalty_scores[seat].
+     *
+     * @return array<int, array{kind: string, label: string, units: int}>
+     */
+    public static function penaltyLines(Game $game, int $seat): array
+    {
+        $r = $game->result;
+        if (! $r) {
+            return [];
+        }
+
+        $lines = [];
+
+        if ($game->instantWin) {
+            $kind  = Rules::INSTANT_LABELS[$game->instantWin['kind']] ?? 'Tới trắng';
+            $lines[] = $game->instantWin['seat'] === $seat
+                ? ['kind' => 'instant_win', 'label' => 'Tới trắng (' . $kind . ')', 'units' => (int) $r['scores'][$seat]]
+                : ['kind' => 'instant_lose', 'label' => 'Thua tới trắng (' . $kind . ')', 'units' => (int) $r['scores'][$seat]];
+
+            return $lines;
+        }
+
+        foreach ($r['chops'] as $c) {
+            // Ván cũ không lưu tên bộ ⇒ "Chặt heo / hàng"
+            $what = (($c['chained'] ?? false) ? 'chặt chồng ' : 'chặt ') . ($c['chopped'] ?? 'heo / hàng') . (isset($c['with']) ? ' bằng ' . $c['with'] : '');
+            if ((int) $c['chopper'] === $seat) {
+                $lines[] = ['kind' => 'chop', 'label' => mb_strtoupper(mb_substr($what, 0, 1)) . mb_substr($what, 1), 'units' => (int) $c['units']];
+            } elseif ((int) $c['victim'] === $seat) {
+                $lines[] = ['kind' => 'chopped', 'label' => 'Bị ' . $what, 'units' => -(int) $c['units']];
+            }
+        }
+
+        foreach ($r['penalties'] as $p) {
+            $items = implode(', ', array_map(fn (array $i) => self::penaltyItemLabel($i), $p['items']));
+            if ($p['kind'] === 'thoi') {
+                if ((int) $p['seat'] === $seat) {
+                    $lines[] = ['kind' => 'thoi', 'label' => 'Bị thối ' . $items, 'units' => -(int) $p['units']];
+                } elseif ($p['to'] !== null && (int) $p['to'] === $seat) {
+                    $lines[] = ['kind' => 'thoi_gain', 'label' => 'Ăn thối ' . $items, 'units' => (int) $p['units']];
+                }
+            } elseif ($p['kind'] === 'cong') {
+                $suffix = $items !== '' ? ' (kèm thối ' . $items . ')' : '';
+                if ((int) $p['seat'] === $seat) {
+                    $lines[] = ['kind' => 'cong', 'label' => 'Cóng' . $suffix, 'units' => -(int) $p['units']];
+                } elseif ($p['to'] !== null && (int) $p['to'] === $seat) {
+                    $lines[] = ['kind' => 'cong_gain', 'label' => 'Bắt cóng' . $suffix, 'units' => (int) $p['units']];
+                }
+            }
+        }
+
+        return $lines;
+    }
+
+    private static function penaltyItemLabel(array $item): string
+    {
+        return match ($item['kind']) {
+            'two'       => Card::isRed((int) $item['cards'][0]) ? 'heo đỏ' : 'heo đen',
+            'four_twos' => 'tứ quý heo',
+            'four'      => 'tứ quý',
+            'pair_seq'  => intdiv(count($item['cards']), 2) . ' đôi thông',
+            default     => $item['kind'],
+        };
     }
 
     // =========================================================
@@ -608,7 +678,13 @@ class TienLenService
         return $payloads;
     }
 
-    // Chốt hạng + điểm thưởng từng người thật (gọi trong transaction đang khoá ván).
+    /**
+     * Chốt hạng + điểm thưởng từng người thật (gọi trong transaction đang khoá ván).
+     *
+     * Điểm ví = max(0, điểm theo hạng + điểm phạt ván × points_per_unit). Điểm phạt ván = chặt được − bị chặt ± thối ± cóng ± tới trắng
+     * (Game::result.penalty_scores). Thua / bị phạt chỉ làm giảm phần thưởng của chính ván đó — ví không bao giờ bị trừ,
+     * điểm không chuyển giữa người chơi.
+     */
     private function finish(TienLenMatch $match, Game $game, array $seats, TienLenSetting $setting, bool $abandoned): void
     {
         $r       = $game->result;
@@ -623,10 +699,10 @@ class TienLenService
 
             $rank  = (int) $r['ranks'][$i];
             $zero  = ! $hasHumanOpponent || $abandoned || $s['left'] || $s['auto'] || $r['forfeit'] === $i || in_array($i, $game->cong, true);
-            $chops = count(array_filter($r['chops'], fn (array $c) => $c['chopper'] === $i));
+            $units = (int) ($r['penalty_scores'][$i] ?? 0);
             $base  = $zero ? 0 : $setting->pointsForRank($rank, $game->players);
-            $bonus = $zero ? 0 : $chops * $setting->chop_bonus_points;
-            $total = $base + $bonus;
+            $delta = $zero ? 0 : $units * $setting->points_per_unit;
+            $total = max(0, $base + $delta);
 
             $capped = false;
             if ($total > 0 && $setting->daily_points_cap > 0) {
@@ -641,8 +717,15 @@ class TienLenService
             $this->points->earn((string) $s['customer_id'], $total, GamePointTransaction::SOURCE_TIEN_LEN,
                 $match->room_id ? $match->id . ':' . $i : $match->id, 'Tiến lên: về ' . mb_strtolower(self::rankLabel($rank, $game->players)));
 
-            $rewards[$i] = ['rank_points' => $base, 'chop_bonus' => $bonus, 'chops' => $chops, 'daily_cap_reached' => $capped, 'total' => $total,
-                'no_human_opponent' => ! $hasHumanOpponent];
+            $rewards[$i] = [
+                'rank_points'       => $base,
+                'penalty_units'     => $units,
+                'points_per_unit'   => $setting->points_per_unit,
+                'penalty_points'    => $delta,
+                'daily_cap_reached' => $capped,
+                'total'             => $total,
+                'no_human_opponent' => ! $hasHumanOpponent,
+            ];
 
             TienLenMatchPlayer::where('match_id', $match->id)->where('customer_id', $s['customer_id'])->update([
                 'rank'          => $rank,

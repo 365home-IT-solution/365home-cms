@@ -18,12 +18,25 @@ namespace App\Games\TienLen;
  */
 final class Rules
 {
-    // Đơn vị tiền ván (chỉ để hiển thị điểm ván; điểm thưởng của khách tính theo hạng — xem TienLenSetting).
-    public const UNIT_TWO_BLACK = 1;
-    public const UNIT_TWO_RED   = 2;
-    public const UNIT_FOUR      = 4;
-    public const UNIT_CONG      = 2;   // cóng: đền thêm cho người về nhất, ngoài phần bét và phần thối
-    public const UNIT_INSTANT   = 2;   // tới trắng: mỗi người còn lại trả người tới trắng
+    // Đơn vị phạt mặc định (chặt / thối / cóng / tới trắng). Giá trị thật lấy từ TienLenSetting::penaltyUnits(),
+    // chốt vào ván lúc chia bài (Game::$units) — đổi cài đặt giữa chừng không làm lệch ván đang chơi.
+    public const UNIT_TWO_BLACK       = 1;
+    public const UNIT_TWO_RED         = 2;
+    public const UNIT_FOUR            = 4;
+    public const UNIT_PAIR_SEQ_3      = 3;   // 3 đôi thông
+    public const UNIT_PAIR_SEQ_EXTRA  = 3;   // mỗi đôi thông thêm (4 đôi thông = 3 + 3)
+    public const UNIT_CONG            = 2;   // cóng: đền thêm cho người về nhất, ngoài phần bét và phần thối
+    public const UNIT_INSTANT         = 2;   // tới trắng: mỗi người còn lại trả người tới trắng
+
+    public const DEFAULT_UNITS = [
+        'two_black'      => self::UNIT_TWO_BLACK,
+        'two_red'        => self::UNIT_TWO_RED,
+        'four'           => self::UNIT_FOUR,
+        'pair_seq_3'     => self::UNIT_PAIR_SEQ_3,
+        'pair_seq_extra' => self::UNIT_PAIR_SEQ_EXTRA,
+        'cong'           => self::UNIT_CONG,
+        'instant'        => self::UNIT_INSTANT,
+    ];
 
     // Điểm ván cơ bản theo hạng (nhất ăn bét, nhì ăn ba), index = hạng - 1.
     public const BASE_BY_PLAYERS = [
@@ -73,18 +86,51 @@ final class Rules
         return $next->type === Combo::PAIR_SEQ && $next->length >= 4 && self::isChop($prev, $next);
     }
 
-    // Giá trị của bộ bị chặt (cộng dồn khi chặt chồng): heo đen 1, heo đỏ 2, tứ quý 4, n đôi thông = 3 × (n − 2).
-    public static function chopValue(Combo $chopped): int
+    /** @param array<string, int>|null $units null = DEFAULT_UNITS; thiếu khoá nào lấy mặc định khoá đó */
+    public static function units(?array $units = null): array
     {
+        return array_map('intval', array_merge(self::DEFAULT_UNITS, array_intersect_key($units ?? [], self::DEFAULT_UNITS)));
+    }
+
+    // Giá trị của bộ bị chặt (cộng dồn khi chặt chồng): heo đen 1, heo đỏ 2, tứ quý 4, 3 đôi thông 3, mỗi đôi thêm +3 (mặc định).
+    public static function chopValue(Combo $chopped, ?array $units = null): int
+    {
+        $u = self::units($units);
         if ($chopped->isTwo()) {
-            return array_sum(array_map(fn (int $c) => Card::isRed($c) ? self::UNIT_TWO_RED : self::UNIT_TWO_BLACK, $chopped->cards));
+            return self::twosValue($chopped->cards, $u);
         }
 
         return match ($chopped->type) {
-            Combo::FOUR     => self::UNIT_FOUR,
-            Combo::PAIR_SEQ => 3 * ($chopped->length - 2),
+            Combo::FOUR     => $u['four'],
+            Combo::PAIR_SEQ => self::pairSeqValue($chopped->length, $u),
             default         => 0,
         };
+    }
+
+    public static function pairSeqValue(int $pairs, ?array $units = null): int
+    {
+        $u = self::units($units);
+
+        return $pairs < 3 ? 0 : $u['pair_seq_3'] + ($pairs - 3) * $u['pair_seq_extra'];
+    }
+
+    // Tên bộ dùng trong bảng điểm phạt: "heo đỏ", "đôi heo", "tứ quý", "3 đôi thông"…
+    public static function penaltyLabel(Combo $c): string
+    {
+        if ($c->isSingleTwo()) {
+            return Card::isRed($c->top) ? 'heo đỏ' : 'heo đen';
+        }
+        if ($c->isTwo()) {
+            return 'đôi heo';
+        }
+
+        return mb_strtolower($c->label());
+    }
+
+    /** @param int[] $twos */
+    private static function twosValue(array $twos, array $u): int
+    {
+        return array_sum(array_map(fn (int $c) => Card::isRed($c) ? $u['two_red'] : $u['two_black'], $twos));
     }
 
     /**
@@ -93,27 +139,28 @@ final class Rules
      * @param int[] $hand
      * @return array{units: int, items: array<int, array{kind: string, cards: int[], units: int}>}
      */
-    public static function leftoverPenalty(array $hand): array
+    public static function leftoverPenalty(array $hand, ?array $units = null): array
     {
+        $u      = self::units($units);
         $items  = [];
         $groups = Card::groupByRank($hand);
 
         foreach ($groups as $rank => $cards) {
             if (count($cards) === 4) {
-                $items[] = ['kind' => $rank === Card::RANK_TWO ? 'four_twos' : 'four', 'cards' => $cards, 'units' => self::UNIT_FOUR];
+                $items[] = ['kind' => $rank === Card::RANK_TWO ? 'four_twos' : 'four', 'cards' => $cards, 'units' => $u['four']];
                 unset($groups[$rank]);
             }
         }
 
         // Đôi thông: dãy rank liên tiếp (không heo) mỗi rank còn ≥ 2 lá
         $run = [];
-        $flush = function () use (&$run, &$items, $groups) {
+        $flush = function () use (&$run, &$items, $groups, $u) {
             if (count($run) >= 3) {
                 $cards = [];
                 foreach ($run as $r) {
                     array_push($cards, ...array_slice($groups[$r], 0, 2));
                 }
-                $items[] = ['kind' => 'pair_seq', 'cards' => $cards, 'units' => 3 * (count($run) - 2)];
+                $items[] = ['kind' => 'pair_seq', 'cards' => $cards, 'units' => self::pairSeqValue(count($run), $u)];
             }
             $run = [];
         };
@@ -127,7 +174,7 @@ final class Rules
         $flush();
 
         foreach ($groups[Card::RANK_TWO] ?? [] as $two) {
-            $items[] = ['kind' => 'two', 'cards' => [$two], 'units' => Card::isRed($two) ? self::UNIT_TWO_RED : self::UNIT_TWO_BLACK];
+            $items[] = ['kind' => 'two', 'cards' => [$two], 'units' => self::twosValue([$two], $u)];
         }
 
         return ['units' => array_sum(array_column($items, 'units')), 'items' => $items];
