@@ -244,7 +244,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | Search
     | GET /api/v1/search/suggestions → Gợi ý điểm đến (màn nhập liệu)
     | GET /api/v1/search             → Kết quả tìm kiếm + marker bản đồ
-    |                                     (?ver=1.1 → bản mới: luôn trả PHÒNG, lọc ?date= / ?guests=, xem RoomSearchRoomsService)
+    |                                     (?ver=1.1.0 → bản mới; cũng gọi được qua GET /api/search?ver=1.1.0: luôn trả PHÒNG, lọc ?date= / ?guests=, xem RoomSearchRoomsService)
     |                                     (?tab={id MiniHouse} hoặc ?type=mini_house|minihouse →
     |                                      tìm phòng MiniHouse còn trống, xem MinihouseRoomController)
     | GET /api/v1/search/locations   → Gợi ý khi gõ ô "Địa điểm": CHI NHÁNH + TỈNH/THÀNH + PHƯỜNG/XÃ + ĐỊA CHỈ (?q= tối thiểu 2 ký tự,
@@ -274,6 +274,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
 });
+
+// GET /api/search?ver=1.1.0 — cùng SearchController::index với /api/v1/search nhưng không có "v1" trong đường dẫn
+// (phiên bản chọn bằng ?ver=, xem SearchController::index). /api/v1/search giữ nguyên cho app cũ.
+Route::get('search', [SearchController::class, 'index'])->middleware('throttle:public-api')->name('api.search.index');
 
 /*
 |--------------------------------------------------------------------------

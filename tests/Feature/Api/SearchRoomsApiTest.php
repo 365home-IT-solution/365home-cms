@@ -7,12 +7,12 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 use Modules\Product\App\Models\Product;
 use Tests\TestCase;
 
-// GET /api/v1/search?ver=1.1 — bản mới trả PHÒNG (q, date một ngày, guests, trộn theo giờ/theo ngày); không có ver thì giữ hành vi cũ.
+// GET /api/search?ver=1.1.0 — bản mới trả PHÒNG (q, date một ngày, guests, trộn theo giờ/theo ngày); không có ver thì giữ hành vi cũ.
 class SearchRoomsApiTest extends TestCase
 {
     use DatabaseTransactions;
 
-    private const URL = '/api/v1/search?ver=1.1';
+    private const URL = '/api/search?ver=1.1.0';
 
     protected function setUp(): void
     {
@@ -54,7 +54,7 @@ class SearchRoomsApiTest extends TestCase
             }
         }
 
-        foreach (['1.1', '1.2', '2'] as $ver) {
+        foreach (['1.1', '1.1.0', '1.2.0', '2'] as $ver) {
             $first = $this->getJson("/api/v1/search?q=can&ver={$ver}")->assertOk()->json('data.0');
             if ($first) {
                 $this->assertArrayHasKey('room_style', $first, "ver={$ver} phải trả phòng.");
