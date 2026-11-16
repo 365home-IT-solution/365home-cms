@@ -278,8 +278,16 @@ class SearchController extends Controller
     // toà nhà đóng vai trò chi nhánh (xem RoomSearchService::baseQuery()). Khác homestay: có "q" vẫn
     // trả về PHÒNG (khách tìm theo mã phòng/tên toà nhà/địa chỉ đều ra phòng trống) — muốn card toà
     // nhà thì gửi thêm ?view=branches.
+    //
+    // ?ver=2 (màn Tìm kiếm mới của app) → LUÔN trả danh sách PHÒNG kể cả khi có "q", lọc 1 ngày bằng ?date=YYYY-MM-DD,
+    // ?guests=N, trộn phòng theo giờ + theo ngày (App\Services\RoomSearchRoomsService). Không gửi ver → hành vi cũ ở
+    // dưới, giữ nguyên cho app đang chạy.
     public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
+        if ((int) $request->query('ver') >= 2) {
+            return response()->json(app(RoomSearchRoomsService::class)->searchRooms($request->all(), auth('sanctum')->user()));
+        }
+
         $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
         $isMinihouse = MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))
@@ -294,15 +302,6 @@ class SearchController extends Controller
             : $searchService->search($request->all(), auth('sanctum')->user());
 
         return response()->json($result);
-    }
-
-    // ─── GET /v1/search/rooms ────────────────────────────────────────────────
-    // Bản mới cho màn Tìm kiếm mới của app: LUÔN trả danh sách PHÒNG (kể cả khi có "q"), lọc 1 ngày bằng
-    // ?date=YYYY-MM-DD, ?guests=N, trộn phòng theo giờ + theo ngày. Tách khỏi index() để không ảnh hưởng app cũ —
-    // xem App\Services\RoomSearchRoomsService.
-    public function rooms(Request $request, RoomSearchRoomsService $searchService): JsonResponse
-    {
-        return response()->json($searchService->searchRooms($request->all(), auth('sanctum')->user()));
     }
 
     // ─── GET /v1/search/locations ────────────────────────────────────────────

@@ -1,16 +1,16 @@
-# API `GET /v1/search/rooms` – Tìm kiếm trả danh sách PHÒNG
+# API `GET /v1/search?ver=2` – Tìm kiếm trả danh sách PHÒNG
 
-> Dành cho FE/app (màn `app/(client)/search.tsx`). Đây là endpoint **mới**, chạy song song với `GET /v1/search` (giữ nguyên cho app cũ). App mới chỉ cần đổi URL sang `/v1/search/rooms`.
+> Dành cho FE/app (màn `app/(client)/search.tsx`). Không đổi URL: thêm tham số **`ver=2`** vào `GET /v1/search` để dùng bản mới. **Không gửi `ver`** thì API chạy hành vi cũ, giữ nguyên cho app đang chạy.
 
 ```
-GET https://365home.vn/api/v1/search/rooms
+GET https://365home.vn/api/v1/search?ver=2
 ```
 
 Public, không cần đăng nhập (có token thì `wishlist_status` được điền). Hạn mức chung 60 request/phút/IP.
 
 ## 1. Khác gì so với `/v1/search`
 
-| | `/v1/search` (cũ) | `/v1/search/rooms` (mới) |
+| | `/v1/search` (cũ) | `/v1/search?ver=2` (mới) |
 |---|---|---|
 | Có `q` | Trả **chi nhánh** (kèm `room_count`) | Trả **phòng** – không cần tự bung chi nhánh → phòng |
 | `date=YYYY-MM-DD` đứng một mình | Không lọc | Lọc phòng **còn trống** trong ngày đó |
@@ -54,11 +54,11 @@ Chỉ trả phòng có số khách tối đa không phụ thu ≥ `guests` (cấ
 ## 3. Ví dụ request
 
 ```
-GET /v1/search/rooms?q=can%20tho&page=1
-GET /v1/search/rooms?province_id=48&date=2026-11-17
-GET /v1/search/rooms?province_id=48&date=2026-11-17&guests=3&category=homestay
-GET /v1/search/rooms?lat=10.03&lng=105.78&date=2026-11-17
-GET /v1/search/rooms?category=mini_house&tab=3
+GET /v1/search?ver=2&q=can%20tho&page=1
+GET /v1/search?ver=2&province_id=48&date=2026-11-17
+GET /v1/search?ver=2&province_id=48&date=2026-11-17&guests=3&category=homestay
+GET /v1/search?ver=2&lat=10.03&lng=105.78&date=2026-11-17
+GET /v1/search?ver=2&category=mini_house&tab=3
 ```
 
 ## 4. Response
@@ -110,7 +110,7 @@ App nên chặn chọn ngày trước hôm nay ngay trên lịch.
 
 ## 6. App cần đổi
 
-1. Gọi `/v1/search/rooms` thay cho `/v1/search`.
+1. Luôn gửi thêm `ver=2` khi gọi `/v1/search` ở màn Tìm kiếm mới.
 2. Bỏ phần tự bung chi nhánh → phòng (`branchRoomsParams`, `MAX_BRANCH_EXPAND` ở `constants/client/searchRooms.ts`); `q` phân trang bình thường theo `meta`.
 3. `dateSearchParams` chỉ gửi `date`, không gửi `time_type`.
 4. `guests` gửi trực tiếp, không cần lọc phía app.

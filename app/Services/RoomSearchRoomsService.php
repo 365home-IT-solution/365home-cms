@@ -10,10 +10,10 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
 
 /**
- * GET /v1/search/rooms — tìm kiếm TRẢ DANH SÁCH PHÒNG (trộn phòng theo giờ + theo ngày), phiên bản mới cho màn Tìm kiếm
- * mới của app. Tách riêng khỏi GET /v1/search (đang có app cũ dùng) nên không đụng hành vi cũ.
+ * GET /v1/search?ver=2 — tìm kiếm TRẢ DANH SÁCH PHÒNG (trộn phòng theo giờ + theo ngày), phiên bản mới cho màn Tìm kiếm
+ * mới của app. Cùng URL với GET /v1/search nhưng chọn bản bằng ?ver=2 (SearchController::index); không gửi ver thì chạy hành vi cũ.
  *
- * Khác GET /v1/search:
+ * Khác bản cũ (không có ver):
  *  - Có "q" vẫn trả PHÒNG (không bao giờ trả card chi nhánh).
  *  - "date=YYYY-MM-DD" đứng một mình: lọc theo ngày còn trống (xem RoomDateAvailability); MiniHouse bỏ qua date.
  *  - "guests=N": chỉ phòng đủ chỗ cho N khách (cùng ngưỡng với "adults" của /v1/search).

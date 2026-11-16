@@ -11,7 +11,7 @@ use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 
 /**
- * Phòng còn trống trong MỘT ngày — dùng cho GET /v1/search/rooms?date=YYYY-MM-DD (RoomSearchRoomsService).
+ * Phòng còn trống trong MỘT ngày — dùng cho GET /v1/search?ver=2&date=YYYY-MM-DD (RoomSearchRoomsService).
  *
  * Mirror đúng các kiểm tra của luồng đặt phòng web (ProductDetail::checkSlotConflicts / checkDateRangeConflicts):
  *  - Phòng theo giờ (styles=1): còn ÍT NHẤT MỘT khung giờ trống trong ngày — chưa có đơn, không bị admin giữ chỗ
