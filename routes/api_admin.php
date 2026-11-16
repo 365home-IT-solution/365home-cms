@@ -19,6 +19,9 @@ use App\Http\Controllers\Api\Admin\VoucherScopeSettingsController;
 use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
 use App\Http\Controllers\Api\Admin\TienLenAdminController;
 use App\Http\Controllers\Api\Admin\TienLenCardDeckAdminController;
+use App\Http\Controllers\Api\Admin\GameChatSettingAdminController;
+use App\Http\Controllers\Api\Admin\GameSoundPackAdminController;
+use App\Http\Controllers\Api\Admin\GameStickerAdminController;
 use App\Http\Controllers\Api\Admin\GamePointAdminController;
 use App\Http\Controllers\Api\Admin\CollectionAdminController;
 use App\Http\Controllers\Api\Admin\ReferralAdminController;
@@ -100,6 +103,15 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 
     Route::post('logout', [AdminAuthController::class, 'logout'])->name('logout');
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
+
+    // Vai trò/phân quyền dùng cho app quản trị — controller khóa cứng chỉ Super Admin được sử dụng.
+    Route::get('permissions', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'permissions'])->name('permissions.index');
+    Route::get('roles', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'index'])->name('roles.index');
+    Route::post('roles', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'store'])->name('roles.store');
+    Route::get('roles/{role}', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'show'])->whereNumber('role')->name('roles.show');
+    Route::match(['put', 'patch'], 'roles/{role}', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'update'])->whereNumber('role')->name('roles.update');
+    Route::delete('roles/{role}', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'destroy'])->whereNumber('role')->name('roles.destroy');
+    Route::put('users/{user}/roles', [\App\Http\Controllers\Api\Admin\RolePermissionController::class, 'syncUserRoles'])->whereUuid('user')->name('users.roles.update');
 
     Route::middleware('partner.type:homestay')->group(function () {
     // Miễn phí tháng đầu của ký quỹ (công tắc + cấu hình, trạng thái từng đối tác) — Super Admin, xem EscrowSettingsController.
@@ -1224,6 +1236,36 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/tien-len')
     Route::match(['post', 'put', 'patch'], 'card-decks/{id}', [TienLenCardDeckAdminController::class, 'update'])->whereNumber('id')->name('card-decks.update');
     Route::post('card-decks/{id}/default', [TienLenCardDeckAdminController::class, 'makeDefault'])->whereNumber('id')->name('card-decks.default');
     Route::delete('card-decks/{id}', [TienLenCardDeckAdminController::class, 'destroy'])->whereNumber('id')->name('card-decks.destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Mini game Tiến lên + Caro — bộ âm thanh, bộ sticker, cấu hình chat (Super Admin)
+| Xem GameSoundPackAdminController, GameStickerAdminController, GameChatSettingAdminController (sửa có file thì gửi POST multipart)
+| GET|POST .../sound-packs?game= · GET .../sound-packs/events · GET|POST|PUT|DELETE .../sound-packs/{id} · POST .../sound-packs/{id}/default
+| GET|POST .../sticker-packs?game= · GET|POST|PUT|DELETE .../sticker-packs/{id} · PUT .../{id}/stickers/order · DELETE .../{id}/stickers/{sid}
+| GET .../chat-settings · PUT .../chat-settings/{game}
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games')->name('api.admin.games.')->group(function () {
+    Route::get('sound-packs', [GameSoundPackAdminController::class, 'index'])->name('sound-packs.index');
+    Route::get('sound-packs/events', [GameSoundPackAdminController::class, 'events'])->name('sound-packs.events');
+    Route::post('sound-packs', [GameSoundPackAdminController::class, 'store'])->name('sound-packs.store');
+    Route::get('sound-packs/{id}', [GameSoundPackAdminController::class, 'show'])->whereNumber('id')->name('sound-packs.show');
+    Route::match(['post', 'put', 'patch'], 'sound-packs/{id}', [GameSoundPackAdminController::class, 'update'])->whereNumber('id')->name('sound-packs.update');
+    Route::post('sound-packs/{id}/default', [GameSoundPackAdminController::class, 'makeDefault'])->whereNumber('id')->name('sound-packs.default');
+    Route::delete('sound-packs/{id}', [GameSoundPackAdminController::class, 'destroy'])->whereNumber('id')->name('sound-packs.destroy');
+
+    Route::get('sticker-packs', [GameStickerAdminController::class, 'index'])->name('sticker-packs.index');
+    Route::post('sticker-packs', [GameStickerAdminController::class, 'store'])->name('sticker-packs.store');
+    Route::get('sticker-packs/{id}', [GameStickerAdminController::class, 'show'])->whereNumber('id')->name('sticker-packs.show');
+    Route::match(['post', 'put', 'patch'], 'sticker-packs/{id}', [GameStickerAdminController::class, 'update'])->whereNumber('id')->name('sticker-packs.update');
+    Route::put('sticker-packs/{id}/stickers/order', [GameStickerAdminController::class, 'reorder'])->whereNumber('id')->name('sticker-packs.reorder');
+    Route::delete('sticker-packs/{id}/stickers/{stickerId}', [GameStickerAdminController::class, 'destroySticker'])->whereNumber(['id', 'stickerId'])->name('sticker-packs.stickers.destroy');
+    Route::delete('sticker-packs/{id}', [GameStickerAdminController::class, 'destroy'])->whereNumber('id')->name('sticker-packs.destroy');
+
+    Route::get('chat-settings', [GameChatSettingAdminController::class, 'index'])->name('chat-settings.index');
+    Route::match(['put', 'patch'], 'chat-settings/{game}', [GameChatSettingAdminController::class, 'update'])->name('chat-settings.update');
 });
 
 /*

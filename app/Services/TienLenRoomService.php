@@ -161,6 +161,7 @@ class TienLenRoomService
             if (! $deleted) {
                 throw new GameException('Ghế này đang trống.');
             }
+            app(GameVoiceService::class)->kickTienLenSeat($room->id, $seat, 'removed');
         });
     }
 
@@ -334,7 +335,11 @@ class TienLenRoomService
             $room->refresh();
         }
 
+        $seat = TienLenRoomSeat::where('room_id', $room->id)->where('customer_id', $customerId)->value('seat');
         TienLenRoomSeat::where('room_id', $room->id)->where('customer_id', $customerId)->delete();
+        if ($seat !== null) {
+            app(GameVoiceService::class)->kickTienLenSeat($room->id, (int) $seat, 'left');
+        }
 
         $humans = TienLenRoomSeat::where('room_id', $room->id)->where('is_bot', false)->orderBy('seat')->get();
         if ($humans->isEmpty()) {
@@ -355,6 +360,7 @@ class TienLenRoomService
     {
         TienLenRoomSeat::where('room_id', $room->id)->delete();
         $room->update(['status' => TienLenRoom::STATUS_CLOSED, 'current_match_id' => null]);
+        app(GameVoiceService::class)->closeTienLenRoom($room->id);
         $this->game->notify($room->id, 'closed');
     }
 

@@ -220,7 +220,17 @@ io.on('connection', (socket) => {
         socket.leave('admin:orders');
     });
 
+    // ── Gọi thoại mini game (WebRTC mesh) — xem App\Services\GameVoiceService ──
+    // voice:join {ticket} (ack) → voice:peer-joined cho người khác; NGƯỜI MỚI VÀO tạo offer tới từng người đã có (tránh 2 bên cùng gửi offer).
+    // voice:signal {to, data} → chuyển nguyên data (offer / answer / candidate) tới đúng người cùng phòng, kèm from.
+    // voice:mute {muted} → voice:mute {peer_id, muted} cho cả phòng. voice:leave / mất kết nối → voice:peer-left.
+    socket.on('voice:join', (msg, ack) => voiceJoin(socket, msg, typeof ack === 'function' ? ack : () => {}));
+    socket.on('voice:signal', (msg) => voiceSignal(socket, msg));
+    socket.on('voice:mute', (msg) => voiceMute(socket, msg));
+    socket.on('voice:leave', () => voiceLeave(socket, 'left'));
+
     socket.on('disconnect', () => {
+        voiceLeave(socket, 'disconnected');
         if (tenantId) {
             const tenantSockets = tenantConnections.get(tenantId);
             if (tenantSockets) {
@@ -237,6 +247,117 @@ io.on('connection', (socket) => {
         }
         console.log(`[WS] Disconnected: customer=${customerId || 'guest'}`);
     });
+});
+
+// ── Gọi thoại: phòng thoại trong bộ nhớ ──────────────────────────────────────
+// room ("tien-len:{id}" | "caro:{id}") → Map(peer_id → { socket, name, meta, muted })
+const voiceRooms = new Map();
+const VOICE_SIGNAL_MAX = 64 * 1024; // SDP + ICE thường < 10KB
+
+// Vé do Laravel ký (cùng khoá INTERNAL_KEY, định dạng giống vé camera): base64(JSON).hex(HMAC-SHA256)
+function verifyVoiceTicket(ticket) {
+    if (typeof ticket !== 'string' || !ticket.includes('.')) return null;
+    const dot = ticket.lastIndexOf('.');
+    const payloadB64 = ticket.slice(0, dot);
+    const sigBuf = Buffer.from(ticket.slice(dot + 1), 'hex');
+    const expBuf = Buffer.from(crypto.createHmac('sha256', INTERNAL_KEY).update(payloadB64).digest('hex'), 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+    try {
+        const p = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
+        if (p.kind !== 'voice' || !p.room || !p.peer || !p.exp) return null;
+        if (p.exp * 1000 < Date.now()) return null; // vé chỉ dùng để vào phòng, hết hạn sau ~60 giây
+        return p;
+    } catch (e) {
+        return null;
+    }
+}
+
+const voicePeerInfo = (peerId, p) => ({ peer_id: peerId, name: p.name, meta: p.meta, muted: p.muted });
+
+function voiceJoin(socket, msg, ack) {
+    const t = verifyVoiceTicket(msg && msg.ticket);
+    if (!t) return ack({ ok: false, error: 'invalid_ticket' });
+
+    if (socket.data.voice) voiceLeave(socket, 'switched'); // đang ở phòng thoại khác (hoặc vào lại) ⇒ rời trước
+
+    if (!voiceRooms.has(t.room)) voiceRooms.set(t.room, new Map());
+    const peers = voiceRooms.get(t.room);
+
+    // Cùng 1 chỗ ngồi vào lại (mở máy khác / mạng chập chờn) ⇒ đá kết nối cũ
+    const old = peers.get(t.peer);
+    if (old && old.socket !== socket) {
+        old.socket.emit('voice:kicked', { room: t.room, reason: 'replaced' });
+        old.socket.leave('voice:' + t.room);
+        old.socket.data.voice = null;
+        peers.delete(t.peer);
+        socket.to('voice:' + t.room).emit('voice:peer-left', { peer_id: t.peer, reason: 'replaced' });
+    }
+    if (peers.size >= (t.max || 4)) return ack({ ok: false, error: 'room_full' });
+
+    const me = { socket, name: t.name, meta: t.meta || {}, muted: false };
+    const others = [...peers.entries()].map(([id, p]) => voicePeerInfo(id, p));
+    peers.set(t.peer, me);
+    socket.data.voice = { room: t.room, peer: t.peer };
+    socket.join('voice:' + t.room);
+    socket.to('voice:' + t.room).emit('voice:peer-joined', voicePeerInfo(t.peer, me));
+    console.log(`[Voice] join room=${t.room} peer=${t.peer} size=${peers.size}`);
+
+    ack({ ok: true, room: t.room, peer_id: t.peer, peers: others });
+}
+
+function voiceSignal(socket, msg) {
+    const v = socket.data.voice;
+    if (!v || !msg || typeof msg.to !== 'string' || msg.data === undefined) return;
+    if (JSON.stringify(msg.data).length > VOICE_SIGNAL_MAX) return;
+    const target = voiceRooms.get(v.room)?.get(msg.to);
+    if (target) target.socket.emit('voice:signal', { from: v.peer, data: msg.data });
+}
+
+function voiceMute(socket, msg) {
+    const v = socket.data.voice;
+    const me = v && voiceRooms.get(v.room)?.get(v.peer);
+    if (!me || me.socket !== socket) return;
+    me.muted = !!(msg && msg.muted);
+    io.to('voice:' + v.room).emit('voice:mute', { peer_id: v.peer, muted: me.muted });
+}
+
+function voiceLeave(socket, reason) {
+    const v = socket.data.voice;
+    if (!v) return;
+    socket.data.voice = null;
+    socket.leave('voice:' + v.room);
+    const peers = voiceRooms.get(v.room);
+    if (!peers || peers.get(v.peer)?.socket !== socket) return;
+    peers.delete(v.peer);
+    if (peers.size === 0) voiceRooms.delete(v.room);
+    io.to('voice:' + v.room).emit('voice:peer-left', { peer_id: v.peer, reason });
+    console.log(`[Voice] leave room=${v.room} peer=${v.peer} reason=${reason}`);
+}
+
+// Laravel đẩy người khỏi phòng thoại (rời ghế / bị mời ra) hoặc đóng cả phòng (phòng đóng / hết trận).
+// Body: { room, peer_id?, reason? } — không có peer_id ⇒ đóng phòng.
+app.post('/internal/voice-kick', (req, res) => {
+    if (req.headers['x-internal-key'] !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { room, peer_id: peerId, reason } = req.body || {};
+    if (!room) return res.status(422).json({ error: 'Missing room' });
+
+    const peers = voiceRooms.get(room);
+    if (!peers) return res.json({ ok: true, kicked: 0 });
+
+    const targets = peerId ? [peerId].filter((id) => peers.has(id)) : [...peers.keys()];
+    for (const id of targets) {
+        const p = peers.get(id);
+        p.socket.emit('voice:kicked', { room, reason: reason || 'removed' });
+        p.socket.leave('voice:' + room);
+        p.socket.data.voice = null;
+        peers.delete(id);
+        io.to('voice:' + room).emit('voice:peer-left', { peer_id: id, reason: reason || 'removed' });
+    }
+    if (peers.size === 0) voiceRooms.delete(room);
+    console.log(`[Voice] kick room=${room} peer=${peerId || '*'} kicked=${targets.length}`);
+    return res.json({ ok: true, kicked: targets.length });
 });
 
 // ── Internal HTTP — Laravel gọi khi tạo thông báo ───────────────────────────

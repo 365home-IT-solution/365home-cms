@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\TienLenRoomController;
 use App\Http\Controllers\Api\GamePointController;
 use App\Http\Controllers\Api\ScratchCardController;
 use App\Http\Controllers\Api\CaroController;
+use App\Http\Controllers\Api\GameSocialController;
 use App\Http\Controllers\Api\CollectionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\MinihouseRoomController;
@@ -629,6 +630,10 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix
 | POST   /api/games/caro/matches/{id}/move    → Đánh 1 nước (x, y)
 | POST   /api/games/caro/matches/{id}/resign  → Đầu hàng (3 người: bị loại, 2 người còn lại đánh tiếp)
 | GET    /api/games/caro/rewards?page=        → Voucher đã nhận từ caro
+| GET    /api/games/caro/sound-packs          → Bộ âm thanh + bộ đang dùng + tuỳ chọn âm lượng · PUT .../sound-packs/selected (pack) · PUT .../sound-settings
+| GET    /api/games/caro/stickers             → Bộ sticker dùng được trong Caro
+| GET    /api/games/caro/matches/{id}/chat    → Tin nhắn gần đây của trận (giữ tạm, không lưu DB) · POST cùng đường dẫn: gửi text / sticker (WS: caro.chat)
+| POST   /api/games/caro/matches/{id}/voice   → Vé vào phòng thoại (WebRTC, signaling qua WS voice:*) + ICE server STUN/TURN
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'customer.active', 'throttle:caro'])->prefix('games/caro')->name('api.games.caro.')->group(function () {
@@ -645,6 +650,13 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:caro'])->prefix(
     Route::post('matches/{id}/move',   [CaroController::class, 'move'])->name('matches.move');
     Route::post('matches/{id}/resign', [CaroController::class, 'resign'])->name('matches.resign');
     Route::get('rewards',              [CaroController::class, 'rewards'])->name('rewards');
+    Route::get('matches/{id}/chat',    [GameSocialController::class, 'caroChat'])->name('matches.chat');
+    Route::post('matches/{id}/chat',   [GameSocialController::class, 'sendCaroChat'])->name('matches.chat.send');
+    Route::post('matches/{id}/voice',  [GameSocialController::class, 'caroVoice'])->name('matches.voice');
+    Route::get('sound-packs',          [GameSocialController::class, 'soundPacks'])->defaults('game', 'caro')->name('sound-packs.index');
+    Route::put('sound-packs/selected', [GameSocialController::class, 'selectSoundPack'])->defaults('game', 'caro')->name('sound-packs.select');
+    Route::put('sound-settings',       [GameSocialController::class, 'updateSoundSettings'])->defaults('game', 'caro')->name('sound-settings.update');
+    Route::get('stickers',             [GameSocialController::class, 'stickers'])->defaults('game', 'caro')->name('stickers.index');
 });
 
 /*
@@ -700,7 +712,11 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix
 | Phòng nhiều người (mời bằng mã / ghép nhanh, chủ phòng mời bot):
 | GET  .../rooms?max_players= · POST .../rooms · POST .../rooms/join (code) · POST .../rooms/quick-join · GET .../rooms/current
 | GET  .../rooms/{id}?after= · POST .../rooms/{id}/ready|bots|start|leave · DELETE .../rooms/{id}/seats/{seat}
-| Realtime: kênh private-tien-len.room.{id}, sự kiện "updated" (xác thực POST /api/broadcasting/auth)
+| Realtime: kênh private-tien-len.room.{id}, sự kiện "updated" + "chat" (xác thực POST /api/broadcasting/auth)
+| GET  .../rooms/{id}/chat → tin nhắn gần đây của phòng (giữ tạm, không lưu DB) · POST cùng đường dẫn: gửi text / sticker
+| POST .../rooms/{id}/voice → vé vào phòng thoại (WebRTC, signaling qua WS voice:*) + ICE server STUN/TURN
+| GET  .../sound-packs · PUT .../sound-packs/selected (pack) · PUT .../sound-settings → bộ âm thanh + tuỳ chọn âm lượng
+| GET  .../stickers → bộ sticker dùng được trong Tiến lên
 |--------------------------------------------------------------------------
 */
 // Bộ đếm throttle riêng (prefix tien-len) — throttle:N,1 không prefix dùng chung 1 bộ đếm cho mọi route của khách, chơi nhanh sẽ làm 429 các API khác.
@@ -730,6 +746,15 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:240,1,tien-len']
     Route::delete('rooms/{id}/seats/{seat}', [TienLenRoomController::class, 'removeSeat'])->whereNumber('seat')->name('rooms.seats.destroy');
     Route::post('rooms/{id}/start',        [TienLenRoomController::class, 'start'])->name('rooms.start')->middleware('throttle:30,1,tien-len-start');
     Route::post('rooms/{id}/leave',        [TienLenRoomController::class, 'leave'])->name('rooms.leave');
+
+    // Chat, sticker, âm thanh — xem GameSocialController
+    Route::get('rooms/{id}/chat',          [GameSocialController::class, 'tienLenChat'])->name('rooms.chat');
+    Route::post('rooms/{id}/chat',         [GameSocialController::class, 'sendTienLenChat'])->name('rooms.chat.send');
+    Route::post('rooms/{id}/voice',        [GameSocialController::class, 'tienLenVoice'])->name('rooms.voice');
+    Route::get('sound-packs',              [GameSocialController::class, 'soundPacks'])->defaults('game', 'tien_len')->name('sound-packs.index');
+    Route::put('sound-packs/selected',     [GameSocialController::class, 'selectSoundPack'])->defaults('game', 'tien_len')->name('sound-packs.select');
+    Route::put('sound-settings',           [GameSocialController::class, 'updateSoundSettings'])->defaults('game', 'tien_len')->name('sound-settings.update');
+    Route::get('stickers',                 [GameSocialController::class, 'stickers'])->defaults('game', 'tien_len')->name('stickers.index');
 });
 
 // Xác thực kênh Reverb private cho KHÁCH (Bearer token Sanctum) — /broadcasting/auth mặc định chỉ dùng guard web của admin.
