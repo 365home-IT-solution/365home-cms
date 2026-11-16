@@ -913,6 +913,7 @@ class CaroService
         ]);
         $match->counted_for_reward = $winnerId !== null && $this->countsForReward($match, $winnerId, $setting);
         $match->save();
+        app(GameVoiceService::class)->closeCaroMatch($match->id);
 
         foreach ($match->players() as $playerId) {
             $stat = CaroPlayerStat::whereKey($playerId)->lockForUpdate()->first() ?? CaroPlayerStat::create(['customer_id' => $playerId]);

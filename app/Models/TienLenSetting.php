@@ -10,7 +10,19 @@ use Illuminate\Database\Eloquent\Model;
 class TienLenSetting extends Model
 {
     protected $fillable = [
-        'is_enabled', 'turn_seconds', 'points_first', 'points_second', 'points_third', 'points_last', 'chop_bonus_points', 'daily_points_cap', 'default_card_deck',
+        'is_enabled', 'turn_seconds', 'points_first', 'points_second', 'points_third', 'points_last', 'daily_points_cap', 'default_card_deck',
+        'unit_two_black', 'unit_two_red', 'unit_four', 'unit_pair_seq_3', 'unit_pair_seq_extra', 'unit_cong', 'unit_instant', 'points_per_unit',
+    ];
+
+    // Cột đơn vị phạt ⇔ khoá trong Rules::DEFAULT_UNITS
+    public const UNIT_COLUMNS = [
+        'two_black'      => 'unit_two_black',
+        'two_red'        => 'unit_two_red',
+        'four'           => 'unit_four',
+        'pair_seq_3'     => 'unit_pair_seq_3',
+        'pair_seq_extra' => 'unit_pair_seq_extra',
+        'cong'           => 'unit_cong',
+        'instant'        => 'unit_instant',
     ];
 
     protected $casts = [
@@ -20,8 +32,15 @@ class TienLenSetting extends Model
         'points_second'     => 'integer',
         'points_third'      => 'integer',
         'points_last'       => 'integer',
-        'chop_bonus_points' => 'integer',
         'daily_points_cap'  => 'integer',
+        'unit_two_black'      => 'integer',
+        'unit_two_red'        => 'integer',
+        'unit_four'           => 'integer',
+        'unit_pair_seq_3'     => 'integer',
+        'unit_pair_seq_extra' => 'integer',
+        'unit_cong'           => 'integer',
+        'unit_instant'        => 'integer',
+        'points_per_unit'     => 'integer',
     ];
 
     // Luật validate dùng chung cho API admin và form Filament.
@@ -34,8 +53,16 @@ class TienLenSetting extends Model
             'points_second'     => 'sometimes|integer|min:0|max:100000',
             'points_third'      => 'sometimes|integer|min:0|max:100000',
             'points_last'       => 'sometimes|integer|min:0|max:100000',
-            'chop_bonus_points' => 'sometimes|integer|min:0|max:100000',
             'daily_points_cap'  => 'sometimes|integer|min:0|max:10000000',
+            // Đơn vị phạt (chặt / thối / cóng / tới trắng) và hệ số quy đổi sang điểm ví
+            'unit_two_black'      => 'sometimes|integer|min:0|max:1000',
+            'unit_two_red'        => 'sometimes|integer|min:0|max:1000',
+            'unit_four'           => 'sometimes|integer|min:0|max:1000',
+            'unit_pair_seq_3'     => 'sometimes|integer|min:0|max:1000',
+            'unit_pair_seq_extra' => 'sometimes|integer|min:0|max:1000',
+            'unit_cong'           => 'sometimes|integer|min:0|max:1000',
+            'unit_instant'        => 'sometimes|integer|min:0|max:1000',
+            'points_per_unit'     => 'sometimes|integer|min:0|max:100000',
             // Bộ bài cho khách chưa tự chọn (xem TienLenDeckService::DECKS)
             'default_card_deck' => 'sometimes|string|in:' . implode(',', \App\Services\TienLenDeckService::keys()),
         ];
@@ -45,6 +72,12 @@ class TienLenSetting extends Model
     {
         // refresh(): lấy giá trị mặc định từ DB cho dòng vừa tạo (server mới chưa có dòng nào), tránh thuộc tính null
         return static::query()->first() ?? static::create([])->refresh();
+    }
+
+    /** @return array<string, int> đơn vị phạt theo khoá Rules::DEFAULT_UNITS — chốt vào ván lúc chia bài */
+    public function penaltyUnits(): array
+    {
+        return array_map(fn (string $column) => (int) $this->{$column}, self::UNIT_COLUMNS);
     }
 
     // Điểm theo hạng: hạng 1 = nhất, hạng cuối = bét, bàn 4 người mới có "ba".

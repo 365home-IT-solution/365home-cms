@@ -143,6 +143,15 @@ return [
         'internal_key' => env('WS_INTERNAL_KEY', ''),
     ],
 
+    // Gọi thoại mini game: WebRTC + TURN tự dựng (coturn, xem deploy/coturn/turnserver.conf) — App\Services\GameVoiceService.
+    // urls / stun_urls: danh sách cách nhau dấu phẩy; secret = static-auth-secret của coturn; ttl = thời hạn mật khẩu TURN (giây).
+    'turn' => [
+        'urls'      => env('TURN_URLS', ''),
+        'stun_urls' => env('STUN_URLS', 'stun:stun.l.google.com:19302'),
+        'secret'    => env('TURN_SECRET', ''),
+        'ttl'       => (int) env('TURN_TTL', 21600),
+    ],
+
     // Binary ffmpeg dùng để chuyển mã (transcode) đoạn ghi hình camera H.265/HEVC sang H.264 khi
     // phát lại — trình duyệt desktop thường không giải mã được H.265 qua MSE. Mặc định 'ffmpeg' (dò
     // theo PATH hệ thống, đúng cho server thật sau khi `apt install ffmpeg`) — chỉ cần đổi

@@ -11,6 +11,7 @@ use App\Models\TienLenSetting;
 use App\Services\TienLenDeckService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -24,6 +25,7 @@ class ListTienLenMatches extends ListRecords
     protected function getHeaderActions(): array
     {
         $points = fn (string $name, string $label) => TextInput::make($name)->label($label)->numeric()->integer()->minValue(0)->maxValue(100000)->required();
+        $unit   = fn (string $name, string $label) => TextInput::make($name)->label($label)->numeric()->integer()->minValue(0)->maxValue(1000)->required();
 
         return [
             // Trang chơi thử /tien-len-tester — chỉ hiện khi đã bật trang thử (Quản lý API → Thử mini game)
@@ -61,11 +63,23 @@ class ListTienLenMatches extends ListRecords
                         $points('points_last', 'Điểm về bét'),
                     ]),
 
-                    Grid::make(2)->schema([
-                        $points('chop_bonus_points', 'Thưởng mỗi lần chặt'),
-                        TextInput::make('daily_points_cap')->label('Trần điểm / ngày')->helperText('0 = không giới hạn.')
-                            ->numeric()->integer()->minValue(0)->maxValue(10000000)->required(),
-                    ]),
+                    TextInput::make('daily_points_cap')->label('Trần điểm / ngày')->helperText('0 = không giới hạn.')
+                        ->numeric()->integer()->minValue(0)->maxValue(10000000)->required(),
+
+                    Section::make('Điểm phạt theo luật')
+                        ->description('Điểm ví mỗi ván = điểm theo hạng + (chặt được − bị chặt ± thối ± cóng ± tới trắng) × hệ số quy đổi, thấp nhất 0. Áp dụng cho ván chia bài sau khi lưu.')
+                        ->schema([
+                            Grid::make(4)->schema([
+                                $unit('unit_two_black', 'Heo đen'),
+                                $unit('unit_two_red', 'Heo đỏ'),
+                                $unit('unit_pair_seq_3', '3 đôi thông'),
+                                $unit('unit_pair_seq_extra', 'Mỗi đôi thông thêm'),
+                                $unit('unit_four', 'Tứ quý'),
+                                $unit('unit_cong', 'Cóng'),
+                                $unit('unit_instant', 'Tới trắng (mỗi người)'),
+                                $points('points_per_unit', 'Hệ số quy đổi')->helperText('1 đơn vị = ? điểm ví'),
+                            ]),
+                        ]),
 
                     Select::make('default_card_deck')->label('Bộ bài mặc định')
                         ->helperText('Áp dụng cho khách chưa tự chọn bộ bài trong app.')

@@ -21,7 +21,7 @@ use Illuminate\Http\Request;
 /**
  * Quản trị mini game Tiến lên (chỉ Super Admin) — cùng dữ liệu với Filament "Tiến lên — Ván chơi".
  *
- *  - GET|PUT /api/admin/games/tien-len/settings              bật/tắt, giây mỗi lượt, điểm theo hạng, thưởng chặt, trần điểm/ngày
+ *  - GET|PUT /api/admin/games/tien-len/settings              bật/tắt, giây mỗi lượt, điểm theo hạng, đơn vị phạt (unit_*) + points_per_unit, trần điểm/ngày
  *  - GET /api/admin/games/tien-len/matches?status=&customer_id=&search=&from=&to=&per_page=   danh sách ván
  *  - GET /api/admin/games/tien-len/matches/{id}               chi tiết ván: bài chia ban đầu của mọi ghế + nhật ký từng nước
  *  - GET /api/admin/games/tien-len/stats?from=&to=            số ván, tỉ lệ thắng của khách, điểm đã phát

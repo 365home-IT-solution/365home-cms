@@ -183,6 +183,37 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .big { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
 .mini { display: flex; flex-wrap: wrap; gap: 2px; }
 .mini img { width: 28px; height: 40px; border-radius: 3px; }
+/* Chat + sticker trong phòng */
+.side { display: flex; flex-direction: column; min-width: 0; }
+.side .log { max-height: 220px; }
+.chat-list { height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 2px; font-size: 13px; }
+.chat-empty { margin: auto; color: var(--muted); font-size: 12.5px; }
+.msg { align-self: flex-start; max-width: 85%; background: var(--code-bg); border-radius: 10px 10px 10px 2px; padding: 4px 10px 5px; display: flex; flex-direction: column; animation: fadeIn .2s ease; }
+.msg.mine { align-self: flex-end; background: var(--accent-soft); border-radius: 10px 10px 2px 10px; }
+.msg.stkmsg { background: transparent; padding: 0 2px; }
+.msg .who { font-size: 11.5px; font-weight: 700; }
+.msg .txt { white-space: pre-wrap; word-break: break-word; }
+.msg .stk { width: 80px; height: 80px; }
+.msg time { font-size: 10.5px; color: var(--muted); align-self: flex-end; }
+.chat-form { display: flex; gap: 6px; margin-top: 8px; }
+.chat-form input { flex: 1; }
+.stk-picker { border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; padding: 6px; }
+.stk-tabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.stk-tabs button { flex: none; display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 2px 10px 2px 4px; cursor: pointer; }
+.stk-tabs button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stk-tabs img { width: 22px; height: 22px; }
+.stk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 4px; max-height: 210px; overflow: auto; padding-top: 6px; }
+.stk-grid button { border: 0; background: none; padding: 2px; border-radius: 8px; cursor: pointer; }
+.stk-grid button:hover, .stk-grid button:focus-visible { background: var(--code-bg); }
+.stk-grid img { width: 100%; aspect-ratio: 1; display: block; }
+.voice-peers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.vp { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--code-bg); border: 1px solid var(--line); }
+.vp.talk { border-color: var(--good); box-shadow: 0 0 0 2px var(--good-soft); }
+button.b.live { background: var(--bad); border-color: var(--bad); color: #fff; }
+.chat-pop { position: fixed; transform: translate(-50%, -100%); z-index: 41; pointer-events: none; animation: chatPop .3s cubic-bezier(.2,1.4,.4,1); }
+.chat-pop img { width: 96px; height: 96px; display: block; filter: drop-shadow(0 4px 8px rgba(0,0,0,.35)); }
+.chat-pop span { display: block; max-width: 220px; background: #fff; color: #1f2933; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes chatPop { from { transform: translate(-50%, -100%) scale(.4); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 </style>
 </head>
@@ -191,6 +222,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   <h1>Tiến lên miền Nam · chơi thử</h1>
   <span id="hdrUser" class="chip hidden"></span>
   <span id="hdrPoints" class="chip ok hidden"></span>
+  <button id="btnMusic" class="b ghost sm hidden" type="button" aria-pressed="false">🎵 Nhạc nền</button>
   <button id="btnLogout" class="b ghost sm hidden" type="button">Đăng xuất</button>
 </header>
 
@@ -293,6 +325,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
         <span class="note" id="roomHint" style="margin:0"></span>
       </div>
     </div>
+    <div id="chatSlotRoom"></div>
   </section>
 
   <!-- Bàn chơi -->
@@ -320,12 +353,35 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
           </div>
         </div>
       </div>
-      <div class="card">
-        <h2>Diễn biến <span class="badge" id="modeBadge"></span></h2>
-        <div class="log" id="log"></div>
+      <div class="side">
+        <div class="card">
+          <h2>Diễn biến <span class="badge" id="modeBadge"></span></h2>
+          <div class="log" id="log"></div>
+        </div>
+        <div id="chatSlotGame"></div>
       </div>
     </div>
   </section>
+
+  <!-- Chat phòng: 1 khung, gắn vào phòng chờ hoặc cạnh bàn chơi (chỉ có ở phòng nhiều người) -->
+  <div class="card hidden" id="chatCard">
+    <h2><span>Chat phòng <span class="badge" id="chatNote"></span></span>
+      <span class="row" style="margin:0;gap:6px">
+        <button class="b ghost sm hidden" type="button" id="btnMic" aria-pressed="false">🎙 Mic bật</button>
+        <button class="b sm hidden" type="button" id="btnVoice">🎙 Vào thoại</button>
+      </span></h2>
+    <div class="voice-peers hidden" id="voicePeers" aria-live="polite"></div>
+    <div class="chat-list" id="chatList" aria-live="polite"></div>
+    <div class="stk-picker hidden" id="stkPicker">
+      <div class="stk-tabs" id="stkTabs"></div>
+      <div class="stk-grid" id="stkGrid"></div>
+    </div>
+    <form class="chat-form" id="chatForm" autocomplete="off">
+      <button class="b ghost" type="button" id="btnSticker" aria-expanded="false" title="Sticker">😊</button>
+      <input id="chatInput" placeholder="Nhắn cho cả phòng…" maxlength="200" aria-label="Tin nhắn">
+      <button class="b" type="submit" id="chatSend">Gửi</button>
+    </form>
+  </div>
 </main>
 
 <div id="fx" aria-hidden="true"></div>
@@ -367,6 +423,10 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     state: null, view: null, busy: false, selected: new Set(), hints: null, hintIdx: -1,
     bots: 3, maxPlayers: 4, pollTimer: null, lobbyTimer: null, tick: null, refresh: null, polling: false, epoch: 0,
   };
+  // Chat phòng + sticker, nhạc nền (xem phần "Chat + sticker" / "Nhạc nền" phía dưới)
+  const CHAT = { roomId: null, ids: new Set(), timer: null, loading: false, packs: null, pack: 0 };
+  const MUSIC = { loaded: false, url: null, audio: null, settings: null };
+  const VOICE = { mesh: null };
 
   // ---------- API ----------
   async function api(method, path, body) {
@@ -393,7 +453,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   function show(viewId) {
     for (const id of ['vLogin', 'vLobby', 'vRoom', 'vGame']) $(id).classList.toggle('hidden', id !== viewId);
     for (const id of ['hdrUser', 'btnLogout', 'hdrPoints']) $(id).classList.toggle('hidden', !S.me);
+    $('btnMusic').classList.toggle('hidden', !S.me || !MUSIC.loaded);
     if (viewId !== 'vLobby') { clearInterval(S.lobbyTimer); S.lobbyTimer = null; }
+    placeChat();
   }
 
   // ---------- Đăng nhập ----------
@@ -404,6 +466,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     if (!r.ok) { saveToken(null); S.me = null; show('vLogin'); return; }
     S.me = r.data?.user || r.data?.data || r.data;
     $('hdrUser').innerHTML = 'Khách <b>' + esc(S.me.fullname || S.me.phone || '') + '</b>';
+    loadMusic();
     const ov = await api('GET', '/games/tien-len');
     if (ov.ok && ov.data.data.current_room_id) return openRoom(ov.data.data.current_room_id);
     await loadLobby();
@@ -411,8 +474,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 
   function logout(expired) {
     if (S.token && !expired) fetch('/api/auth/logout', { method: 'POST', headers: { Accept: 'application/json', Authorization: 'Bearer ' + S.token } }).catch(() => {});
-    stopPoll(); stopTimer();
-    saveToken(null); S.me = null; S.state = null;
+    stopPoll(); stopTimer(); stopChat();
+    MUSIC.audio?.pause(); MUSIC.loaded = false; CHAT.packs = null;
+    saveToken(null); S.me = null; S.state = null; S.mode = null;
     show('vLogin');
   }
 
@@ -480,7 +544,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     const p = o.points;
     $('pointsGrid').innerHTML = [['Nhất', p.first], ['Nhì', p.second], ['Ba', p.third], ['Bét', p.last]]
       .map(([k, v]) => `<div><span class="muted">${k}</span><b>${v}</b></div>`).join('');
-    $('capNote').textContent = `Mỗi lần chặt +${p.chop_bonus} · Cóng / bỏ ván / rời bàn: 0 điểm · Hôm nay ${o.earned_today}`
+    const u = o.penalty_units || {};
+    $('capNote').textContent = `Điểm phạt × ${o.points_per_unit}: heo đen ${u.two_black}, heo đỏ ${u.two_red}, 3 đôi thông ${u.pair_seq_3} (+${u.pair_seq_extra}/đôi), tứ quý ${u.four}, cóng ${u.cong}, tới trắng ${u.instant}`
+      + ` · Cóng / bỏ ván / rời bàn: 0 điểm · Hôm nay ${o.earned_today}`
       + (o.daily_points_cap ? `/${o.daily_points_cap}` : '') + ` điểm · ${o.turn_seconds} giây mỗi lượt`;
 
     const rows = (hist.data?.data || []).slice(0, 10);
@@ -640,7 +706,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       if (s.empty) {
         return `<div class="seat-box empty"><span>Ghế ${s.seat + 1} trống</span>${r.is_host ? `<button class="b ghost sm" type="button" data-bot="1">+ Mời bot</button>` : '<span class="note">Đang chờ người vào…</span>'}</div>`;
       }
-      return `<div class="seat-box ${s.is_me ? 'me' : ''} ${s.is_ready ? 'ready' : ''}">
+      return `<div class="seat-box ${s.is_me ? 'me' : ''} ${s.is_ready ? 'ready' : ''}" data-seat="${s.seat}">
         ${avatarHtml(s.name, s.seat, s.is_bot, s.is_host)}
         <span class="nm">${esc(s.is_me ? s.name + ' (bạn)' : s.name)}</span>
         ${s.is_bot ? '' : ptsHtml(s, false)}
@@ -1096,16 +1162,14 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       ? `${nameOf(res.instant_win.seat)} tới trắng — ${res.instant_win.label}`
       : (res.my_rank_label ? `Bạn về ${res.my_rank_label.toLowerCase()}` : 'Kết thúc ván');
     $('resultSub').textContent = s.status === 'abandoned' ? 'Ván bị huỷ / bỏ — không có điểm thưởng.'
-      : `+${res.reward_points} điểm (${rw.rank_points ?? 0} theo hạng + ${rw.chop_bonus ?? 0} thưởng chặt)${rw.daily_cap_reached ? ' — đã chạm trần điểm hôm nay' : ''}`;
+      : `+${res.reward_points} điểm (${rw.rank_points ?? 0} theo hạng ${(rw.penalty_points ?? 0) >= 0 ? '+' : '−'} ${Math.abs(rw.penalty_points ?? 0)} điểm phạt)${rw.daily_cap_reached ? ' — đã chạm trần điểm hôm nay' : ''}`;
     $('resultBody').innerHTML = res.ranking.map((p) => `<tr><td>${p.rank === 1 ? '🏆 ' : ''}<b>${esc(p.seat === s.my_seat ? 'Bạn' : p.name)}</b>${p.has_left ? ' <span class="muted">(đã rời)</span>' : ''}</td>
       <td>${esc(p.rank_label)}${p.is_cong ? ' · cóng' : ''}</td><td>${p.score > 0 ? '+' : ''}${p.score}</td>
       <td>${p.reward_points === null ? '<span class="muted">bot</span>' : '+' + p.reward_points}</td>
       <td><div class="mini">${(res.hands[p.seat] || []).map((c) => `<img src="${img(c)}" alt="${esc(c.code)}">`).join('') || '—'}</div></td></tr>`).join('');
     const extra = [];
-    for (const c of res.chops) extra.push(`${nameOf(c.chopper)} chặt ${nameOf(c.victim)} (${c.units})`);
-    for (const p of res.penalties) {
-      const cards = p.cards.map((c) => c.code).join(' ');
-      extra.push(`${p.kind === 'cong' ? 'Cóng' : 'Thối'}: ${nameOf(p.seat)} đền ${nameOf(p.to)} ${p.units}${cards ? ` (${cards})` : ''}`);
+    for (const p of res.ranking) {
+      for (const l of p.penalty_lines || []) extra.push(`${p.seat === s.my_seat ? 'Bạn' : p.name}: ${l.label} ${l.units > 0 ? '+' : '−'}${Math.abs(l.units)}`);
     }
     $('resultExtra').textContent = extra.join(' · ');
     $('btnAgain').textContent = S.mode === 'room' ? 'Về phòng' : 'Ván mới';
@@ -1125,6 +1189,365 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     if (S.mode === 'room') { S.ackMatch = S.state.id; S.state = null; S.epoch++; pollRoom(true); return; }
     S.bots = S.state.player_count - 1;
     startBotMatch();
+  });
+
+  // ---------- Chat + sticker (chỉ phòng nhiều người) ----------
+  // Trang thử không có Reverb ⇒ hỏi GET /rooms/{id}/chat mỗi 1,5 giây, bỏ trùng theo id tin nhắn.
+  // Tin mới của người khác (và của mình) bật lên trên ghế người gửi vài giây.
+  function placeChat() {
+    const inRoom = S.mode === 'room' && S.roomId && (!$('vRoom').classList.contains('hidden') || !$('vGame').classList.contains('hidden'));
+    $('chatCard').classList.toggle('hidden', !inRoom);
+    if (!inRoom) { stopChat(); if (VOICE.mesh) stopVoice(); return; }
+    const slot = $('vGame').classList.contains('hidden') ? $('chatSlotRoom') : $('chatSlotGame');
+    if ($('chatCard').parentElement !== slot) slot.appendChild($('chatCard'));
+    if (CHAT.roomId !== S.roomId) startChat();
+  }
+
+  async function startChat() {
+    stopChat();
+    CHAT.roomId = S.roomId; CHAT.ids = new Set();
+    $('chatList').innerHTML = '<p class="chat-empty">Chưa có tin nhắn. Gửi lời chào hoặc sticker cho cả phòng.</p>';
+    if (!CHAT.packs) loadStickers();
+    await pollChat(true);
+    CHAT.timer = setInterval(() => pollChat(false), 1500);
+  }
+  function stopChat() { clearInterval(CHAT.timer); CHAT.timer = null; CHAT.roomId = null; }
+
+  async function pollChat(initial) {
+    if (!CHAT.roomId || CHAT.loading) return;
+    const roomId = CHAT.roomId;
+    CHAT.loading = true;
+    try {
+      const r = await api('GET', `/games/tien-len/rooms/${roomId}/chat`);
+      if (!r.ok || roomId !== CHAT.roomId) return;
+      const d = r.data.data;
+      $('chatInput').maxLength = d.max_length;
+      $('chatInput').disabled = !d.chat_enabled;
+      $('chatInput').placeholder = d.chat_enabled ? 'Nhắn cho cả phòng…' : 'Chat chữ đang tắt';
+      $('btnSticker').disabled = !d.sticker_enabled;
+      $('btnVoice').classList.toggle('hidden', !d.voice_enabled && !VOICE.mesh);
+      $('chatNote').textContent = !d.chat_enabled && !d.sticker_enabled ? 'Đang tắt' : !d.chat_enabled ? 'Chỉ sticker' : !d.sticker_enabled ? 'Chỉ chữ' : '';
+      $('chatNote').classList.toggle('hidden', !$('chatNote').textContent);
+      for (const m of d.messages) addMessage(m, !initial);
+    } catch (e) { /* lỗi mạng: lần hỏi sau thử lại */ } finally { CHAT.loading = false; }
+  }
+
+  function addMessage(m, fresh) {
+    if (CHAT.ids.has(m.id)) return;
+    CHAT.ids.add(m.id);
+    const list = $('chatList');
+    list.querySelector('.chat-empty')?.remove();
+    const seat = m.sender?.seat ?? 0;
+    const el = document.createElement('div');
+    el.className = 'msg' + (m.is_mine ? ' mine' : '') + (m.type === 'sticker' ? ' stkmsg' : '');
+    const body = m.type === 'sticker'
+      ? `<img class="stk" src="${esc(m.sticker?.url)}" alt="Sticker">`
+      : `<span class="txt">${esc(m.text)}</span>`;
+    const time = new Date(m.sent_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    el.innerHTML = `<span class="who" style="color:${COLORS[seat % COLORS.length]}">${esc(m.is_mine ? 'Bạn' : m.sender?.name)}</span>${body}<time>${time}</time>`;
+    list.appendChild(el);
+    while (list.children.length > 60) list.firstElementChild.remove();
+    list.scrollTop = list.scrollHeight;
+    if (fresh) popOnSeat(m);
+  }
+
+  // Sticker / tin nhắn bật lên trên ghế người gửi (bàn chơi hoặc phòng chờ)
+  function popOnSeat(m) {
+    const seat = m.sender?.seat;
+    let el = null;
+    if (!$('vGame').classList.contains('hidden') && S.state) {
+      el = seat === S.state.my_seat ? $('meLine') : seatEl(seat);
+    } else if (!$('vRoom').classList.contains('hidden')) {
+      el = document.querySelector(`#roomSeats [data-seat="${seat}"]`);
+    }
+    if (!el || el.classList.contains('hidden')) return;
+    const r = el.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.className = 'chat-pop';
+    pop.style.left = (r.left + r.width / 2) + 'px';
+    pop.style.top = Math.max(r.top + 8, 104) + 'px';
+    pop.innerHTML = m.type === 'sticker' ? `<img src="${esc(m.sticker?.url)}" alt="">` : `<span>${esc(m.text)}</span>`;
+    $('fx').appendChild(pop);
+    setTimeout(() => pop.remove(), m.type === 'sticker' ? 3200 : 4000);
+  }
+
+  async function sendChat(body) {
+    if (!S.roomId) return false;
+    const r = await api('POST', `/games/tien-len/rooms/${S.roomId}/chat`, body);
+    if (!r.ok) { toast(msgOf(r), true); return false; }
+    addMessage(r.data.data, true);
+    return true;
+  }
+
+  $('chatForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = $('chatInput').value.trim();
+    if (!text) return;
+    $('chatSend').disabled = true;
+    if (await sendChat({ type: 'text', text })) $('chatInput').value = '';
+    $('chatSend').disabled = false;
+    $('chatInput').focus();
+  });
+
+  async function loadStickers() {
+    const r = await api('GET', '/games/tien-len/stickers');
+    CHAT.packs = r.ok ? r.data.data.packs : [];
+    CHAT.pack = Math.min(CHAT.pack, Math.max(0, CHAT.packs.length - 1));
+    renderPicker();
+  }
+  function renderPicker() {
+    const packs = CHAT.packs || [];
+    $('stkTabs').innerHTML = packs.map((p, i) => `<button type="button" data-pack="${i}" aria-pressed="${i === CHAT.pack}">
+      ${p.icon_url ? `<img src="${esc(p.icon_url)}" alt="">` : ''}${esc(p.name)}</button>`).join('');
+    const p = packs[CHAT.pack];
+    $('stkGrid').innerHTML = p
+      ? p.stickers.map((s) => `<button type="button" data-sticker="${s.id}" aria-label="Gửi sticker"><img src="${esc(s.url)}" alt="" loading="lazy"></button>`).join('')
+      : '<p class="note" style="grid-column:1/-1">Chưa có bộ sticker nào đang bật cho Tiến lên (Filament → Mini game — Sticker).</p>';
+  }
+  $('btnSticker').addEventListener('click', () => {
+    const open = $('stkPicker').classList.toggle('hidden') === false;
+    $('btnSticker').setAttribute('aria-expanded', String(open));
+    if (open && !CHAT.packs) loadStickers();
+  });
+  $('stkTabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-pack]');
+    if (!b) return;
+    CHAT.pack = Number(b.dataset.pack);
+    renderPicker();
+  });
+  $('stkGrid').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-sticker]');
+    if (!b) return;
+    if (await sendChat({ type: 'sticker', sticker_id: Number(b.dataset.sticker) })) {
+      $('stkPicker').classList.add('hidden');
+      $('btnSticker').setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // ---------- Gọi thoại (WebRTC mesh + TURN, signaling qua WS server) ----------
+  // VOICE-CLIENT-START — đoạn này độc lập (không dùng biến của trang), app có thể làm theo đúng luồng:
+  //  1. POST /api/games/tien-len/rooms/{id}/voice ⇒ { signaling: { url, ticket }, ice_servers, peer_id, ... }
+  //  2. socket.io tới signaling.url, emit voice:join { ticket } (ack: peers đang có)
+  //  3. Người MỚI VÀO tạo offer tới từng người đã có; người cũ chờ offer rồi trả answer. ICE gửi qua voice:signal.
+  //  4. voice:peer-joined / voice:peer-left / voice:mute / voice:kicked. Mất kết nối WS ⇒ xin vé mới rồi vào lại.
+  class VoiceMesh {
+    constructor({ fetchJoin, connect, onChange, onEnd }) {
+      Object.assign(this, { fetchJoin, connect, onChange: onChange || (() => {}), onEnd: onEnd || (() => {}) });
+      this.peers = new Map(); this.muted = false; this.stopped = false; this.levels = {};
+    }
+
+    async start(micStream) {
+      this.stream = micStream;
+      this.info = await this.fetchJoin();
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.watchLevel('self', micStream);
+      const s = this.socket = this.connect(this.info.signaling.url);
+      s.on('connect', () => this.join());
+      s.on('voice:peer-joined', (p) => { this.peerOf(p.peer_id, p); this.onChange(); });
+      s.on('voice:peer-left', ({ peer_id }) => this.drop(peer_id));
+      s.on('voice:signal', ({ from, data }) => this.signal(from, data).catch((e) => console.warn('voice signal', e)));
+      s.on('voice:mute', ({ peer_id, muted }) => { const p = this.peers.get(peer_id); if (p) { p.muted = muted; this.onChange(); } });
+      s.on('voice:kicked', ({ reason }) => this.stop(reason));
+      this.levelTimer = setInterval(() => this.onChange(), 400);
+    }
+
+    async join() {
+      if (this.stopped) return;
+      if (this.joinedOnce) { try { this.info = await this.fetchJoin(); } catch (e) { return this.stop('denied'); } } // vé chỉ sống ~60 giây
+      this.joinedOnce = true;
+      const r = await new Promise((res) => this.socket.emit('voice:join', { ticket: this.info.signaling.ticket }, res));
+      if (!r || !r.ok) return this.stop(r?.error || 'join_failed');
+      for (const id of [...this.peers.keys()]) this.drop(id, true); // vào lại: dựng lại toàn bộ kết nối
+      for (const p of r.peers) this.offer(this.peerOf(p.peer_id, p));
+      if (this.muted) this.socket.emit('voice:mute', { muted: true });
+      this.onChange();
+    }
+
+    peerOf(id, info = {}) {
+      let p = this.peers.get(id);
+      if (p) { Object.assign(p, { name: info.name ?? p.name, meta: info.meta ?? p.meta, muted: info.muted ?? p.muted }); return p; }
+      const pc = new RTCPeerConnection({ iceServers: this.info.ice_servers });
+      p = { id, name: info.name || id, meta: info.meta || {}, muted: !!info.muted, pc, pending: [], audio: new Audio(), localMute: false };
+      p.audio.autoplay = true;
+      this.stream.getAudioTracks().forEach((t) => pc.addTrack(t, this.stream));
+      pc.onicecandidate = (e) => e.candidate && this.socket.emit('voice:signal', { to: id, data: { candidate: e.candidate.toJSON() } });
+      pc.ontrack = (e) => { p.audio.srcObject = e.streams[0]; p.audio.play().catch(() => {}); this.watchLevel(id, e.streams[0]); };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed') pc.restartIce?.();
+        this.onChange();
+      };
+      this.peers.set(id, p);
+      return p;
+    }
+
+    async offer(p) {
+      const o = await p.pc.createOffer();
+      await p.pc.setLocalDescription(o);
+      this.socket.emit('voice:signal', { to: p.id, data: { type: o.type, sdp: o.sdp } });
+    }
+
+    async signal(from, data) {
+      const p = this.peerOf(from);
+      if (data.type === 'offer') {
+        await p.pc.setRemoteDescription(data);
+        const a = await p.pc.createAnswer();
+        await p.pc.setLocalDescription(a);
+        this.socket.emit('voice:signal', { to: from, data: { type: a.type, sdp: a.sdp } });
+      } else if (data.type === 'answer') {
+        await p.pc.setRemoteDescription(data);
+      } else if (data.candidate) {
+        if (!p.pc.remoteDescription) { p.pending.push(data.candidate); return; }
+        await p.pc.addIceCandidate(data.candidate);
+      }
+      if (p.pc.remoteDescription && p.pending.length) {
+        for (const c of p.pending.splice(0)) await p.pc.addIceCandidate(c).catch(() => {});
+      }
+    }
+
+    drop(id, silent) {
+      const p = this.peers.get(id);
+      if (!p) return;
+      p.pc.close(); p.audio.srcObject = null;
+      this.peers.delete(id); delete this.levels[id];
+      if (!silent) this.onChange();
+    }
+
+    // Đo âm lượng (0–1) để hiện ai đang nói
+    watchLevel(id, stream) {
+      try {
+        const an = this.ctx.createAnalyser();
+        an.fftSize = 512;
+        this.ctx.createMediaStreamSource(stream).connect(an);
+        const buf = new Uint8Array(an.fftSize);
+        this.levels[id] = () => { an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); return m / 128; };
+      } catch (e) { /* trình duyệt không hỗ trợ ⇒ bỏ chỉ báo đang nói */ }
+    }
+    level(id) { return this.levels[id]?.() || 0; }
+
+    setMuted(m) {
+      this.muted = m;
+      this.stream.getAudioTracks().forEach((t) => { t.enabled = !m; });
+      this.socket?.emit('voice:mute', { muted: m });
+      this.onChange();
+    }
+
+    // Tắt tiếng 1 người chỉ ở máy mình (người đó không biết)
+    setPeerMuted(id, m) { const p = this.peers.get(id); if (p) { p.localMute = m; p.audio.muted = m; this.onChange(); } }
+
+    stop(reason = 'left') {
+      if (this.stopped) return;
+      this.stopped = true;
+      clearInterval(this.levelTimer);
+      for (const id of [...this.peers.keys()]) this.drop(id, true);
+      this.stream?.getTracks().forEach((t) => t.stop());
+      if (this.socket) { if (reason === 'left') this.socket.emit('voice:leave'); this.socket.disconnect(); }
+      this.ctx?.close().catch(() => {});
+      this.onEnd(reason);
+    }
+  }
+  // VOICE-CLIENT-END
+
+  const VOICE_REASONS = {
+    left: 'Đã rời phòng thoại.', kicked: 'Bạn đã bị đưa ra khỏi phòng thoại.', removed: 'Bạn đã bị mời ra khỏi phòng.', closed: 'Phòng thoại đã đóng.',
+    finished: 'Ván đã kết thúc.', replaced: 'Bạn đã vào phòng thoại ở thiết bị khác.', room_full: 'Phòng thoại đã đủ người.',
+    invalid_ticket: 'Vé vào phòng thoại không hợp lệ, thử lại.', denied: 'Bạn không còn quyền vào phòng thoại.', join_failed: 'Không vào được phòng thoại.',
+  };
+
+  function loadScript(src) {
+    return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Không tải được ' + src)); document.head.appendChild(s); });
+  }
+
+  async function startVoice() {
+    if (VOICE.mesh || !S.roomId) return;
+    $('btnVoice').disabled = true;
+    try {
+      const roomId = S.roomId;
+      const fetchJoin = async () => {
+        const r = await api('POST', `/games/tien-len/rooms/${roomId}/voice`);
+        if (!r.ok) throw new Error(msgOf(r));
+        return r.data.data;
+      };
+      const first = await fetchJoin();
+      if (!window.io) await loadScript(first.signaling.url + '/socket.io/socket.io.js'); // client socket.io đúng phiên bản của WS server
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      let firstUsed = false;
+      VOICE.mesh = new VoiceMesh({
+        fetchJoin: () => (firstUsed ? fetchJoin() : (firstUsed = true, Promise.resolve(first))),
+        connect: (url) => window.io(url, { transports: ['websocket'], forceNew: true }),
+        onChange: renderVoice,
+        onEnd: (reason) => { VOICE.mesh = null; renderVoice(); if (reason !== 'left') toast(VOICE_REASONS[reason] || 'Đã thoát phòng thoại.', reason !== 'finished'); },
+      });
+      await VOICE.mesh.start(mic);
+    } catch (e) {
+      VOICE.mesh?.stop('join_failed'); VOICE.mesh = null;
+      toast(e.name === 'NotAllowedError' ? 'Cần cho phép dùng micro để gọi thoại.' : e.message, true);
+    }
+    $('btnVoice').disabled = false;
+    renderVoice();
+  }
+  function stopVoice() { VOICE.mesh?.stop('left'); VOICE.mesh = null; renderVoice(); }
+
+  function renderVoice() {
+    const m = VOICE.mesh;
+    $('btnVoice').textContent = m ? '📞 Rời thoại' : '🎙 Vào thoại';
+    $('btnVoice').classList.toggle('live', !!m);
+    $('btnMic').classList.toggle('hidden', !m);
+    $('btnMic').textContent = m?.muted ? '🔇 Mic tắt' : '🎙 Mic bật';
+    $('btnMic').setAttribute('aria-pressed', String(!!m?.muted));
+    $('voicePeers').classList.toggle('hidden', !m);
+    if (!m) { $('voicePeers').innerHTML = ''; return; }
+    const row = (id, name, muted, me, state, localMute) => {
+      const talking = !muted && m.level(id) > .08;
+      return `<span class="vp ${talking ? 'talk' : ''}">${talking ? '🔊' : muted ? '🔇' : '🎙'} ${esc(name)}${me ? ' (bạn)' : ''}
+        ${state && state !== 'connected' ? `<span class="muted">· ${esc(state === 'new' || state === 'connecting' ? 'đang nối' : state === 'failed' ? 'lỗi mạng' : state)}</span>` : ''}
+        ${me ? '' : `<button type="button" class="b ghost sm" data-vmute="${esc(id)}">${localMute ? 'Bật tiếng' : 'Tắt tiếng'}</button>`}</span>`;
+    };
+    $('voicePeers').innerHTML = row('self', m.info?.name || 'Bạn', m.muted, true)
+      + [...m.peers.values()].map((p) => row(p.id, p.name, p.muted, false, p.pc.connectionState, p.localMute)).join('');
+  }
+
+  $('btnVoice').addEventListener('click', () => (VOICE.mesh ? stopVoice() : startVoice()));
+  $('btnMic').addEventListener('click', () => VOICE.mesh?.setMuted(!VOICE.mesh.muted));
+  $('voicePeers').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-vmute]');
+    const p = b && VOICE.mesh?.peers.get(b.dataset.vmute);
+    if (p) VOICE.mesh.setPeerMuted(p.id, !p.localMute);
+  });
+
+  // ---------- Nhạc nền (bộ âm thanh khách đang chọn) ----------
+  // Trình duyệt chặn tự phát nhạc ⇒ khách bấm nút mới phát. Bật/tắt lưu vào tuỳ chọn của khách (PUT /sound-settings).
+  async function loadMusic() {
+    const r = await api('GET', '/games/tien-len/sound-packs');
+    if (!r.ok) return;
+    const d = r.data.data;
+    MUSIC.settings = d.settings;
+    const url = d.packs.find((p) => p.key === d.selected)?.sounds?.bgm || null;
+    if (url !== MUSIC.url) { MUSIC.audio?.pause(); MUSIC.audio = null; MUSIC.url = url; }
+    MUSIC.loaded = true;
+    $('btnMusic').classList.toggle('hidden', !S.me);
+    renderMusic();
+  }
+  function renderMusic() {
+    const b = $('btnMusic');
+    const playing = !!MUSIC.audio && !MUSIC.audio.paused;
+    b.disabled = !MUSIC.url;
+    b.setAttribute('aria-pressed', String(playing));
+    b.textContent = !MUSIC.url ? '🎵 Chưa có nhạc nền' : playing ? '🎵 Nhạc: đang phát' : MUSIC.settings?.music_enabled ? '🎵 Bấm để phát nhạc' : '🔇 Nhạc: tắt';
+    b.title = MUSIC.url ? '' : 'Thêm nhạc nền ở Filament → Mini game — Âm thanh';
+  }
+  $('btnMusic').addEventListener('click', async () => {
+    if (!MUSIC.url) return;
+    const playing = !!MUSIC.audio && !MUSIC.audio.paused;
+    if (playing) {
+      MUSIC.audio.pause();
+    } else {
+      MUSIC.audio ??= Object.assign(new Audio(MUSIC.url), { loop: true });
+      MUSIC.audio.volume = Math.min(1, Math.max(0, (MUSIC.settings?.music_volume ?? 70) / 100));
+      try { await MUSIC.audio.play(); } catch (e) { toast('Không phát được nhạc nền: ' + e.message, true); }
+    }
+    renderMusic();
+    const r = await api('PUT', '/games/tien-len/sound-settings', { music_enabled: !playing });
+    if (r.ok) { MUSIC.settings = r.data.data; renderMusic(); }
   });
 
   // ---------- Khởi động ----------

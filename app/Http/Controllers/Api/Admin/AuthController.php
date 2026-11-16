@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Modules\Category\Entities\Category;
+use Spatie\Permission\Models\Permission;
 
 class AuthController extends Controller
 {
@@ -73,6 +74,10 @@ class AuthController extends Controller
             'fullname'       => $user->fullname,
             'email'          => $user->email,
             'roles'          => $user->roles()->pluck('name'),
+            // Quyền hiệu lực (gồm quyền trực tiếp và quyền qua vai trò) để app ẩn/hiện chức năng.
+            'permissions'    => $user->isSuperAdmin()
+                ? Permission::query()->where('guard_name', 'web')->orderBy('name')->pluck('name')
+                : $user->getAllPermissions()->pluck('name')->sort()->values(),
             // partner_id THẬT của tài khoản (null với super_admin) — không lẫn với đối tác super_admin
             // đang chọn qua header X-Partner-Id, xem "active_partner" bên dưới.
             'partner_id'     => $user->getRawOriginal('partner_id'),

@@ -59,14 +59,17 @@ final class Game
     /** @var array{seat: int, kind: string}|null */
     public ?array $instantWin = null;
     public ?array $result = null;
+    /** @var array<string, int> đơn vị phạt chốt lúc chia bài (xem Rules::DEFAULT_UNITS) */
+    public array $units = Rules::DEFAULT_UNITS;
     /** @var array<int, array> sự kiện phát sinh từ lần flush gần nhất */
     public array $log = [];
 
     /**
      * @param int|null $leader người về nhất ván trước (cùng bàn) — null = ván đầu
      * @param int[]|null $deck bộ bài đã trộn sẵn (test); null = trộn ngẫu nhiên an toàn
+     * @param array<string, int>|null $units đơn vị phạt (TienLenSetting::penaltyUnits()); null = mặc định
      */
-    public static function deal(int $players, ?int $leader = null, ?array $deck = null): self
+    public static function deal(int $players, ?int $leader = null, ?array $deck = null, ?array $units = null): self
     {
         if ($players < 2 || $players > 4) {
             throw new GameException('Tiến lên chỉ chơi từ 2 đến 4 người.');
@@ -76,6 +79,7 @@ final class Game
 
         $game          = new self();
         $game->players = $players;
+        $game->units   = Rules::units($units);
 
         for ($s = 0; $s < $players; $s++) {
             $hand = array_slice($deck, $s * 13, 13);
@@ -218,8 +222,12 @@ final class Game
 
         $chop = $last !== null && Rules::isChop($last, $combo);
         if ($chop) {
-            $this->chainValue += Rules::chopValue($last);
-            $this->chopPending = ['chopper' => $seat, 'victim' => $this->lastPlay['seat'], 'units' => $this->chainValue];
+            $this->chainValue += Rules::chopValue($last, $this->units);
+            $this->chopPending = [
+                'chopper' => $seat, 'victim' => $this->lastPlay['seat'], 'units' => $this->chainValue,
+                // Bộ bị chặt / bộ dùng để chặt (để hiện "Chặt đôi heo bằng tứ quý"); chained = chặt chồng
+                'chopped' => Rules::penaltyLabel($last), 'with' => Rules::penaltyLabel($combo), 'chained' => $this->chainValue > Rules::chopValue($last, $this->units),
+            ];
         } else {
             $this->chainValue  = 0;
             $this->chopPending = null;
@@ -234,7 +242,7 @@ final class Game
 
         $this->log[] = [
             'type' => 'play', 'seat' => $seat, 'cards' => $combo->cards, 'combo' => $combo->type, 'length' => $combo->length,
-            'chop' => $chop, 'out_of_turn' => $outOfTurn, 'auto' => $auto, 'left' => count($this->hands[$seat]),
+            'chop' => $chop, 'chop_units' => $chop ? $this->chainValue : 0, 'out_of_turn' => $outOfTurn, 'auto' => $auto, 'left' => count($this->hands[$seat]),
         ];
 
         if ($this->hands[$seat] === []) {
@@ -340,6 +348,7 @@ final class Game
             'instant_win'   => $this->instantWin,
             'result'        => $this->result,
             'free_chop_seats' => $this->freeChopSeats,
+            'units'         => $this->units,
         ];
     }
 
@@ -366,6 +375,8 @@ final class Game
         $g->instantWin   = $a['instant_win'];
         $g->result       = $a['result'];
         $g->freeChopSeats = array_map('intval', $a['free_chop_seats'] ?? []);
+        // Ván tạo trước khi có cài đặt đơn vị phạt ⇒ đơn vị mặc định
+        $g->units         = Rules::units($a['units'] ?? null);
 
         return $g;
     }
@@ -404,10 +415,11 @@ final class Game
         $scores = [];
         foreach (range(0, $this->players - 1) as $s) {
             $ranks[$s]  = $s === $best['seat'] ? 1 : $this->players;
-            $scores[$s] = $s === $best['seat'] ? ($this->players - 1) * Rules::UNIT_INSTANT : -Rules::UNIT_INSTANT;
+            $scores[$s] = $s === $best['seat'] ? ($this->players - 1) * $this->units['instant'] : -$this->units['instant'];
         }
 
-        $this->result = ['order' => [$best['seat']], 'ranks' => $ranks, 'scores' => $scores, 'chops' => [], 'penalties' => [], 'forfeit' => null];
+        // Tới trắng: toàn bộ điểm ván là điểm phạt (không có phần hạng)
+        $this->result = ['order' => [$best['seat']], 'ranks' => $ranks, 'scores' => $scores, 'penalty_scores' => $scores, 'chops' => [], 'penalties' => [], 'forfeit' => null];
         $this->log[]  = ['type' => 'game_end', 'ranks' => $ranks, 'scores' => $scores];
     }
 
@@ -515,6 +527,7 @@ final class Game
         foreach ($ranks as $s => $r) {
             $scores[$s] = $base[$r - 1];
         }
+        $rankScores = $scores;
 
         foreach ($this->chops as $c) {
             $scores[$c['chopper']] += $c['units'];
@@ -527,7 +540,7 @@ final class Game
         // Thối: người bét còn cầm bài trả người về ngay trên mình. Có người cóng thì người cóng mới là bét — người còn bài không bị thối.
         if ($losers === [] && count($order) >= 2) {
             $loser = $order[count($order) - 1];
-            $thoi  = Rules::leftoverPenalty($this->hands[$loser]);
+            $thoi  = Rules::leftoverPenalty($this->hands[$loser], $this->units);
             if ($thoi['units'] > 0) {
                 $payee = $order[count($order) - 2];
                 $scores[$loser] -= $thoi['units'];
@@ -538,8 +551,8 @@ final class Game
 
         // Cóng: đền người về nhất phần cóng + thối toàn bộ hàng đang giữ
         foreach ($this->cong as $s) {
-            $thoi  = Rules::leftoverPenalty($this->hands[$s]);
-            $units = Rules::UNIT_CONG + $thoi['units'];
+            $thoi  = Rules::leftoverPenalty($this->hands[$s], $this->units);
+            $units = $this->units['cong'] + $thoi['units'];
             if ($winner !== null) {
                 $scores[$s]      -= $units;
                 $scores[$winner] += $units;
@@ -547,7 +560,13 @@ final class Game
             $penalties[] = ['kind' => 'cong', 'seat' => $s, 'to' => $winner, 'units' => $units, 'items' => $thoi['items']];
         }
 
-        $this->result = ['order' => $order, 'ranks' => $ranks, 'scores' => $scores, 'chops' => $this->chops, 'penalties' => $penalties, 'forfeit' => $forfeiter];
+        // penalty_scores: phần điểm ván do chặt / thối / cóng (không gồm điểm hạng) — dùng tính điểm ví (TienLenService::finish)
+        $penaltyScores = [];
+        foreach ($scores as $s => $v) {
+            $penaltyScores[$s] = $v - $rankScores[$s];
+        }
+
+        $this->result = ['order' => $order, 'ranks' => $ranks, 'scores' => $scores, 'penalty_scores' => $penaltyScores, 'chops' => $this->chops, 'penalties' => $penalties, 'forfeit' => $forfeiter];
         $this->log[]  = ['type' => 'game_end', 'ranks' => $ranks, 'scores' => $scores];
     }
 
