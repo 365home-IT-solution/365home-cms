@@ -279,12 +279,17 @@ class SearchController extends Controller
     // trả về PHÒNG (khách tìm theo mã phòng/tên toà nhà/địa chỉ đều ra phòng trống) — muốn card toà
     // nhà thì gửi thêm ?view=branches.
     //
-    // ?ver=2 (màn Tìm kiếm mới của app) → LUÔN trả danh sách PHÒNG kể cả khi có "q", lọc 1 ngày bằng ?date=YYYY-MM-DD,
-    // ?guests=N, trộn phòng theo giờ + theo ngày (App\Services\RoomSearchRoomsService). Không gửi ver → hành vi cũ ở
-    // dưới, giữ nguyên cho app đang chạy.
+    // ?ver=1.1 trở lên (màn Tìm kiếm mới của app) → LUÔN trả danh sách PHÒNG kể cả khi có "q", lọc 1 ngày bằng
+    // ?date=YYYY-MM-DD, ?guests=N, trộn phòng theo giờ + theo ngày (App\Services\RoomSearchRoomsService). Không gửi ver,
+    // hoặc ver=1 / ver không hợp lệ → hành vi cũ ở dưới, giữ nguyên cho app đang chạy. ver so sánh theo số phiên bản
+    // (version_compare) nên sau này thêm 1.2, 1.3… cùng URL; hiện 1.1 trở lên dùng chung một bản.
+    private const ROOMS_SEARCH_MIN_VERSION = '1.1';
+
     public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
-        if ((int) $request->query('ver') >= 2) {
+        $ver = (string) $request->query('ver', '1');
+
+        if (preg_match('/^\d+(\.\d+){0,2}$/', $ver) && version_compare($ver, self::ROOMS_SEARCH_MIN_VERSION, '>=')) {
             return response()->json(app(RoomSearchRoomsService::class)->searchRooms($request->all(), auth('sanctum')->user()));
         }
 

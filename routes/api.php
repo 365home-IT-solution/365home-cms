@@ -244,7 +244,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | Search
     | GET /api/v1/search/suggestions → Gợi ý điểm đến (màn nhập liệu)
     | GET /api/v1/search             → Kết quả tìm kiếm + marker bản đồ
-    |                                     (?ver=2 → bản mới: luôn trả PHÒNG, lọc ?date= / ?guests=, xem RoomSearchRoomsService)
+    |                                     (?ver=1.1 → bản mới: luôn trả PHÒNG, lọc ?date= / ?guests=, xem RoomSearchRoomsService)
     |                                     (?tab={id MiniHouse} hoặc ?type=mini_house|minihouse →
     |                                      tìm phòng MiniHouse còn trống, xem MinihouseRoomController)
     | GET /api/v1/search/locations   → Gợi ý khi gõ ô "Địa điểm": CHI NHÁNH + TỈNH/THÀNH + PHƯỜNG/XÃ + ĐỊA CHỈ (?q= tối thiểu 2 ký tự,
