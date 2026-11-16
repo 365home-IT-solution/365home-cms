@@ -641,7 +641,7 @@ class RoomSearchService
     // Tab MiniHouse: phòng MiniHouse CÒN TRỐNG (MinihouseRoomSearchService::whereVacantRoom()) —
     // phải bỏ global scope 'exclude_minihouse' của Product. Room (MiniHouse) xoá mềm trên cùng
     // bảng products nên tự lọc deleted_at (Product không dùng SoftDeletes).
-    private function baseQuery(bool $minihouse): Builder
+    protected function baseQuery(bool $minihouse): Builder
     {
         if (! $minihouse) {
             return Product::where('is_activated', true)

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\ResolvesProvince;
 use App\Services\MinihouseRoomSearchService;
+use App\Services\RoomSearchRoomsService;
 use App\Services\RoomSearchService;
 use App\Services\SearchLocationService;
 use Illuminate\Http\JsonResponse;
@@ -293,6 +294,15 @@ class SearchController extends Controller
             : $searchService->search($request->all(), auth('sanctum')->user());
 
         return response()->json($result);
+    }
+
+    // ─── GET /v1/search/rooms ────────────────────────────────────────────────
+    // Bản mới cho màn Tìm kiếm mới của app: LUÔN trả danh sách PHÒNG (kể cả khi có "q"), lọc 1 ngày bằng
+    // ?date=YYYY-MM-DD, ?guests=N, trộn phòng theo giờ + theo ngày. Tách khỏi index() để không ảnh hưởng app cũ —
+    // xem App\Services\RoomSearchRoomsService.
+    public function rooms(Request $request, RoomSearchRoomsService $searchService): JsonResponse
+    {
+        return response()->json($searchService->searchRooms($request->all(), auth('sanctum')->user()));
     }
 
     // ─── GET /v1/search/locations ────────────────────────────────────────────
