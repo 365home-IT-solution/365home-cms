@@ -10,6 +10,7 @@ use App\Models\GameChatSetting;
 use App\Models\TienLenRoom;
 use App\Models\TienLenRoomSeat;
 use App\Support\MiniGameKey;
+use App\Support\VoiceConfig;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -52,7 +53,7 @@ class GameVoiceService
 
     public static function turnConfigured(): bool
     {
-        return self::turnUrls() !== [] && (string) config('services.turn.secret') !== '';
+        return VoiceConfig::turnUrls() !== [] && VoiceConfig::turnSecret() !== '';
     }
 
     public static function availableFor(string $game): bool
@@ -63,18 +64,6 @@ class GameVoiceService
     public static function signalingUrl(): string
     {
         return rtrim((string) config('services.websocket.public_url'), '/');
-    }
-
-    /** @return string[] */
-    private static function turnUrls(): array
-    {
-        return self::list((string) config('services.turn.urls'));
-    }
-
-    /** @return string[] */
-    private static function list(string $csv): array
-    {
-        return array_values(array_filter(array_map('trim', explode(',', $csv))));
     }
 
     // =========================================================
@@ -150,22 +139,22 @@ class GameVoiceService
         ];
     }
 
-    /** STUN + TURN (mật khẩu có hạn). Định dạng đúng RTCIceServer để app đưa thẳng vào RTCPeerConnection. */
+    /** STUN + TURN (mật khẩu có hạn). Cấu hình lấy ở CMS, trống ⇒ .env (App\Support\VoiceConfig). Định dạng đúng RTCIceServer. */
     public static function iceServers(string $label): array
     {
         $servers = [];
-        $stun    = self::list((string) config('services.turn.stun_urls'));
+        $stun    = VoiceConfig::stunUrls();
         if ($stun !== []) {
             $servers[] = ['urls' => $stun];
         }
 
         if (self::turnConfigured()) {
-            $expires    = time() + max(300, (int) config('services.turn.ttl', 21600));
+            $expires    = time() + VoiceConfig::turnTtl();
             $username   = $expires . ':' . preg_replace('/[^A-Za-z0-9_\-]/', '_', $label);
             $servers[] = [
-                'urls'       => self::turnUrls(),
+                'urls'       => VoiceConfig::turnUrls(),
                 'username'   => $username,
-                'credential' => base64_encode(hash_hmac('sha1', $username, (string) config('services.turn.secret'), true)),
+                'credential' => base64_encode(hash_hmac('sha1', $username, VoiceConfig::turnSecret(), true)),
             ];
         }
 

@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Admin\ScratchCardAdminController;
 use App\Http\Controllers\Api\Admin\TienLenAdminController;
 use App\Http\Controllers\Api\Admin\TienLenCardDeckAdminController;
 use App\Http\Controllers\Api\Admin\GameChatSettingAdminController;
+use App\Http\Controllers\Api\Admin\GameVoiceSettingAdminController;
 use App\Http\Controllers\Api\Admin\GameSoundPackAdminController;
 use App\Http\Controllers\Api\Admin\GameStickerAdminController;
 use App\Http\Controllers\Api\Admin\GamePointAdminController;
@@ -1245,6 +1246,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games/tien-len')
 | GET|POST .../sound-packs?game= · GET .../sound-packs/events · GET|POST|PUT|DELETE .../sound-packs/{id} · POST .../sound-packs/{id}/default
 | GET|POST .../sticker-packs?game= · GET|POST|PUT|DELETE .../sticker-packs/{id} · PUT .../{id}/stickers/order · DELETE .../{id}/stickers/{sid}
 | GET .../chat-settings · PUT .../chat-settings/{game}
+| GET|PUT .../voice-settings (máy chủ TURN / STUN cho gọi thoại, ưu tiên hơn .env)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games')->name('api.admin.games.')->group(function () {
@@ -1266,6 +1268,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/games')->name('a
 
     Route::get('chat-settings', [GameChatSettingAdminController::class, 'index'])->name('chat-settings.index');
     Route::match(['put', 'patch'], 'chat-settings/{game}', [GameChatSettingAdminController::class, 'update'])->name('chat-settings.update');
+
+    Route::get('voice-settings', [GameVoiceSettingAdminController::class, 'show'])->name('voice-settings.show');
+    Route::match(['put', 'patch'], 'voice-settings', [GameVoiceSettingAdminController::class, 'update'])->name('voice-settings.update');
 });
 
 /*
