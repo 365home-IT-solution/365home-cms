@@ -514,6 +514,12 @@ private function buildTelegramMessage(Order $order, string $status): string
                 return response()->json($settlementResponse, 200);
             }
 
+            // Tiền thuê xe (mã đơn dải 5...) về tài khoản PayOS chung — cùng lý do đặt sau bước xác thực chữ ký.
+            $vehicleResponse = app(\Modules\VehicleRental\App\Services\VehiclePayOsService::class)->handleWebhook($webhookData);
+            if ($vehicleResponse !== null) {
+                return response()->json($vehicleResponse, 200);
+            }
+
             if (!$orderCode) {
                 Log::error('PayOS Webhook: No orderCode provided', ['data' => $webhookData]);
                 return response()->json(['error' => 'No orderCode provided'], 400);

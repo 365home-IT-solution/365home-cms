@@ -81,6 +81,39 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(1)
             ->appendOutputTo(storage_path('logs/expire-orders.log'));
 
+        // Thuê xe: nhả xe khi đơn chưa thanh toán hết hạn giữ chỗ.
+        $schedule->command('vehicle-rental:expire-pending')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(1)
+            ->appendOutputTo(storage_path('logs/vehicle-rental-expire.log'));
+
+        // GPS Motrak: scheduler chạy mỗi phút, lệnh tự bỏ qua khi chưa bật/chưa có Token hoặc chưa tới chu kỳ cấu hình ở CMS.
+        $schedule->command('motrak:sync --scheduled')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(2)
+            ->appendOutputTo(storage_path('logs/motrak-sync.log'));
+
+        $schedule->command('motrak:prune')
+            ->dailyAt('03:30')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->appendOutputTo(storage_path('logs/motrak-sync.log'));
+
+        // Thuê xe + GPS: cảnh báo ra khỏi khu vực, vượt tốc độ, mất tín hiệu khi đang thuê, xe chạy khi không có đơn (dựa trên dữ liệu đã lưu).
+        $schedule->command('vehicle-rental:gps-check')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(5)
+            ->appendOutputTo(storage_path('logs/vehicle-rental-gps.log'));
+
+        // Thuê xe: nhắc nhận xe / nhắc trả xe / báo quá hạn trả (FCM cho khách + chuông cho nhân viên).
+        $schedule->command('vehicle-rental:send-reminders')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(5)
+            ->appendOutputTo(storage_path('logs/vehicle-rental-reminders.log'));
+
         // Đơn tiền mặt tại quầy chưa thu: nhắc đối tác / huỷ khi khách không đến / tự xác nhận khi khách đã ở xong.
         $schedule->command('orders:cash-sweep')
             ->everyTenMinutes()

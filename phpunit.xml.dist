@@ -25,6 +25,7 @@
         <env name="PRICE_BOARDS_CMS_TOGGLE" value="false"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="VEHICLE_RENTAL_NOTIFICATIONS" value="false"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>

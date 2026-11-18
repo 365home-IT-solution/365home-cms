@@ -16,6 +16,7 @@ return [
     // hàng 1 là 4 cột dài, hàng 2 là 4 cột ngắn, để dropdown không cao quá màn hình.
     'Quản lý' => [
         'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Loại hình phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố', 'Kiểm tra dọn phòng', 'Dữ liệu mẫu'],
+        'Thuê xe & GPS' => ['Lịch xe', 'Đội xe', 'Đơn thuê xe', 'Duyệt giấy tờ', 'Cảnh báo GPS', 'Bản đồ GPS', 'Thiết bị GPS', 'Nhật ký đồng bộ GPS', 'Cài đặt thuê xe', 'Cấu hình Motrak'],
         'Đối tác & Báo cáo' => ['Đối tác', 'Duyệt thay đổi', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Thống kê hoa hồng', 'Đơn bị giữ khoản bù', 'Yêu cầu hoàn tiền', 'Tài khoản ngân hàng', 'Thống kê lương'],
         'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng', 'Đánh giá phòng', 'Khai báo lưu trú', 'Chặn SĐT đặt phòng'],
         'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],

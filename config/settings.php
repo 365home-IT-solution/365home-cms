@@ -14,6 +14,8 @@ return [
         \App\Settings\ManualPaymentSettings::class,
         \App\Settings\CashPaymentSettings::class,
         \App\Settings\VoucherScopeSettings::class,
+        \Modules\Motrak\App\Settings\MotrakSettings::class,
+        \Modules\VehicleRental\App\Settings\VehicleRentalSettings::class,
     ],
 
     /*

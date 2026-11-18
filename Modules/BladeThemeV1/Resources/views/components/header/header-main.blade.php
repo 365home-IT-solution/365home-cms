@@ -187,6 +187,8 @@
                                     'navSize' => $navSize,
                                 ], key('near-logo-'.$bookingMenuItem->id))
                             @endif
+
+                            <x-bladethemev1::header.actions.vehicle-rental-button />
                         </ul>
                     @endif
 

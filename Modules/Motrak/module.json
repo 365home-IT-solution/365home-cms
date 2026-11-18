@@ -1,0 +1,11 @@
+{
+    "name": "Motrak",
+    "alias": "motrak",
+    "description": "Tích hợp GPS Motrak: lấy vị trí xe, đồng bộ, bản đồ, API nội bộ",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Motrak\\Providers\\MotrakServiceProvider"
+    ],
+    "files": []
+}

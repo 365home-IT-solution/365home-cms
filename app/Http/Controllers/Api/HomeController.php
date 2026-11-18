@@ -286,6 +286,7 @@ class HomeController extends Controller
                 $card['price'] = [
                     'amount'          => (float) $min,
                     'original_amount' => $base,
+                    'discount_percent' => max(1, min(99, (int) round(($base - $min) / $base * 100))),
                     'unit_label'      => '/ đêm',
                 ];
 

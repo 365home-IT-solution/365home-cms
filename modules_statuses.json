@@ -28,5 +28,7 @@
     "Employee": true,
     "Warehouse": true,
     "Minihouse": true,
-    "Metering": true
+    "Metering": true,
+    "VehicleRental": true,
+    "Motrak": true
 }

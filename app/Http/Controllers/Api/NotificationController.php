@@ -39,6 +39,9 @@ class NotificationController extends Controller
                 // dùng chung 1 bảng map âm thanh cho cả app admin lẫn app khách hàng.
                 'type'            => $r->notification->type,
                 'order_code'      => $extra['order_code'] ?? null,
+                // type = vehicle_* (thuê xe, xem Modules\VehicleRental\App\Services\VehicleRentalNotifier): mã đơn thuê xe để mở đúng đơn
+                // (GET /api/vehicle-rental-bookings/{code}).
+                'vehicle_booking_code' => $extra['vehicle_booking_code'] ?? null,
                 'conversation_id' => $extra['conversation_id'] ?? null,
                 // type = caro_invite: mã mời để bấm vào thông báo là mở lời mời (GET /api/games/caro/invites/{code})
                 'invite_code'     => $r->notification->type === 'caro_invite' ? ($extra['code'] ?? null) : null,

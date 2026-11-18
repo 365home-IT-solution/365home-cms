@@ -1,0 +1,11 @@
+{
+    "name": "VehicleRental",
+    "alias": "vehiclerental",
+    "description": "Cho thuê xe máy / ô tô tự lái của 365Home (nhận trả tại chi nhánh)",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\VehicleRental\\Providers\\VehicleRentalServiceProvider"
+    ],
+    "files": []
+}

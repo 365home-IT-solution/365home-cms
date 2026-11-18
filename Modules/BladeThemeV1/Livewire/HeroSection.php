@@ -76,6 +76,15 @@ class HeroSection extends Component
             ],
         ];
 
+        // Lối vào thuê xe chỉ có khi công tắc ở CMS (Thuê xe → Cài đặt thuê xe) đang bật.
+        if (\Modules\VehicleRental\App\Support\VehicleRentalFeature::clientEnabled()) {
+            $this->navLinks[] = [
+                'label' => 'Thuê xe',
+                'url'   => route('vehicle-rental.page'),
+                'icon'  => '',
+            ];
+        }
+
         // // Cũ: lấy từ Category
         // $this->roomTypes = Category::where('status', 1)
         //     ->where('category_type', 'product')
