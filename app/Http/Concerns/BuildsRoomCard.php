@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Concerns;
 
 use App\Models\ProvinceBranch;
+use App\Services\RoomCardDiscount;
 use App\Support\MediaThumbnailUrls;
 use Carbon\Carbon;
 use App\Support\ImagePresetUrls;
@@ -137,11 +138,19 @@ trait BuildsRoomCard
             $price     = $firstSlot
                 ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ ' . ($firstSlot['label'] ?? 'khung giờ')]
                 : null;
+
+            if ($price !== null && $discount = app(RoomCardDiscount::class)->forHourly($this->hourlyRoomSlots($room, $timeFrom, $timeTo))) {
+                $price = $discount + $price;
+            }
         } else {
             $price = [
                 'amount'     => (float) $room->price,
                 'unit_label' => $this->priceUnitLabel($room->price_unit) ?? '/ ngày',
             ];
+
+            if ((int) $room->styles === 2 && $discount = app(RoomCardDiscount::class)->forDaily($room)) {
+                $price = $discount + $price;
+            }
         }
 
         $mainImage = $this->getMainImage($room);
@@ -225,6 +234,28 @@ trait BuildsRoomCard
 
     private function buildTimeSlots(Product $room, ?string $timeFrom = null, ?string $timeTo = null): array
     {
+        $slots = $this->hourlyRoomSlots($room, $timeFrom, $timeTo);
+
+        return $slots
+            ->groupBy('timeslot_id')
+            ->map(function ($group) {
+                $slot  = $group->sortBy('price')->first();
+                $price = (int) $slot->price;
+                $label = $this->formatDurationLabel($slot->timeSlot);
+
+                return $price > 0 && $label !== ''
+                    ? ['amount' => $price, 'label' => $label]
+                    : null;
+            })
+            ->filter()
+            ->unique('amount')
+            ->sortBy('amount')
+            ->values()
+            ->toArray();
+    }
+
+    private function hourlyRoomSlots(Product $room, ?string $timeFrom = null, ?string $timeTo = null): \Illuminate\Support\Collection
+    {
         $slots = $room->roomTimeSlots
             ->whereNull('date')
             ->whereNotIn('status', ['booked']);
@@ -247,22 +278,7 @@ trait BuildsRoomCard
             });
         }
 
-        return $slots
-            ->groupBy('timeslot_id')
-            ->map(function ($group) {
-                $slot  = $group->sortBy('price')->first();
-                $price = (int) $slot->price;
-                $label = $this->formatDurationLabel($slot->timeSlot);
-
-                return $price > 0 && $label !== ''
-                    ? ['amount' => $price, 'label' => $label]
-                    : null;
-            })
-            ->filter()
-            ->unique('amount')
-            ->sortBy('amount')
-            ->values()
-            ->toArray();
+        return $slots->values();
     }
 
     private function formatDurationLabel(?TimeSlot $slot): string

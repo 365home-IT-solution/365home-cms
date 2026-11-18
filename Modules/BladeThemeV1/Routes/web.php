@@ -165,6 +165,9 @@ Route::redirect('/dang-ky-ban-phong', '/dang-ky-hop-tac?loai=minihouse', 301)->n
 // hardcode ở nhiều nơi khác trong giao diện (bottom-sidebar, header-main, HeroSection,
 // SitemapController) nên càng không được phép phụ thuộc menu/Page còn sống hay không.
 Route::get('/ticket-booking', [BladeThemeV1Controller::class, 'ticketBookingPage'])->name('ticket-booking.page');
+// Thuê xe cho khách — chỉ hoạt động khi bật công tắc ở CMS (Thuê xe → Cài đặt thuê xe), tắt thì 404 (xem vehicleRentalPage()).
+Route::get('/thue-xe', [BladeThemeV1Controller::class, 'vehicleRentalPage'])->name('vehicle-rental.page');
+Route::get('/thue-xe/qr', [BladeThemeV1Controller::class, 'vehicleRentalQr'])->middleware('throttle:60,1')->name('vehicle-rental.qr');
 // Trang tĩnh riêng, thay cho CMS Page id 65/62 — menu item vẫn trỏ 2 url này (createRoutes() ở
 // trên đăng ký chúng về BladeThemeV1Controller@index/page_id=65,62). Cùng lý do/cùng cơ chế
 // override như route /hinh-thuc-thanh-toan ngay phía trên.

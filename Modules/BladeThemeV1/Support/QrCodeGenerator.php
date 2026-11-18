@@ -19,13 +19,16 @@ class QrCodeGenerator
      */
     public static function dataUri(string $data, int $size = 200, int $margin = 0): string
     {
-        $svg = (new Writer(
+        return 'data:image/svg+xml;base64,' . base64_encode(self::svg($data, $size, $margin));
+    }
+
+    public static function svg(string $data, int $size = 200, int $margin = 0): string
+    {
+        return (new Writer(
             new ImageRenderer(
                 new RendererStyle($size, $margin, null, null, Fill::uniformColor(new Rgb(255, 255, 255), new Rgb(0, 0, 0))),
                 new SvgImageBackEnd
             )
         ))->writeString($data);
-
-        return 'data:image/svg+xml;base64,' . base64_encode($svg);
     }
 }

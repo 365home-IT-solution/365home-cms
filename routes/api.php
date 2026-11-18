@@ -776,3 +776,50 @@ Route::middleware(['auth:sanctum', 'customer.active', 'throttle:120,1'])->prefix
     Route::post('rewards/{id}/redeem', [GamePointController::class, 'redeem'])->whereNumber('id')->name('redeem')->middleware('throttle:10,1');
 });
 
+
+/*
+|--------------------------------------------------------------------------
+| Thuê xe (Modules/VehicleRental) — xem/báo giá công khai, đặt + thanh toán + huỷ bắt buộc đăng nhập
+| GET  /api/vehicle-rentals/config                                      → Công tắc hiển thị thuê xe (CMS) + giới hạn đặt xe
+| GET  /api/vehicle-rentals/vehicles?start_at&end_at[&type][&branch_id] → Xe còn trống kèm báo giá
+| GET  /api/vehicle-rentals/vehicles/{id}[?start_at&end_at]             → Chi tiết xe + gói giá (+ báo giá, còn trống)
+| POST /api/vehicle-rental-bookings                                    → Tạo đơn chờ thanh toán + QR PayOS (giữ xe 15 phút)
+| GET  /api/vehicle-rental-bookings                                    → Đơn của tôi
+| GET  /api/vehicle-rental-bookings/{code}                             → Chi tiết đơn (+ thông tin thanh toán)
+| POST /api/vehicle-rental-bookings/{code}/payment                     → Lấy lại / tạo lại QR cho đơn chờ thanh toán
+| POST /api/vehicle-rental-bookings/{code}/cancel                      → Huỷ đơn (đã thanh toán: hoàn theo mốc 100% >=24h, 50% >=2h)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('vehicle-rentals')->name('api.vehicle-rentals.')->middleware('throttle:public-api')->group(function () {
+    Route::get('config', [\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class, 'config'])->name('config');
+    Route::get('vehicles', [\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class, 'search'])->name('search');
+    Route::get('vehicles/{id}', [\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class, 'show'])->whereNumber('id')->name('show');
+});
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('vehicle-rental-bookings')->name('api.vehicle-rental-bookings.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class)->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->middleware('throttle:10,1')->name('store');
+        Route::get('{code}', 'showBooking')->name('show');
+        Route::post('{code}/payment', 'payment')->middleware('throttle:10,1')->name('payment');
+        Route::post('{code}/cancel', 'cancel')->name('cancel');
+    });
+
+// Thuê xe — giấy tờ (KYC) của khách: nộp CCCD + GPLX + ảnh chân dung để được nhận xe tại quầy.
+// GET  /api/vehicle-rental-documents  → Trạng thái giấy tờ của tôi (pending/approved/rejected; null nếu chưa nộp)
+// POST /api/vehicle-rental-documents  → Nộp / nộp lại (multipart), trạng thái về "chờ duyệt"
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('vehicle-rental-documents')->name('api.vehicle-rental-documents.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class)->group(function () {
+        Route::get('/', 'documentShow')->name('show');
+        Route::post('/', 'documentStore')->middleware('throttle:10,1')->name('store');
+    });
+
+// Thuê xe kèm đơn phòng — bước "Thuê xe?" sau khi đặt phòng (đơn phòng của chính khách, đã thanh toán, chưa trả phòng).
+// GET  /api/orders/{order_code}/vehicle-rental           → Có thuê xe kèm được không + khung giờ gợi ý + điểm nhận trả + các đơn xe đã kèm
+// GET  /api/orders/{order_code}/vehicle-rental/vehicles  → Xe còn trống kèm báo giá cho khung thuê xe của đơn phòng
+// POST /api/orders/{order_code}/vehicle-rental           → Đặt xe kèm đơn phòng (đơn chờ thanh toán + QR PayOS)
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('orders/{order_code}/vehicle-rental')->name('api.orders.vehicle-rental.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalController::class)->group(function () {
+        Route::get('/', 'roomOrderSummary')->name('summary');
+        Route::get('vehicles', 'roomOrderVehicles')->name('vehicles');
+        Route::post('/', 'roomOrderBook')->middleware('throttle:10,1')->name('book');
+    });

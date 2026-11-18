@@ -667,6 +667,50 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    // /thue-xe — trang thuê xe cho khách (tìm xe theo thời gian, đặt, thanh toán PayOS, giấy tờ, đơn của tôi). Chỉ tồn tại khi Super Admin BẬT
+    // công tắc ở CMS → Thuê xe → Cài đặt thuê xe; tắt thì 404 như chưa từng có trang này. Dữ liệu lấy qua API /api/vehicle-rentals/* (đặt xe cần đăng nhập).
+    public function vehicleRentalPage()
+    {
+        abort_unless(\Modules\VehicleRental\App\Support\VehicleRentalFeature::clientEnabled(), 404);
+
+        $seoData = [
+            'seo_title' => 'Thuê xe máy, ô tô tự lái tại Cần Thơ | 365 HOME',
+            'seo_description' => 'Thuê xe máy, ô tô theo giờ, theo ngày tại 365 Home: xem xe còn trống, báo giá rõ ràng, đặt và thanh toán QR trực tuyến, nhận xe tại chi nhánh.',
+            'seo_keywords' => 'thuê xe máy cần thơ, thuê ô tô tự lái, thuê xe theo giờ, thuê xe theo ngày, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.vehicle-rental', [
+            'seoData' => $seoData,
+            'rentalConfig' => [
+                'min_lead_minutes' => (int) config('vehiclerental.min_lead_minutes'),
+                'max_rental_days' => (int) config('vehiclerental.max_rental_days'),
+                'max_advance_days' => (int) config('vehiclerental.max_advance_days'),
+                'hold_minutes' => (int) config('vehiclerental.hold_minutes'),
+                'cancellation_tiers' => array_values((array) config('vehiclerental.cancellation_tiers')),
+            ],
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'textOnPrimary' => $this->textOnPrimaryColor(),
+        ]);
+    }
+
+    // /thue-xe/qr?d=... — vẽ mã QR (SVG) từ chuỗi VietQR của PayOS để trang thuê xe hiển thị tại chỗ (cùng cách booking-detail, không gọi dịch vụ ngoài).
+    public function vehicleRentalQr(Request $request)
+    {
+        abort_unless(\Modules\VehicleRental\App\Support\VehicleRentalFeature::clientEnabled(), 404);
+
+        $data = (string) $request->query('d', '');
+        abort_if($data === '' || strlen($data) > 1000, 422);
+
+        return response(\Modules\BladeThemeV1\Support\QrCodeGenerator::svg($data, 320, 2), 200, [
+            'Content-Type' => 'image/svg+xml',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
     // /huong-dan-su-dung — trang tĩnh riêng (trước đây là CMS Page id 65), cùng lý do với
     // paymentMethodsPage() ở trên: component "Nội dung" dump HTML thô có sẵn 1 heading khác trùng
     // <h1 class="sr-only"> của layout CMS chung, kèm text/HTML ratio quá thấp do toàn bộ chrome

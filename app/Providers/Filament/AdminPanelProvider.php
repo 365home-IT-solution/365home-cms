@@ -53,6 +53,8 @@ use App\Filament\Pages\Auth\RequestPasswordReset;
 use Modules\AccessCode\App\Filament\AccessCodePlugin;
 use Modules\TTLock\App\Filament\TTLockPlugin;
 use Modules\Warehouse\App\Filament\WarehousePlugin;
+use Modules\VehicleRental\App\Filament\VehicleRentalPlugin;
+use Modules\Motrak\App\Filament\MotrakPlugin;
 use Modules\Zns\App\Filament\ZnsPlugin;
 use Modules\Payment\App\Filament\Resources\OrderResource\Widgets\OrderCalendarWidget;
 
@@ -176,6 +178,8 @@ class AdminPanelProvider extends PanelProvider
                 AuditLogPlugin::make(),
                 TTLockPlugin::make(),
                 WarehousePlugin::make(),
+                VehicleRentalPlugin::make(),
+                MotrakPlugin::make(),
             ])
             // ->spa()
             ->maxContentWidth('full')

@@ -216,6 +216,15 @@
                 <span class="ml-1 font-normal text-gray-400">({{ count($discountCodes) }})</span>
             </button>
             @endif
+            {{-- Chỉ hiện khi công tắc thuê xe ở CMS đang bật. --}}
+            @if(\Modules\VehicleRental\App\Support\VehicleRentalFeature::clientEnabled())
+            <a
+                href="{{ route('vehicle-rental.page') }}?tab=orders"
+                class="flex-1 px-4 py-4 text-sm font-semibold text-center transition-colors border-b-2 border-transparent text-gray-400 hover:text-gray-600"
+            >
+                Đơn thuê xe
+            </a>
+            @endif
         </div>
 
         {{-- Tab: Mã giảm giá --}}

@@ -1652,3 +1652,81 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/camera-settings'
 
 // Danh mục lựa chọn camera (gateway, loại kết nối, hãng, tính năng) để FE dựng form động.
 Route::middleware(['auth:sanctum', 'admin.api'])->get('admin/camera-options', CameraOptionsController::class)->name('api.admin.camera-options');
+
+/*
+|--------------------------------------------------------------------------
+| Thuê xe — quản trị (chỉ Super Admin), bản REST của màn CMS "Thuê xe". Docblock: Modules\VehicleRental\App\Http\Controllers\VehicleRentalAdminController.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/vehicle-rental')->name('api.admin.vehicle-rental.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalAdminController::class)->group(function () {
+        Route::get('vehicles', 'index')->name('vehicles.index');
+        Route::post('vehicles', 'store')->name('vehicles.store');
+        Route::get('vehicles/{id}', 'show')->whereNumber('id')->name('vehicles.show');
+        Route::match(['put', 'patch'], 'vehicles/{id}', 'update')->whereNumber('id')->name('vehicles.update');
+        Route::delete('vehicles/{id}', 'destroy')->whereNumber('id')->name('vehicles.destroy');
+        Route::put('vehicles/{id}/rate-plans', 'syncRatePlans')->whereNumber('id')->name('vehicles.rate-plans');
+        Route::post('vehicles/{id}/rentable', 'rentable')->whereNumber('id')->name('vehicles.rentable');
+        Route::get('vehicles/{id}/blocks', 'blocks')->whereNumber('id')->name('vehicles.blocks.index');
+        Route::post('vehicles/{id}/blocks', 'storeBlock')->whereNumber('id')->name('vehicles.blocks.store');
+        Route::delete('vehicles/{id}/blocks/{blockId}', 'destroyBlock')->whereNumber(['id', 'blockId'])->name('vehicles.blocks.destroy');
+        Route::get('bookings', 'bookingsIndex')->name('bookings.index');
+        Route::get('bookings/{code}', 'bookingShow')->name('bookings.show');
+        Route::post('bookings/{code}/cancel', 'bookingCancel')->name('bookings.cancel');
+        Route::post('bookings/{code}/refunded', 'bookingRefunded')->name('bookings.refunded');
+    });
+
+// Thuê xe — vận hành quầy: giấy tờ khách, giao xe, nhận xe, phụ phí, tất toán (Super Admin hoặc vai trò "Nhân viên thuê xe").
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/vehicle-rental')->name('api.admin.vehicle-rental.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalAdminController::class)->group(function () {
+        Route::get('documents', 'documentsIndex')->name('documents.index');
+        Route::get('documents/{customerId}', 'documentShow')->name('documents.show');
+        Route::post('documents/{customerId}/approve', 'documentApprove')->name('documents.approve');
+        Route::post('documents/{customerId}/reject', 'documentReject')->name('documents.reject');
+        Route::post('bookings/{code}/confirm-payment', 'bookingConfirmPayment')->middleware('throttle:30,1')->name('bookings.confirm-payment');
+        Route::post('bookings/{code}/pickup', 'pickup')->middleware('throttle:30,1')->name('bookings.pickup');
+        Route::post('bookings/{code}/return', 'returnVehicle')->middleware('throttle:30,1')->name('bookings.return');
+        Route::post('bookings/{code}/charges', 'chargeStore')->name('bookings.charges.store');
+        Route::delete('bookings/{code}/charges/{chargeId}', 'chargeDestroy')->whereNumber('chargeId')->name('bookings.charges.destroy');
+        Route::post('bookings/{code}/settle', 'settle')->name('bookings.settle');
+        Route::post('bookings/{code}/no-show', 'noShow')->name('bookings.no-show');
+    });
+
+// Thuê xe — lịch xe dạng Gantt (Super Admin hoặc vai trò "Nhân viên thuê xe").
+Route::middleware(['auth:sanctum', 'admin.api'])->get('admin/vehicle-rental/schedule', [\Modules\VehicleRental\App\Http\Controllers\VehicleRentalAdminController::class, 'schedule'])
+    ->name('api.admin.vehicle-rental.schedule');
+
+/*
+|--------------------------------------------------------------------------
+| GPS Motrak (Modules/Motrak) — API nội bộ, CHỈ đọc dữ liệu đã lưu ở DB 365home (không gọi Motrak khi truy cập).
+| Xem: Super Admin hoặc vai trò "Quản lý GPS". Cấu hình / đồng bộ / ánh xạ: chỉ Super Admin. Không bao giờ trả Token.
+| Docblock: Modules\Motrak\App\Http\Controllers\MotrakApiController.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/gps')->name('api.admin.gps.')
+    ->controller(\Modules\Motrak\App\Http\Controllers\MotrakApiController::class)->group(function () {
+        Route::get('status', 'overview')->name('status');
+        Route::get('vehicles', 'vehicles')->name('vehicles.index');
+        Route::get('vehicles/{vehicleId}', 'show')->name('vehicles.show');
+        Route::get('vehicles/{vehicleId}/location', 'location')->name('vehicles.location');
+        Route::get('vehicles/{vehicleId}/history', 'history')->name('vehicles.history');
+        Route::put('vehicles/{vehicleId}/mapping', 'mappingUpdate')->name('vehicles.mapping');
+        Route::get('rental-suggestions', 'suggestions')->name('rental-suggestions');
+        Route::post('rental-suggestions/apply', 'suggestionsApply')->name('rental-suggestions.apply');
+        Route::get('settings', 'settingsShow')->name('settings.show');
+        Route::put('settings', 'settingsUpdate')->name('settings.update');
+        Route::put('settings/token', 'tokenSave')->middleware('throttle:10,1')->name('settings.token.save');
+        Route::delete('settings/token', 'tokenDelete')->name('settings.token.delete');
+        Route::post('test-connection', 'testConnection')->middleware('throttle:10,1')->name('test-connection');
+        Route::post('sync', 'syncNow')->middleware('throttle:10,1')->name('sync');
+        Route::get('sync-logs', 'syncLogs')->name('sync-logs');
+    });
+
+// Thuê xe + GPS Motrak: vị trí xe, hành trình theo đơn, cảnh báo GPS (Super Admin hoặc vai trò "Nhân viên thuê xe"; chỉ đọc dữ liệu đã đồng bộ).
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/vehicle-rental')->name('api.admin.vehicle-rental.')
+    ->controller(\Modules\VehicleRental\App\Http\Controllers\VehicleRentalAdminController::class)->group(function () {
+        Route::get('vehicles/{id}/gps', 'vehicleGps')->whereNumber('id')->name('vehicles.gps');
+        Route::get('bookings/{code}/track', 'bookingTrack')->name('bookings.track');
+        Route::get('gps-alerts', 'gpsAlerts')->name('gps-alerts.index');
+        Route::post('gps-alerts/{id}/ack', 'gpsAlertAck')->whereNumber('id')->name('gps-alerts.ack');
+    });
