@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Support\AdminNotificationCategory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -69,6 +70,12 @@ class NotificationController extends Controller
             $query->whereNull('read_at');
         }
 
+        // Lọc theo nhóm (order|payment|chat|stay|approval|partner|subscription|app_error), nhiều nhóm
+        // ngăn cách bằng dấu phẩy hoặc ?type[]=. Chỉ ảnh hưởng danh sách — unread_count/unread_by_type
+        // bên dưới luôn là tổng toàn bộ để FE hiện huy hiệu từng tab.
+        AdminNotificationCategory::include($query, AdminNotificationCategory::parseList($request->input('type')));
+        AdminNotificationCategory::exclude($query, AdminNotificationCategory::parseList($request->input('exclude_type')));
+
         $notifications = $query->paginate($request->integer('per_page', 20));
         $notifications->getCollection()->transform(fn (DatabaseNotification $n) => $this->toItem($n));
 
@@ -81,7 +88,22 @@ class NotificationController extends Controller
                 'per_page'     => $notifications->perPage(),
             ],
             'unread_count' => $this->scopedToActivePartner($user->unreadNotifications(), $user)->count(),
+            // Chưa đọc theo từng nhóm — luôn đủ 8 khóa (0 nếu không có). Tổng các nhóm = unread_count.
+            'unread_by_type' => $this->unreadByType($user),
         ]);
+    }
+
+    /** @return array<string, int> */
+    private function unreadByType($user): array
+    {
+        $counts = [];
+        foreach (AdminNotificationCategory::KEYS as $category) {
+            $query = $this->scopedToActivePartner($user->unreadNotifications(), $user);
+            AdminNotificationCategory::include($query, [$category]);
+            $counts[$category] = $query->count();
+        }
+
+        return $counts;
     }
 
     // super_admin đang chọn đối tác (header X-Partner-Id) chỉ thấy thông báo gắn với đối tác đó
