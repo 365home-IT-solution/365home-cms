@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\Admin\EventController as AdminEventController;
 use App\Http\Controllers\Api\Admin\FcmTokenController as AdminFcmTokenController;
 use App\Http\Controllers\Api\Admin\MembershipTierController as AdminMembershipTierController;
 use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationController;
+use App\Http\Controllers\Api\Admin\NotificationSettingsController as AdminNotificationSettingsController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
@@ -329,6 +330,15 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
 | /api/admin/notifications để làm mới danh sách (không đẩy sẵn nội dung qua socket).
 |--------------------------------------------------------------------------
 */
+// GET/PUT /api/admin/notification-settings — cài đặt nhận thông báo theo tài khoản
+// { enabled, types: { order, payment, chat, stay, approval, partner, subscription, app_error } }.
+// GET /api/admin/notifications thêm ?type= / ?exclude_type= (nhóm, phân tách bằng dấu phẩy) và trả
+// unread_by_type (số chưa đọc từng nhóm) bên cạnh unread_count.
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notification-settings')->name('api.admin.notification-settings.')->group(function () {
+    Route::get('/', [AdminNotificationSettingsController::class, 'show'])->name('show');
+    Route::put('/', [AdminNotificationSettingsController::class, 'update'])->name('update');
+});
+
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')->name('api.admin.notifications.')->group(function () {
     Route::get('/', [AdminNotificationController::class, 'index'])->name('index');
     Route::delete('/', [AdminNotificationController::class, 'destroyMany'])->name('destroyMany');

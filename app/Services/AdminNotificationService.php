@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\AdminNotificationCategory;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
@@ -72,8 +73,15 @@ class AdminNotificationService
 
         $notification->sendToDatabase($users);
 
+        // Push FCM tôn trọng cài đặt từng tài khoản (GET/PUT /api/admin/notification-settings) —
+        // tắt nhóm/tắt tổng thì KHÔNG đẩy push, nhưng row `notifications` ở trên vẫn được lưu.
+        $category   = AdminNotificationCategory::of($data['type'] ?? null);
+        $pushUsers  = $users->filter(fn (User $u) => $u->wantsNotificationCategory($category))->values();
+
         try {
-            $this->fcm->sendToUsers($users, $title, $body, $data);
+            if ($pushUsers->isNotEmpty()) {
+                $this->fcm->sendToUsers($pushUsers, $title, $body, $data);
+            }
         } catch (\Throwable $e) {
             Log::warning('AdminNotificationService: FCM push failed', ['error' => $e->getMessage()]);
         }

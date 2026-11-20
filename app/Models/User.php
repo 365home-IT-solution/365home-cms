@@ -69,7 +69,22 @@ class User extends Authenticatable implements FilamentUser, HasAvatar, HasName, 
         'phone_verified_at'  => 'datetime',
         'date_of_birth'      => 'date',
         'password'           => 'hashed',
+        'notification_settings' => 'array',
     ];
+
+    /** Cài đặt nhận thông báo đã chuẩn hóa (mặc định bật hết) — xem Api\Admin\NotificationSettingsController. */
+    public function notificationSettings(): array
+    {
+        return \App\Support\AdminNotificationCategory::normalizeSettings($this->notification_settings);
+    }
+
+    /** Tài khoản này có muốn nhận (push) thông báo thuộc nhóm $category không. */
+    public function wantsNotificationCategory(string $category): bool
+    {
+        $settings = $this->notificationSettings();
+
+        return $settings['enabled'] && ($settings['types'][$category] ?? true);
+    }
 
     public function getFilamentName(): string
     {
