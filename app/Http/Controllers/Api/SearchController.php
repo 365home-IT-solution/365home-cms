@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\ResolvesProvince;
 use App\Services\MinihouseRoomSearchService;
+use App\Services\RoomSearchRoomsService;
 use App\Services\RoomSearchService;
 use App\Services\SearchLocationService;
 use Illuminate\Http\JsonResponse;
@@ -277,8 +278,23 @@ class SearchController extends Controller
     // toà nhà đóng vai trò chi nhánh (xem RoomSearchService::baseQuery()). Khác homestay: có "q" vẫn
     // trả về PHÒNG (khách tìm theo mã phòng/tên toà nhà/địa chỉ đều ra phòng trống) — muốn card toà
     // nhà thì gửi thêm ?view=branches.
+    //
+    // ?ver=1.1.0 trở lên (màn Tìm kiếm mới của app) → LUÔN trả danh sách PHÒNG kể cả khi có "q", lọc 1 ngày bằng
+    // ?date=YYYY-MM-DD, ?guests=N, trộn phòng theo giờ + theo ngày (App\Services\RoomSearchRoomsService). Không gửi ver,
+    // hoặc ver=1 / ver không hợp lệ → hành vi cũ ở dưới, giữ nguyên cho app đang chạy. ver so sánh theo số phiên bản
+    // (version_compare) nên sau này thêm 1.2.0, 1.3.0… cùng URL; hiện 1.1.0 trở lên dùng chung một bản. Có 2 đường dẫn cùng vào đây: /api/search (không v1, dùng cho bản mới) và /api/v1/search (giữ cho app cũ).
+    private const ROOMS_SEARCH_MIN_VERSION = '1.1.0';
+
     public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
+        $ver = (string) $request->query('ver', '1');
+
+        // Chuẩn hoá về dạng a.b.c (1.1 = 1.1.0) trước khi so sánh để version_compare không coi 1.1 < 1.1.0.
+        if (preg_match('/^\d+(\.\d+){0,2}$/', $ver)
+            && version_compare(implode('.', array_pad(explode('.', $ver), 3, '0')), self::ROOMS_SEARCH_MIN_VERSION, '>=')) {
+            return response()->json(app(RoomSearchRoomsService::class)->searchRooms($request->all(), auth('sanctum')->user()));
+        }
+
         $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
         $isMinihouse = MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))

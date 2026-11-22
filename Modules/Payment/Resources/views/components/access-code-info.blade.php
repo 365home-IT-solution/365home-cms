@@ -42,7 +42,12 @@
              tại ở layout phía client (BladeThemeV1), KHÔNG được định nghĩa trong admin nên luôn rơi
              về màu fallback tím cứng, không phải màu thương hiệu thật. --}}
         <span id="accessCode" class="text-3xl sm:text-4xl font-bold font-mono tracking-[0.25em] text-primary-600">
-            {{ $code->code ?? '—' }}
+            {{-- Mã TTLock (có ttlock_keyboard_pwd_id) hiển thị kèm "#" ở cuối — khách nhập mã rồi bấm # trên bàn phím khóa. --}}
+            @if($code->code && $code->ttlock_keyboard_pwd_id)
+                {{ rtrim($code->code, '#') }}#
+            @else
+                {{ $code->code ?? '—' }}
+            @endif
         </span>
         <button type="button" onclick="window.copyAccessCode(this)" title="Sao chép mã"
             class="inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
