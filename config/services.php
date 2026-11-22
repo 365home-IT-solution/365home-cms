@@ -137,6 +137,9 @@ return [
         'android' => env('PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=com.home365.app'),
     ],
 
+    // Công tắc chặn thông báo đẩy ra ngoài (FCM, thông báo admin realtime, Telegram) khi thử nghiệm — xem App\Support\PushSwitch. false = chặn.
+    'push_notifications' => env('PUSH_NOTIFICATIONS_ENABLED', true),
+
     'websocket' => [
         'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
         'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),

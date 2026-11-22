@@ -516,6 +516,7 @@ class GuestBookingController extends Controller
                 'payment_status' => $order->payment_status,
                 'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
+                ...app(\App\Services\Payment\Pay2SCardService::class)->labelFields($order),
                 'qr_code'        => $order->qr_code,
                 ...app(\App\Services\Payment\SePayService::class)->paymentFields($order),
                 'expired_at'     => $order->expired_at,

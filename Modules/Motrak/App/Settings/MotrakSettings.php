@@ -21,6 +21,15 @@ class MotrakSettings extends Settings
 
     public int $sync_interval_minutes;
 
+    /** Tài khoản đăng nhập Motrak (tuỳ chọn): có thì hệ thống tự lấy Token mới khi hết hạn. */
+    public ?string $username = null;
+
+    /** Mật khẩu (mã hoá khi lưu, không bao giờ trả ra ngoài). */
+    public ?string $password = null;
+
+    /** Hết hạn của Token lấy qua đăng nhập (ISO 8601); null = Token nhập tay. */
+    public ?string $token_expires_at = null;
+
     public static function group(): string
     {
         return 'motrak';
@@ -28,6 +37,6 @@ class MotrakSettings extends Settings
 
     public static function encrypted(): array
     {
-        return ['token'];
+        return ['token', 'password'];
     }
 }

@@ -21,7 +21,7 @@ use Modules\Motrak\App\Support\MotrakTime;
  */
 class MotrakApiService
 {
-    public function __construct(private MotrakSettingsService $settings)
+    public function __construct(private MotrakSettingsService $settings, private MotrakAuthService $auth)
     {
     }
 
@@ -37,8 +37,21 @@ class MotrakApiService
      */
     public function fetchVehicles(): array
     {
+        // Có tài khoản đăng nhập: bảo đảm Token còn hạn trước khi gọi (hết / sắp hết hạn → tự đăng nhập lấy mới).
+        $this->auth->ensureFreshToken();
+
         $token = $this->settings->token();
-        $response = $this->send($token);
+        try {
+            $response = $this->send($token);
+        } catch (MotrakApiException $e) {
+            // Motrak từ chối Token (hết hạn sớm / bị thu hồi): có tài khoản thì đăng nhập lại ĐÚNG MỘT LẦN rồi gọi lại; không có tài khoản thì báo lỗi như cũ.
+            if ($e->type !== MotrakApiException::UNAUTHORIZED || ! $this->auth->enabled()) {
+                throw $e;
+            }
+            $this->auth->login();
+            $token = $this->settings->token();
+            $response = $this->send($token);
+        }
 
         $json = $response->json();
         if (! is_array($json) || ! array_key_exists('data', $json) || ! is_array($json['data'])) {

@@ -24,6 +24,7 @@
                     @if ($tokenInfo['state'] === 'saved')
                         Đã lưu (••••{{ $tokenInfo['hint'] }})
                         @if ($tokenInfo['updated_at']) · cập nhật {{ \Carbon\Carbon::parse($tokenInfo['updated_at'])->format('H:i d/m/Y') }} @endif
+                        @if (! empty($tokenInfo['expires_at'])) · hết hạn {{ \Carbon\Carbon::parse($tokenInfo['expires_at'])->format('H:i d/m/Y') }} (tự lấy lại bằng tài khoản đăng nhập) @endif
                     @elseif ($tokenInfo['state'] === 'unreadable')
                         Đã lưu nhưng không đọc được — cần nhập lại
                     @else

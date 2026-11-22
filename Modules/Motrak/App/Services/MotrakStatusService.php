@@ -23,6 +23,7 @@ class MotrakStatusService
         'connection_error' => 'Lỗi kết nối',
         'data_error'       => 'Lỗi dữ liệu',
         'token_unreadable' => 'Cần nhập lại Token',
+        'invalid_credentials' => 'Sai tên đăng nhập / mật khẩu',
     ];
 
     public function __construct(private MotrakSettingsService $settings)
@@ -38,7 +39,7 @@ class MotrakStatusService
         $base = ['http_status' => null, 'message' => null, 'checked_at' => null, 'vehicle_count' => $lastSuccess?->total_vehicles, 'last_success_at' => $lastSuccess?->started_at?->toIso8601String()];
 
         $info = $this->settings->tokenInfo();
-        if ($info['state'] === MotrakSettingsService::TOKEN_NONE) {
+        if ($info['state'] === MotrakSettingsService::TOKEN_NONE && ! $this->settings->hasCredentials()) {
             return $this->build('not_configured', $base);
         }
         if ($info['state'] === MotrakSettingsService::TOKEN_UNREADABLE) {
@@ -61,6 +62,7 @@ class MotrakStatusService
 
         $code = match ($log->error_type) {
             MotrakApiException::UNAUTHORIZED => 'invalid_token',
+            MotrakApiException::AUTH_FAILED => 'invalid_credentials',
             MotrakApiException::NO_RESPONSE => 'no_response',
             MotrakApiException::INVALID_RESPONSE => 'data_error',
             MotrakApiException::NOT_CONFIGURED => 'not_configured',
@@ -76,7 +78,7 @@ class MotrakStatusService
         return ['code' => $code, 'label' => self::LABELS[$code], 'color' => match ($code) {
             'connected' => 'success',
             'unchecked', 'not_configured' => 'gray',
-            'invalid_token', 'token_unreadable' => 'danger',
+            'invalid_token', 'token_unreadable', 'invalid_credentials' => 'danger',
             default => 'warning',
         }] + $base;
     }

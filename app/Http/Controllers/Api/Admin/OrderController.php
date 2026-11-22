@@ -130,6 +130,9 @@ class OrderController extends Controller
             })
             ->orderByDesc('created_at');
 
+        // 1 truy vấn con cho cả trang thay vì 1 truy vấn mỗi đơn khi tính nhãn "Thẻ".
+        $query->withExists(['cardPayments as paid_by_card' => fn ($q) => $q->where('status', 'paid')]);
+
         $orders = $query->paginate($request->integer('per_page', 10));
 
         $orders->getCollection()->transform(fn (Order $order) => $this->toListItem($order));
@@ -1091,6 +1094,8 @@ class OrderController extends Controller
             'payment_status' => $order->payment_status,
             'order_status'   => $order->order_status,
             'payment_method' => $order->payment_method,
+            // Chỉ có khoá này với đơn ĐÃ trả bằng thẻ (nhãn "Thẻ"); đơn khác giữ nguyên phản hồi cũ.
+            ...app(\App\Services\Payment\Pay2SCardService::class)->labelFields($order, isset($order->paid_by_card) ? (bool) $order->paid_by_card : null),
             'amount'         => (int) $order->amount,
             'full_amount'    => (int) $order->full_amount,
             'guest_count'    => $order->guest_count,

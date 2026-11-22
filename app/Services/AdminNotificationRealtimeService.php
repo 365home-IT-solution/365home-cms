@@ -23,6 +23,10 @@ class AdminNotificationRealtimeService
 {
     public function broadcastNew(array $notification): void
     {
+        if (! \App\Support\PushSwitch::enabled()) {
+            return;
+        }
+
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
         $key = config('services.websocket.internal_key', '');
 

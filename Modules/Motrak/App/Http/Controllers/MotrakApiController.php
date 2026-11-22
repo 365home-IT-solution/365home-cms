@@ -203,6 +203,40 @@ class MotrakApiController extends Controller
         return response()->json(['data' => $this->settingsPayload() + ['check' => MotrakTransformer::syncLog($log)]]);
     }
 
+    /**
+     * PUT /api/admin/gps/settings/credentials — body: username, password (bỏ trống = giữ mật khẩu đang lưu). Lưu (mật khẩu mã hoá) rồi ĐĂNG NHẬP THỬ + kiểm tra kết nối ngay.
+     * Từ đó hệ thống tự lấy Token mới mỗi khi hết hạn.
+     */
+    public function credentialsSave(Request $request): JsonResponse
+    {
+        if ($denied = $this->configGuard($request)) {
+            return $denied;
+        }
+        $data = $request->validate(['username' => ['required', 'string', 'max:190'], 'password' => ['nullable', 'string', 'max:200']]);
+
+        try {
+            $this->settings->saveCredentials($data['username'], $data['password'] ?? null);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        $this->settings->refresh();
+        $log = $this->sync->testConnection((string) $request->user()->id);
+
+        return response()->json(['data' => $this->settingsPayload() + ['check' => MotrakTransformer::syncLog($log)]]);
+    }
+
+    /** DELETE /api/admin/gps/settings/credentials — xoá tài khoản đăng nhập (Token hiện có dùng tới khi hết hạn). */
+    public function credentialsDelete(Request $request): JsonResponse
+    {
+        if ($denied = $this->configGuard($request)) {
+            return $denied;
+        }
+        $this->settings->clearCredentials();
+        $this->settings->refresh();
+
+        return response()->json(['data' => $this->settingsPayload()]);
+    }
+
     /** DELETE /api/admin/gps/settings/token — xoá Token và tắt đồng bộ tự động; dữ liệu GPS đã đồng bộ giữ nguyên. */
     public function tokenDelete(Request $request): JsonResponse
     {
@@ -312,6 +346,7 @@ class MotrakApiController extends Controller
             'allowed_intervals'     => array_values((array) config('motrak.sync.allowed_intervals')),
             'endpoint'              => config('motrak.endpoint'),
             'token'                 => $this->settings->tokenInfo(),
+            'credentials'           => $this->settings->credentialsInfo(), // đăng nhập tự động: chỉ saved + username, KHÔNG có mật khẩu
             'connection'            => $this->status->status(),
         ];
     }

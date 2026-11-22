@@ -416,6 +416,81 @@
                                 </p>
                             </div>
                             @endif
+
+                            {{-- KHỐI THANH TOÁN BẰNG THẺ (Pay2S) — chỉ hiện với chi nhánh 365 Home đã bật thẻ và khi đơn còn khoản cần thanh toán --}}
+                            @php
+                            $cardPay = app(\App\Services\Payment\Pay2SCardService::class)->availability($order);
+                            $cardReturn = request()->query('card_return') == 1;
+                            @endphp
+                            @if(($cardPay['available'] ?? false) || $cardReturn)
+                            <div id="card-payment-block" class="rounded-xl border-2 border-sky-200 p-4 mt-3" style="background:#f0f9ff;"
+                                x-data="{
+                                    loading: false,
+                                    brand: 'visa',
+                                    error: '',
+                                    info: '',
+                                    polling: {{ $cardReturn ? 'true' : 'false' }},
+                                    brands: { visa: 'Visa', mastercard: 'Mastercard', jcb: 'JCB', amex: 'American Express', unionpay: 'UnionPay' },
+                                    csrf() { const m = document.querySelector('meta[name=csrf-token]'); return m ? m.content : ''; },
+                                    async pay() {
+                                        this.loading = true; this.error = '';
+                                        try {
+                                            const res = await fetch('{{ route('payment.card.create', $order->order_code) }}', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf() },
+                                                body: JSON.stringify({ card_brand: this.brand }),
+                                            });
+                                            const json = await res.json();
+                                            if (json.error === 0 && json.paymentUrl) { window.location.href = json.paymentUrl; return; }
+                                            this.error = json.message || 'Không thể tạo phiên thanh toán thẻ.';
+                                        } catch (e) { this.error = 'Lỗi kết nối, vui lòng thử lại.'; }
+                                        this.loading = false;
+                                    },
+                                    async poll(times) {
+                                        this.info = 'Đang xác nhận thanh toán...';
+                                        for (let i = 0; i < times; i++) {
+                                            try {
+                                                const res = await fetch('{{ route('payment.card.status', $order->order_code) }}', { headers: { 'Accept': 'application/json' } });
+                                                const json = await res.json();
+                                                if (json.status === 'paid') { this.info = 'Thanh toán thành công! Đang cập nhật...'; setTimeout(() => window.location.href = '{{ route('booking.detail', ['code' => $order->order_code]) }}', 1200); return; }
+                                                if (json.status === 'review') { this.polling = false; this.info = ''; this.error = 'Chúng tôi đã nhận thanh toán nhưng chưa thể cập nhật đơn. Nhân viên sẽ liên hệ để xử lý.'; return; }
+                                                if (['failed', 'cancelled', 'expired'].includes(json.status)) { this.polling = false; this.info = ''; this.error = json.status === 'cancelled' ? 'Bạn đã huỷ thanh toán. Có thể thử lại.' : (json.status === 'expired' ? 'Phiên thanh toán đã hết hạn. Vui lòng thử lại.' : 'Thanh toán thẻ không thành công. Vui lòng thử lại.'); return; }
+                                            } catch (e) {}
+                                            await new Promise(r => setTimeout(r, 3000));
+                                        }
+                                        this.polling = false; this.info = '';
+                                        this.error = 'Chưa nhận được kết quả. Nếu đã bị trừ tiền, vui lòng liên hệ hotline.';
+                                    }
+                                }"
+                                x-init="@if($cardReturn) poll(40) @endif">
+                                <p class="font-bold text-sky-900 text-sm mb-1">💳 Thanh toán bằng thẻ quốc tế</p>
+                                @if(($cardPay['available'] ?? false))
+                                <p class="text-xs text-sky-800 mb-3">
+                                    Số tiền: <strong class="text-base">{{ number_format((int) $cardPay['amount'], 0, ',', '.') }}đ</strong>
+                                    @if($cardPay['sandbox'] ?? false)
+                                    <span class="ml-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">Chế độ thử nghiệm</span>
+                                    @endif
+                                </p>
+                                <div x-show="!polling">
+                                    <label class="block text-xs font-semibold text-sky-900 mb-1">Loại thẻ</label>
+                                    <select x-model="brand" class="w-full border border-sky-200 rounded-lg px-3 py-2 text-sm bg-white mb-3">
+                                        <template x-for="(label, key) in brands" :key="key">
+                                            <option :value="key" x-text="label"></option>
+                                        </template>
+                                    </select>
+                                    <button @click="pay()" :disabled="loading"
+                                        class="w-full py-3 rounded-lg font-bold text-white text-sm flex items-center justify-center gap-2 transition-opacity disabled:opacity-60"
+                                        style="background:#0369a1;">
+                                        <span x-show="!loading">Thanh toán bằng thẻ</span>
+                                        <span x-show="loading">Đang chuyển sang trang thanh toán...</span>
+                                    </button>
+                                    <p class="text-[11px] text-sky-700 mt-2 text-center italic">Bạn nhập thông tin thẻ trực tiếp trên trang bảo mật của cổng thanh toán.</p>
+                                </div>
+                                @endif
+                                <p x-show="info" x-text="info" class="text-sky-800 text-xs mt-2 font-medium" style="display:none;"></p>
+                                <p x-show="error" x-text="error" class="text-red-600 text-xs mt-2 font-medium" style="display:none;"></p>
+                            </div>
+                            @endif
                         </div>
                     </div>
 

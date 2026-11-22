@@ -119,5 +119,11 @@ Route::post('/webhook/pay2s', '\\App\\Http\\Controllers\\Pay2SWebhookController'
     ->name('webhook.pay2s.legacy');
 
 // Tạo link PayOS cho phần tiền còn lại (sau khi đã đặt cọc)
+// Thanh toán thẻ (Pay2S) trên trang /thong-tin-dat-phong/{code}: tạo phiên + hỏi trạng thái khi khách quay lại.
+Route::post('/dat-phong/thanh-toan-the/{code}', [\Modules\Payment\Http\Controllers\CardCheckoutController::class, 'store'])
+    ->middleware('throttle:20,1')->name('payment.card.create');
+Route::get('/dat-phong/thanh-toan-the/{code}/trang-thai', [\Modules\Payment\Http\Controllers\CardCheckoutController::class, 'status'])
+    ->middleware('throttle:60,1')->name('payment.card.status');
+
 Route::post('/dat-phong/tao-thanh-toan-con-lai/{code}', [PaymentController::class, 'createRemainingPayment'])
      ->name('payment.remaining.create');

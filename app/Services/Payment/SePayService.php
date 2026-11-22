@@ -167,6 +167,24 @@ class SePayService
      */
     public function paymentFields(Order $order): array
     {
+        $card = $this->cardPaymentField($order);
+
+        // Chỉ thêm khối card_payment khi thẻ THỰC SỰ dùng được cho đơn này: mọi đơn khác (đối tác, chi nhánh chưa bật thẻ, thẻ đang tắt) giữ nguyên phản hồi cũ.
+        return $this->transferPaymentFields($order) + ($card['available'] ?? false ? ['card_payment' => $card] : []);
+    }
+
+    // Có thể thanh toán thẻ (Pay2S) cho đơn này không — app hiện nút "Thanh toán thẻ" khi available = true. Lỗi cấu hình không được làm hỏng phản hồi đơn.
+    private function cardPaymentField(Order $order): array
+    {
+        try {
+            return app(Pay2SCardService::class)->availability($order);
+        } catch (\Throwable) {
+            return ['available' => false];
+        }
+    }
+
+    private function transferPaymentFields(Order $order): array
+    {
         $account = $this->accountFor($order);
 
         if (! $account) {

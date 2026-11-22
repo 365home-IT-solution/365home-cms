@@ -12,6 +12,7 @@ class MotrakApiException extends RuntimeException
     public const NOT_CONFIGURED = 'not_configured';
     public const TOKEN_UNREADABLE = 'token_unreadable';
     public const UNAUTHORIZED = 'unauthorized';
+    public const AUTH_FAILED = 'auth_failed'; // đăng nhập tự động bị Motrak từ chối (sai tên đăng nhập / mật khẩu)
     public const NOT_FOUND = 'not_found';
     public const RATE_LIMITED = 'rate_limited';
     public const SERVER_ERROR = 'server_error';

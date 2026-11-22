@@ -405,6 +405,12 @@ class Order extends Model implements Eventable
         return $this->hasMany(OrderItem::class);
     }
 
+    // Các phiên thanh toán thẻ (Pay2S) của đơn — dùng cho nhãn "Thẻ" ở danh sách đơn.
+    public function cardPayments()
+    {
+        return $this->hasMany(Pay2SCardPayment::class, 'order_id');
+    }
+
     // Số phòng của đơn (biến thể phòng: order_items.quantity của dòng phòng, phòng đơn luôn 1) — dùng để nhân ngưỡng khách
     // miễn phụ thu (max_free_guests mỗi phòng) khi tính lại tiền đơn đã lưu.
     public function roomQuantity(): int

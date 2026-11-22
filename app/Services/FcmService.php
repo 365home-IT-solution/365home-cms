@@ -44,6 +44,10 @@ class FcmService
      */
     public function sendToUsers(\Illuminate\Support\Collection $users, string $title, string $body, array $data = []): void
     {
+        if (! \App\Support\PushSwitch::enabled()) {
+            return;
+        }
+
         $tokens = FcmToken::whereIn('user_id', $users->pluck('id'))
             ->pluck('token')
             ->all();
@@ -118,7 +122,7 @@ class FcmService
      */
     public function sendToToken(string $token, string $title, string $body, array $data = []): void
     {
-        if (empty($token)) {
+        if (empty($token) || ! \App\Support\PushSwitch::enabled()) {
             return;
         }
 
@@ -135,7 +139,7 @@ class FcmService
      */
     public function sendToCustomer(Customer $customer, string $title, string $body, array $data = []): void
     {
-        if (empty($customer->token_device)) {
+        if (empty($customer->token_device) || ! \App\Support\PushSwitch::enabled()) {
             return;
         }
 
@@ -156,6 +160,10 @@ class FcmService
      */
     public function sendToTenant(Tenant $tenant, string $title, string $body, array $data = []): void
     {
+        if (! \App\Support\PushSwitch::enabled()) {
+            return;
+        }
+
         $tokens = TenantPushToken::where('tenant_id', $tenant->id)->pluck('token')->all();
 
         if (empty($tokens)) {

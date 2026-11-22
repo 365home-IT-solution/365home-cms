@@ -49,7 +49,7 @@ class MotrakSettingsPage extends Page implements HasForms
     public function mount(): void
     {
         $settings = app(MotrakSettingsService::class);
-        $this->form->fill(['enabled' => $settings->isEnabled(), 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null]);
+        $this->form->fill(['enabled' => $settings->isEnabled(), 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null, 'username' => $settings->credentialsInfo()['username'], 'password' => null]);
     }
 
     public function form(Form $form): Form
@@ -61,8 +61,23 @@ class MotrakSettingsPage extends Page implements HasForms
             default => 'Chưa có Token. Dán Bearer Token do Motrak cấp (không cần gõ chữ "Bearer").',
         };
 
+        $creds = app(MotrakSettingsService::class)->credentialsInfo();
+        $expires = $info['expires_at'] ? ' Token hiện tại hết hạn lúc ' . \Carbon\Carbon::parse($info['expires_at'])->format('H:i d/m/Y') . ' — hệ thống tự đăng nhập lấy Token mới trước khi hết hạn.' : '';
+
         return $form->statePath('data')->schema([
-            Forms\Components\Section::make('Kết nối API Motrak')->columns(2)->schema([
+            Forms\Components\Section::make('Đăng nhập tự động (khuyên dùng)')->columns(2)
+                ->description('Nhập tài khoản đăng nhập Motrak: hệ thống tự lấy Token và TỰ LẤY LẠI mỗi khi hết hạn (Token Motrak sống khoảng 1 giờ) — không cần dán Token thủ công nữa. Nên dùng một tài khoản Motrak riêng chỉ cho việc này.')
+                ->schema([
+                    Forms\Components\Placeholder::make('login_endpoint')->label('Endpoint đăng nhập (đã kiểm chứng — không chỉnh ở đây)')
+                        ->content(fn () => 'POST ' . config('motrak.login_endpoint')),
+                    Forms\Components\Placeholder::make('auto_state')->label('Trạng thái')
+                        ->content($creds['saved'] ? 'Đã lưu tài khoản đăng nhập (mật khẩu mã hoá, không hiện lại).' . $expires : 'Chưa lưu tài khoản — đang dùng Token dán tay (hết hạn phải dán lại).'),
+                    Forms\Components\TextInput::make('username')->label('Tên đăng nhập Motrak')->autocomplete(false)->maxLength(190),
+                    Forms\Components\TextInput::make('password')->label('Mật khẩu')->password()->revealable()->autocomplete('new-password')->maxLength(200)
+                        ->placeholder($creds['saved'] ? 'Để trống = giữ mật khẩu đang lưu' : null)
+                        ->helperText('Mật khẩu chỉ lưu dạng mã hoá, không bao giờ hiện lại hay ghi vào log.'),
+                ]),
+            Forms\Components\Section::make('Kết nối API Motrak (Token dán tay — dự phòng)')->columns(2)->schema([
                 Forms\Components\Placeholder::make('endpoint')->label('Endpoint (đã kiểm chứng — không chỉnh ở đây)')
                     ->content(fn () => 'POST ' . config('motrak.endpoint')),
                 Forms\Components\TextInput::make('token')->label('Bearer Token')
@@ -85,13 +100,21 @@ class MotrakSettingsPage extends Page implements HasForms
         $settings = app(MotrakSettingsService::class);
         $newToken = trim((string) ($data['token'] ?? ''));
 
-        if (($data['enabled'] ?? false) && $newToken === '' && $settings->tokenState() !== MotrakSettingsService::TOKEN_SAVED) {
-            Notification::make()->danger()->title('Cần nhập Token trước khi bật đồng bộ tự động.')->send();
+        $username = trim((string) ($data['username'] ?? ''));
+        $password = (string) ($data['password'] ?? '');
+        $wantsLogin = $username !== '' || $password !== '';
+
+        if (($data['enabled'] ?? false) && $newToken === '' && ! $wantsLogin && $settings->tokenState() !== MotrakSettingsService::TOKEN_SAVED && ! $settings->hasCredentials()) {
+            Notification::make()->danger()->title('Cần nhập tài khoản đăng nhập hoặc Token trước khi bật đồng bộ tự động.')->send();
 
             return;
         }
 
         try {
+            if ($wantsLogin) {
+                $settings->saveCredentials($username !== '' ? $username : (string) ($settings->credentialsInfo()['username'] ?? ''), $password);
+                $settings->refresh();
+            }
             if ($newToken !== '') {
                 $settings->saveToken($newToken);
                 $settings->refresh();
@@ -103,11 +126,11 @@ class MotrakSettingsPage extends Page implements HasForms
             return;
         }
 
-        $this->form->fill(['enabled' => $settings->isEnabled(), 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null]);
+        $this->form->fill(['enabled' => $settings->isEnabled(), 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null, 'username' => $settings->credentialsInfo()['username'], 'password' => null]);
         Notification::make()->success()->title('Đã lưu cấu hình Motrak')->send();
 
-        // Token mới: kiểm tra kết nối ngay để người dùng biết Token dùng được hay chưa.
-        if ($newToken !== '') {
+        // Tài khoản / Token mới: kiểm tra kết nối ngay (có tài khoản thì tự đăng nhập lấy Token) để biết dùng được hay chưa.
+        if ($newToken !== '' || $wantsLogin) {
             $this->runConnectionTest();
         }
     }
@@ -127,6 +150,18 @@ class MotrakSettingsPage extends Page implements HasForms
                         : $n->danger()->title('Đồng bộ thất bại')->body(trim(($log->http_status ? "HTTP {$log->http_status}. " : '') . $log->error_message))->persistent();
                     $n->send();
                 }),
+            Action::make('clearCredentials')->label('Xoá tài khoản đăng nhập')->icon('heroicon-o-key')->color('gray')
+                ->visible(fn () => app(MotrakSettingsService::class)->hasCredentials())
+                ->requiresConfirmation()
+                ->modalHeading('Xoá tài khoản đăng nhập Motrak?')
+                ->modalDescription('Hệ thống ngừng tự lấy Token mới. Token đang có vẫn dùng tới khi hết hạn; sau đó cần dán Token tay hoặc lưu lại tài khoản.')
+                ->action(function () {
+                    $settings = app(MotrakSettingsService::class);
+                    $settings->clearCredentials();
+                    $settings->refresh();
+                    $this->form->fill(['enabled' => $settings->isEnabled(), 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null, 'username' => null, 'password' => null]);
+                    Notification::make()->success()->title('Đã xoá tài khoản đăng nhập')->send();
+                }),
             Action::make('clearToken')->label('Xoá Token')->icon('heroicon-o-trash')->color('danger')
                 ->visible(fn () => app(MotrakSettingsService::class)->tokenState() !== MotrakSettingsService::TOKEN_NONE)
                 ->requiresConfirmation()
@@ -136,7 +171,7 @@ class MotrakSettingsPage extends Page implements HasForms
                     $settings = app(MotrakSettingsService::class);
                     $settings->clearToken();
                     $settings->refresh();
-                    $this->form->fill(['enabled' => false, 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null]);
+                    $this->form->fill(['enabled' => false, 'sync_interval_minutes' => $settings->intervalMinutes(), 'token' => null, 'username' => $settings->credentialsInfo()['username'], 'password' => null]);
                     Notification::make()->success()->title('Đã xoá Token')->send();
                 }),
         ];

@@ -454,6 +454,33 @@
                 @endif
             </div>
 
+            {{-- Cách thanh toán: chỉ hiện khi chi nhánh của phòng là của 365 Home và đã được bật thẻ quốc tế ở CMS (Pay2S — thanh toán thẻ). Không bật thì khách chỉ thấy luồng QR như cũ. --}}
+            @if($this->cardPayAvailable())
+                <div class="mx-5 mb-3 shrink-0">
+                    <p class="text-[15px] text-black font-semibold mb-2">Hình thức thanh toán:</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="cursor-pointer rounded-xl border-2 px-3 py-2.5 text-center transition-all {{ $payMethod === 'qr' ? 'border-primary bg-green-50' : 'border-gray-200 bg-white' }}">
+                            <input type="radio" wire:model.live="payMethod" value="qr" class="sr-only">
+                            <p class="text-sm font-bold {{ $payMethod === 'qr' ? 'text-green-700' : 'text-gray-700' }}">Chuyển khoản / QR</p>
+                        </label>
+                        <label class="cursor-pointer rounded-xl border-2 px-3 py-2.5 text-center transition-all {{ $payMethod === 'card' ? 'border-sky-500 bg-sky-50' : 'border-gray-200 bg-white' }}">
+                            <input type="radio" wire:model.live="payMethod" value="card" class="sr-only">
+                            <p class="text-sm font-bold {{ $payMethod === 'card' ? 'text-sky-700' : 'text-gray-700' }}">💳 Thẻ quốc tế</p>
+                        </label>
+                    </div>
+                    @if($payMethod === 'card')
+                        <select wire:model="cardBrand" class="mt-2 w-full border border-sky-200 rounded-lg px-3 py-2 text-sm bg-white">
+                            <option value="visa">Visa</option>
+                            <option value="mastercard">Mastercard</option>
+                            <option value="jcb">JCB</option>
+                            <option value="amex">American Express</option>
+                            <option value="unionpay">UnionPay</option>
+                        </select>
+                        <p class="text-[11px] text-sky-700 mt-1 italic">Bạn nhập thẻ trực tiếp trên trang bảo mật của cổng thanh toán sau khi bấm "Đặt phòng".</p>
+                    @endif
+                </div>
+            @endif
+
             @if($bookingConfirmError)
                 <div class="mx-5 mb-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 shrink-0">
                     <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">

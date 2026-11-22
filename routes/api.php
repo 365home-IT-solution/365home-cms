@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\GraphQLController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\CardPaymentController;
 use App\Http\Controllers\Api\GuestBookingController;
 use App\Http\Controllers\Api\GuestNotificationController;
 use App\Http\Controllers\Api\CouponController;
@@ -61,6 +62,10 @@ Route::post('webhook/sepay', \App\Http\Controllers\SePayWebhookController::class
 // Pay2S gọi: https://365home.vn/api/webhook/pay2s — controller tự xác thực token Bearer của webhook nên route không cần đăng nhập.
 Route::post('webhook/pay2s', \App\Http\Controllers\Pay2SWebhookController::class)
     ->name('webhook.pay2s');
+
+// Pay2S thanh toán THẺ gọi: https://365home.vn/api/webhook/pay2s-card — controller tự xác thực chữ ký m2signature nên route không cần đăng nhập.
+Route::post('webhook/pay2s-card', \App\Http\Controllers\Pay2SCardWebhookController::class)
+    ->name('webhook.pay2s-card');
 
 // Đăng ký hợp tác công khai (khách chưa có tài khoản đối tác): đăng ký → giấy tờ → thông tin hợp đồng → ký → gửi duyệt.
 // MiniHouse: chỉ MUA GÓI rồi dùng (không đăng ký đối tác/ký hợp đồng).
@@ -472,6 +477,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('orders/{order_code}/payment-qr',         [OrderController::class,       'paymentQr'])->name('api.orders.payment-qr');
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class, 'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class, 'remainingPayment'])->name('api.orders.remaining-payment');
+        Route::post('orders/{order_code}/card-payment',     [CardPaymentController::class, 'store'])->name('api.orders.card-payment.store');
+        Route::get('orders/{order_code}/card-payment',      [CardPaymentController::class, 'show'])->name('api.orders.card-payment.show');
         Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
         Route::post('orders/{order_code}/extra',             [OrderController::class,       'addExtra'])->name('api.orders.extra');
         Route::post('orders/{order_code}/extra-charge-qr',   [OrderController::class,       'extraChargeQr'])->name('api.orders.extra-charge-qr');
@@ -500,6 +507,8 @@ Route::prefix('guest')->name('api.guest.')->group(function () {
     Route::get('orders',                                         [GuestBookingController::class, 'lookup'])->name('orders.lookup');
     Route::get('orders/{order_code}',                            [GuestBookingController::class, 'show'])->name('orders.show');
     Route::post('orders/{order_code}/remaining-payment',         [GuestBookingController::class, 'remainingPayment'])->name('orders.remaining-payment');
+    Route::post('orders/{order_code}/card-payment',              [CardPaymentController::class,  'guestStore'])->name('orders.card-payment.store');
+    Route::get('orders/{order_code}/card-payment',               [CardPaymentController::class,  'guestShow'])->name('orders.card-payment.show');
     Route::post('orders/{order_code}/extra',                     [GuestBookingController::class, 'addExtra'])->name('orders.extra');
     Route::post('orders/{order_code}/extra-charge-qr',           [GuestBookingController::class, 'extraChargeQr'])->name('orders.extra-charge-qr');
     Route::get('orders/{order_code}/payment-status',             [GuestBookingController::class, 'paymentStatus'])->name('orders.payment-status');

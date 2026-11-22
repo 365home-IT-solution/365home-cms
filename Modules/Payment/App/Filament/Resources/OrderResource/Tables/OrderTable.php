@@ -39,6 +39,8 @@ class OrderTable
         return $table
             ->modifyQueryUsing(function ($query) {
                 $query->with(['items.product', 'services', 'accessCodes', 'couponUsages']);
+                // Nhãn "Thẻ" ở cột Thanh toán: 1 truy vấn con cho cả trang.
+                $query->withExists(['cardPayments as paid_by_card' => fn ($q) => $q->where('status', 'paid')]);
                 if (! (auth()->user()?->isSuperAdmin() ?? false)) {
                     $query->where('exclude_from_stats', false);
                 }
@@ -169,7 +171,11 @@ class OrderTable
                     ->label(__('payment::order.table.label.payment_method'))
                     ->sortable()
                     ->weight(FontWeight::Bold)
-                    ->formatStateUsing(function ($state) {
+                    ->formatStateUsing(function ($state, $record) {
+                        if ($record->paid_by_card ?? false) {
+                            return 'Thẻ';
+                        }
+
                         return match ($state) {
                             'PayOS' => 'Chuyển khoản',
                             'cod' => 'Cod',
