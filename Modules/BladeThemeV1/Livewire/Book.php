@@ -553,6 +553,19 @@ class Book extends Component
         return $this;
     }
 
+    /**
+     * 1 StayPriceResolver dùng chung cho cả lượt request: bảng lịch gọi calculateSlotPrice() cho từng ô
+     * (phòng × khung × ngày, vài trăm ô) — resolver cache bảng giá theo phòng, nhưng app(...) mỗi lần tạo
+     * instance mới nên cache mất, mỗi ô ~10 truy vấn bảng giá (đo: 4.000 truy vấn / 2,3s cho 6 phòng).
+     * private: không serialize vào snapshot Livewire, request sau tự tạo lại.
+     */
+    private ?\App\Services\PriceBoards\StayPriceResolver $stayPriceResolver = null;
+
+    private function stayPrices(): \App\Services\PriceBoards\StayPriceResolver
+    {
+        return $this->stayPriceResolver ??= app(\App\Services\PriceBoards\StayPriceResolver::class);
+    }
+
     public function calculateSlotPrice($slot, $dateString, $slotStartTime = null, $selectedSlots = [], $roomId = null)
     {
         $result = $this->rawSlotPrice($slot, $dateString, $slotStartTime, $selectedSlots, $roomId);
@@ -561,7 +574,7 @@ class Book extends Component
             return $result;
         }
 
-        $board = app(\App\Services\PriceBoards\StayPriceResolver::class)
+        $board = $this->stayPrices()
             ->boardDiscountForSlot($slot, Carbon::createFromFormat('d-m-Y', $dateString));
 
         if (! $board || (int) round($result['original_price']) !== $board['price']) {
@@ -586,7 +599,7 @@ class Book extends Component
     protected function rawSlotPrice($slot, $dateString, $slotStartTime = null, $selectedSlots = [], $roomId = null)
     {
         $originalPrice = (float) ($slot instanceof \Modules\Product\App\Models\RoomTimeSlot
-            ? ($slot->priceOn(Carbon::createFromFormat('d-m-Y', $dateString)) ?? $slot->price)
+            ? ($slot->priceOn(Carbon::createFromFormat('d-m-Y', $dateString), $this->stayPrices()) ?? $slot->price)
             : $slot->price);
         $priceAfterIncrease = $originalPrice;
         $finalPrice = $originalPrice;

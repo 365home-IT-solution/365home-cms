@@ -93,6 +93,11 @@
             grid-template-columns: 1fr;
             gap: 35px;
         }
+        /* Banner tạm ẩn trên mobile (xem ghi chú ở cột banner bên dưới). !important đè display mà
+           x-show gắn inline khi có banner. */
+        @media (max-width: 1023.98px) {
+            .hs-banner-col { display: none !important; }
+        }
 
         .home-card {
             flex: 0 0 calc(46vw - 20px);
@@ -259,31 +264,33 @@
             box-shadow: 0 14px 44px rgba(0, 0, 0, .18);
         }
 
-        /* Thẻ "Loại hình dịch vụ" — nền xám nhẹ, không box-shadow (bỏ theo yêu cầu), icon lớn phía
-           trên tên, giống nhau ở mọi kích thước màn hình (không còn phân biệt mobile/desktop như
-           bản pill trước đây). */
+        /* Thẻ "Loại hình dịch vụ" — chỉ còn hình + tên, không khung nền xám (bỏ theo yêu cầu
+           26/11/2026). */
+        /* Mobile: 4 thẻ vừa 1 hàng — bề rộng = (màn hình - px-4 2 bên - px-1 của track - 3 khe 6px) / 4. */
         .roomtype-card {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            gap: 14px;
+            justify-content: flex-start;
+            gap: 6px;
             flex-shrink: 0;
-            width: 150px;
-            background: #f5f5f6;
-            border-radius: 20px;
-            padding: 26px 14px;
+            width: min(96px, calc((100vw - 58px) / 4));
+            background: transparent;
+            padding: 2px 0;
             text-decoration: none;
-            transition: background-color .15s ease;
+            transition: transform .15s ease;
         }
-        .roomtype-card:hover { background: #ececee; }
+        .roomtype-card:active { transform: scale(.96); }
         .roomtype-card-icon {
-            width: 72px;
-            height: 72px;
+            width: 68px;
+            height: 68px;
             object-fit: contain;
         }
+        @media (max-width: 1023.98px) {
+            .roomtype-track { gap: 6px; }
+        }
         .roomtype-card-label {
-            font-size: 14.5px;
+            font-size: 13.5px;
             font-weight: 600;
             color: #111827;
             text-align: center;
@@ -294,8 +301,9 @@
                luôn vừa đủ 5 thẻ dù màn hình rộng hẹp khác nhau; track dùng gap-6 (24px), 5 thẻ có
                4 khoảng gap nên trừ 4*24px trước khi chia 5. Thẻ thứ 6 trở đi vẫn tràn ra ngoài,
                cuộn được qua carousel (canScrollNext) như thiết kế hiện tại. */
-            .roomtype-card { width: calc((100% - 96px) / 5); padding: 32px 16px; }
-            .roomtype-card-icon { width: 88px; height: 88px; }
+            .roomtype-card { width: calc((100% - 96px) / 5); padding: 4px 0; }
+            .roomtype-card:hover .roomtype-card-icon { transform: translateY(-2px); }
+            .roomtype-card-icon { width: 96px; height: 96px; transition: transform .15s ease; }
             .roomtype-card-label { font-size: 16px; }
         }
 
@@ -343,97 +351,6 @@
         @media (min-width: 1024px) {
             .hs-roomtype-heading { display: none; }
             .hs-roomtype-col-spacing { margin-top: 90px; }
-        }
-
-        /* "Lần đầu khám phá": 2 cột luôn cùng 1 chiều cao cố định (ảnh crop vừa khung bằng
-           background-size:cover) dù ảnh gốc có tỉ lệ khác nhau (svg minh hoạ dạng đứng vs png
-           banner dạng ngang) — thấp hơn bản trước, chỉ đủ cho tiêu đề + phụ đề + nút. */
-        .explore-card {
-            position: relative;
-            overflow: hidden;
-            width: 100%;
-            height: 150px;
-            border-radius: 16px;
-            background-color: #f3f4f6;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            display: flex;
-            align-items: center;
-        }
-        .explore-card-bg {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            object-position: center;
-        }
-        .explore-card-bg-right { object-position: right center; }
-        @media (min-width: 1024px) {
-            .explore-card { height: 190px; }
-        }
-        .explore-card-content {
-            position: relative;
-            z-index: 1;
-            max-width: 62%;
-            padding: 0 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        @media (min-width: 1024px) {
-            .explore-card-content { padding: 0 28px; }
-        }
-        .explore-card-title {
-            font-size: 15px;
-            font-weight: 800;
-            line-height: 1.3;
-            margin: 0;
-        }
-        @media (min-width: 1024px) {
-            .explore-card-title { font-size: 17px; }
-        }
-        .explore-card-subtitle {
-            font-size: 12.5px;
-            line-height: 1.35;
-            margin: 0;
-        }
-        @media (min-width: 1024px) {
-            .explore-card-subtitle { font-size: 13px; }
-        }
-        {{-- Mobile: nút nhỏ lại (padding/font giảm) cho vừa khung .explore-card chỉ cao 150px —
-             kích thước cũ (8px 18px / 13px) áp dụng mọi nơi từng bị to so với khung mobile hẹp,
-             chỉ hợp với khung 190px ở desktop (>=1024px), nên chuyển thành mobile-first: nhỏ mặc
-             định, phóng to lại đúng kích thước cũ từ 1024px trở lên. --}}
-        .explore-card-btn {
-            align-self: flex-start;
-            margin-top: 4px;
-            padding: 6px 14px;
-            border-radius: 9999px;
-            color: #fff;
-            font-size: 11.5px;
-            font-weight: 700;
-            border: none;
-            cursor: pointer;
-            transition: opacity .15s ease;
-        }
-        .explore-card-btn:hover {
-            opacity: .9;
-        }
-        @media (min-width: 1024px) {
-            .explore-card-btn {
-                padding: 8px 18px;
-                font-size: 13px;
-            }
-        }
-        .explore-card-badge {
-            height: 26px;
-            width: auto;
-            display: block;
-        }
-        @media (min-width: 1024px) {
-            .explore-card-badge { height: 42px; }
         }
 
         /* Center Mode Carousel (loại hình dịch vụ + banner): slide đang active nổi bật (scale +
@@ -557,8 +474,12 @@
 
                 {{-- Cột 1: Banner — luôn đứng trước Loại hình dịch vụ (thứ tự DOM tự nhiên, không
                      cần đảo theo breakpoint nữa). --}}
-                @php($criticalBanner = data_get($criticalHome, 'banner.items.0'))
-                <div class="min-w-0 center-carousel-wrap" x-show="bannerSection && bannerSection.items && bannerSection.items.length">
+                {{-- Banner TẠM ẨN trên mobile (< lg) — đầu trang mobile giờ là ô tìm kiếm kiểu Agoda
+                     (components/home/mobile-search.blade.php). Request chỉ in bản mobile thì bỏ luôn
+                     banner render sẵn (ảnh eager/fetchpriority=high) để điện thoại không tải ảnh không
+                     hiện; còn lại ẩn bằng .hs-banner-col (ảnh x-for là lazy nên không tải khi bị ẩn). --}}
+                @php($criticalBanner = \App\Support\ViewportMode::rendersDesktop() ? data_get($criticalHome, 'banner.items.0') : null)
+                <div class="min-w-0 center-carousel-wrap hs-banner-col" x-show="bannerSection && bannerSection.items && bannerSection.items.length">
                     {{-- Có banner render sẵn từ server thì KHÔNG bọc trong <template x-if>: x-if
                          chỉ dựng DOM khi Alpine chạy xong (mobile throttled: vài giây), lúc đó banner
                          mới chen vào đẩy cả trang xuống — nguyên nhân chính CLS 0.413 ở "Lần đầu
@@ -633,7 +554,7 @@
                 {{-- Cột 2: Loại hình dịch vụ — luôn đứng NGAY DƯỚI banner (thứ tự DOM tự nhiên) ở
                      mọi kích thước màn hình. Khác Cột 1 (banner, full-bleed sát mép), cột này tự
                      thêm lại px-4/sm:px-6 — GIỮ NGUYÊN ở desktop (không lg:px-0) để thẳng hàng với
-                     các section khác (Lần đầu khám phá, Lịch đặt phòng trực tuyến...) đều dùng
+                     các section khác (Ưu đãi dành cho bạn, Lịch đặt phòng trực tuyến...) đều dùng
                      đúng pattern px-4 sm:px-6 này, không riêng gì banner mới cần full-bleed. --}}
                 @if (count(data_get($criticalHome, 'room_types', [])))
                     <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
@@ -648,7 +569,7 @@
                                 <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
                                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                 </button>
-                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                <div x-ref="track" class="roomtype-track flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     @foreach (data_get($criticalHome, 'room_types', []) as $type)
                                         @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
                                         {{-- "mini_house" trỏ RIÊNG sang trang giới thiệu MiniHouse (cho thuê THEO
@@ -656,7 +577,8 @@
                                              thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
                                              $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
                                         <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;" @if ($typeUrlSlug && ($type['slug'] ?? '') !== 'mini_house') :href="roomTypeHref(@js('/'.$typeUrlSlug))" @endif>
-                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
+                                            {{-- PHẢI khớp window.__roomTypeIconMap (public/js/home-sections.js). --}}
+                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'room-types/hotel-v2.webp', 'motel' => 'motel-176.webp', 'villa' => 'room-types/villa-v2.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'room-types/minihouse-v2.webp', default => 'room-types/homestay-v2.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
                                             <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
                                         </a>
@@ -692,7 +614,7 @@
                                      nếu không bị overflow-x-hidden của track cắt cụt (thẻ đầu/cuối
                                      trông như bị che 1 phần). gap-6: giãn cách giữa các thẻ nhiều hơn
                                      (thẻ đã to hơn — xem .roomtype-card). --}}
-                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                <div x-ref="track" class="roomtype-track flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
                                         <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? roomTypeHref('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
                                             <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
@@ -709,54 +631,51 @@
             </div>
     </section>
 
-    {{-- ============== LẦN ĐẦU KHÁM PHÁ (2 cột tĩnh: ảnh chào mừng + banner giới thiệu app) ==============
-         Section tĩnh, không phụ thuộc dữ liệu CMS/sections — đặt ngay dưới "Các chi nhánh tại..."
-         phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
+    {{-- ============== ƯU ĐÃI DÀNH CHO BẠN (trước đây "Lần đầu khám phá") ==============
+         Section tĩnh, không phụ thuộc dữ liệu CMS/sections, luôn hiện (không x-if/x-show). 2 banner ảnh
+         (chữ + nút vẽ sẵn trong ảnh, 640×224): mobile 1 banner/khung, vuốt hoặc bấm prev/next; desktop
+         2 banner cạnh nhau (đủ chỗ nên nút tự ẩn — carouselNav() chỉ hiện khi còn cuộn được).
+         CSS ở khối critical của layouts/master.blade.php (giữ chỗ đúng tỉ lệ ảnh, tránh CLS). --}}
     <section class="home-explore-section py-6 bg-white">
         <div class="home-explore-container w-full max-w-7xl mx-auto px-4 sm:px-6">
-            <h2 class="home-explore-title text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
-            {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
-                 dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
-                 <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
-            <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="explore-card">
-                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}"
-                         srcset="{{ asset('images/welcome-joyer-720.webp') }} 720w, {{ asset('images/welcome-joyer-1140.webp') }} 1140w"
-                         sizes="(min-width: 1280px) 608px, (min-width: 1024px) calc(50vw - 32px), calc(100vw - 32px)"
-                         alt="Ưu đãi dành cho thành viên mới của 365 Home" class="explore-card-bg" width="1140" height="360"
-                         loading="eager" fetchpriority="high">
-                    <div class="explore-card-content">
-                        <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
-                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
-                        <button type="button" class="explore-card-btn" style="background:var(--color-primary);" @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">Đăng ký ngay</button>
-                    </div>
-                </div>
-                {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
-                     (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
-                <div class="explore-card">
-                    <img src="{{ asset('images/banner-guest-mobile-750.webp') }}"
-                         srcset="{{ asset('images/banner-guest-mobile-750.webp') }} 750w, {{ asset('images/banner-guest-mobile.webp') }} 1029w"
-                         sizes="(max-width: 1023px) 100vw, 50vw"
-                         alt="Tải ứng dụng đặt phòng 365 Home" class="explore-card-bg explore-card-bg-right"
-                         width="750" height="262" loading="eager" fetchpriority="high">
-                    <div class="explore-card-content">
-                        <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
-                        <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
-                        <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
-                            <a href="https://apps.apple.com/us/app/365-home/id6781598163" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge" width="298" height="96">
-                            </a>
-                            <a href="https://play.google.com/store/apps/details?id=com.home365.app" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge" width="298" height="96">
-                            </a>
-                        </div>
+            <h2 class="home-explore-title text-2xl font-bold text-gray-900 mb-4">Ưu đãi dành cho bạn</h2>
+            <div class="offer-carousel" x-data="carouselNav()" x-init="init()">
+                <button type="button" class="roomtype-nav roomtype-nav-prev" aria-label="Ưu đãi trước" x-show="canScrollPrev" x-cloak
+                        @click="$refs.track.scrollBy({ left: -$refs.track.clientWidth, behavior: 'smooth' })">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                </button>
+                <button type="button" class="roomtype-nav roomtype-nav-next" aria-label="Ưu đãi tiếp theo" x-show="canScrollNext" x-cloak
+                        @click="$refs.track.scrollBy({ left: $refs.track.clientWidth, behavior: 'smooth' })">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+
+                <div class="offer-track" x-ref="track">
+                    {{-- Banner đăng ký thành viên: bấm cả banner mở form đăng ký. --}}
+                    <button type="button" class="offer-slide" aria-label="Đăng ký thành viên, nhận ngay coupon giảm 200.000đ cho người dùng mới"
+                            @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">
+                        <img src="{{ asset('images/offers/offer-register-640.webp') }}" alt="Đăng ký thành viên 365Home – nhận ngay coupon giảm 200.000đ"
+                             width="640" height="224" loading="eager" fetchpriority="high" decoding="async">
+                    </button>
+                    {{-- Banner tải app: 2 nút App Store / Google Play vẽ sẵn trong ảnh → đặt 2 vùng bấm trong
+                         suốt đúng chỗ (toạ độ % theo ảnh 640×224); bấm chỗ khác trên banner mở store theo
+                         thiết bị (iPhone/iPad/Mac → App Store, còn lại → Google Play). --}}
+                    <div class="offer-slide">
+                        <img src="{{ asset('images/offers/offer-app-640.webp') }}" alt="Nhận ưu đãi liền tay khi tải app 365Home"
+                             width="640" height="224" loading="lazy" decoding="async">
+                        <a class="offer-hot offer-hot-all" target="_blank" rel="noopener" aria-label="Tải app 365Home"
+                           href="https://play.google.com/store/apps/details?id=com.home365.app"
+                           :href="/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) ? 'https://apps.apple.com/us/app/365-home/id6781598163' : 'https://play.google.com/store/apps/details?id=com.home365.app'"></a>
+                        <a class="offer-hot" style="left:4.5%; top:65%; width:20.5%; height:20%;" target="_blank" rel="noopener"
+                           href="https://apps.apple.com/us/app/365-home/id6781598163" aria-label="Tải trên App Store"></a>
+                        <a class="offer-hot" style="left:26%; top:65%; width:21%; height:20%;" target="_blank" rel="noopener"
+                           href="https://play.google.com/store/apps/details?id=com.home365.app" aria-label="Tải trên Google Play"></a>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    {{-- "Lịch đặt phòng trực tuyến" — đặt ngay SAU "Lần đầu khám phá" theo yêu cầu (trước đây đã bỏ
+    {{-- "Lịch đặt phòng trực tuyến" — đặt ngay SAU "Ưu đãi dành cho bạn" (trước là "Lần đầu khám phá") theo yêu cầu (trước đây đã bỏ
          hẳn khỏi trang chủ, giờ thêm lại đúng vị trí này). Partial Blade thuần (không phải Livewire
          component riêng) — tự quản lý state qua Alpine homeBookingBoard() (định nghĩa trong
          public/js/home-sections.js), bên trong nhúng lại đúng Livewire\Book component đã dùng ở

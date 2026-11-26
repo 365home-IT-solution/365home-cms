@@ -7,3 +7,5 @@ window.Swiper = withLoopGuard(Swiper);
 
 // Keep the source shared with search/booking pages, but let Vite minify and bundle it on home.
 import '../../../../../public/js/home-sections.js';
+// Ô tìm kiếm kiểu Agoda trên trang chủ mobile (components/home/mobile-search.blade.php).
+import './home-mobile-search.js';

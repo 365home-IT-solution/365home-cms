@@ -23,18 +23,15 @@
             ])->filter()->implode(', ');
         @endphp
         @if ($criticalBannerImage)
-            <link rel="preload" as="image" href="{{ $criticalBannerImage }}"
+            {{-- Banner tạm ẩn trên mobile (flash-sale.blade.php) — chỉ preload ở desktop. --}}
+            <link rel="preload" as="image" media="(min-width: 1024px)" href="{{ $criticalBannerImage }}"
                   @if($criticalBannerSrcset) imagesrcset="{{ $criticalBannerSrcset }}" @endif
                   imagesizes="(max-width: 1023px) 100vw, 768px" fetchpriority="high">
         @endif
-        {{-- Measured as LCP on the responsive home layout; discover it from the document head.
-             imagesrcset/imagesizes PHẢI khớp srcset/sizes của <img> trong flash-sale.blade.php, nếu
-             không trình duyệt tải 2 lần (bản preload + bản <img> tự chọn). Điện thoại (~380px × DPR
-             1.75) lấy bản 720w (~4KB) thay vì 1140w. --}}
+        {{-- Banner đầu tiên của "Ưu đãi dành cho bạn" (flash-sale.blade.php) — ảnh lớn đầu trang, khả năng
+             cao là LCP; preload từ <head> để trình duyệt tải sớm. href PHẢI khớp src của <img> đó. --}}
         <link rel="preload" as="image" fetchpriority="high"
-              href="{{ asset('images/welcome-joyer-1140.webp') }}"
-              imagesrcset="{{ asset('images/welcome-joyer-720.webp') }} 720w, {{ asset('images/welcome-joyer-1140.webp') }} 1140w"
-              imagesizes="(min-width: 1280px) 608px, (min-width: 1024px) calc(50vw - 32px), calc(100vw - 32px)">
+              href="{{ asset('images/offers/offer-register-640.webp') }}">
     @endpush
 @endif
 
@@ -57,6 +54,9 @@
              App\Support\ViewportMode). --}}
         @if (\App\Support\ViewportMode::rendersMobile())
             @livewire('bladethemev1::hero-section')
+            {{-- Mobile: ô tìm kiếm kiểu Agoda ngay đầu trang (thay thanh tìm kiếm gọn trong header —
+                 header-main.blade.php không in thanh đó ở trang chủ nữa). --}}
+            <x-bladethemev1::home.mobile-search :room-types="data_get($criticalHome ?? [], 'room_types', [])" />
         @endif
         @livewire('bladethemev1::flash-sale', ['criticalHome' => $criticalHome ?? []])
         @livewire('bladethemev1::voucher')

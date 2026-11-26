@@ -217,11 +217,8 @@ class BladeThemeV1Controller extends Controller
                     'sort_order' => 1,
                     'items' => $items,
                 ],
-                'room_types' => RoomType::query()
-                    ->where('is_active', true)
-                    ->orderBy('sort_order')
-                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
-                    ->toArray(),
+                // Chỉ loại hình đang có phòng (hoặc Mini House có toà nhà) — xem App\Support\HomeRoomTypes.
+                'room_types' => \App\Support\HomeRoomTypes::visible(),
                 'booking' => $this->criticalBookingData(),
             ];
         } catch (\Throwable $e) {

@@ -367,8 +367,10 @@
 
         {{-- Mobile: thanh tìm kiếm gọn (luôn hiện) + hàng menu, đặt ngay trong header --}}
         {{-- Chỉ in khi request cần bản mobile (xem App\Support\ViewportMode) — máy tính không in. --}}
+        {{-- Trang chủ: KHÔNG in — trang chủ mobile có ô tìm kiếm riêng kiểu Agoda ngay đầu nội dung
+             (components/home/mobile-search.blade.php). --}}
         <div class="lg:hidden">
-            @if (\App\Support\ViewportMode::rendersMobile())
+            @if (\App\Support\ViewportMode::rendersMobile() && ! request()->is('/'))
             <div class="w-full px-4 pb-1 pt-3">
                 @livewire('bladethemev1::hero-section', ['mobileHeaderModal' => true], key('hero-section-mobile'))
             </div>

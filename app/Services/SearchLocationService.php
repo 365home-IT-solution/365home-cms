@@ -141,21 +141,28 @@ class SearchLocationService
             ->get()
             ->sortBy(fn (Province $p) => [$this->startsWith($keyword, $p->name) ? 0 : 1, $p->name])
             ->take($cap)
-            ->map(fn (Province $p) => [
-                'type'          => 'province',
-                'id'            => $p->id,
-                'name'          => $p->name,
-                'query'         => $p->name,
-                'description'   => $p->branch_count . ' chi nhánh',
-                'slug'          => $p->slug,
-                'province_id'   => $p->id,
-                'province_name' => $p->name,
-                'room_count'    => null,
-                'image_url'     => $p->image ? Storage::disk('public')->url($p->image) : null,
-                'latitude'      => $p->lat !== null ? (string) $p->lat : null,
-                'longitude'     => $p->lng !== null ? (string) $p->lng : null,
-                'params'        => ['province_id' => $p->id],
-            ])
+            ->map(function (Province $p) {
+                // Tỉnh chưa nhập lat/lng (vd Lâm Đồng) → lấy toạ độ từ phòng của tỉnh, không trả null (xem roomCoords()).
+                [$lat, $lng] = $p->lat !== null && $p->lng !== null
+                    ? [(string) $p->lat, (string) $p->lng]
+                    : $this->roomCoords(ProvinceBranch::where('province_id', $p->id)->where('status', true)->pluck('categorie_id')->all());
+
+                return [
+                    'type'          => 'province',
+                    'id'            => $p->id,
+                    'name'          => $p->name,
+                    'query'         => $p->name,
+                    'description'   => $p->branch_count . ' chi nhánh',
+                    'slug'          => $p->slug,
+                    'province_id'   => $p->id,
+                    'province_name' => $p->name,
+                    'room_count'    => null,
+                    'image_url'     => $p->image ? Storage::disk('public')->url($p->image) : null,
+                    'latitude'      => $lat,
+                    'longitude'     => $lng,
+                    'params'        => ['province_id' => $p->id],
+                ];
+            })
             ->values();
     }
 
@@ -173,7 +180,12 @@ class SearchLocationService
             ->sortBy(fn (Ward $w) => [$this->startsWith($keyword, $w->name) ? 0 : 1, $w->name])
             ->take($cap)
             ->map(function (Ward $w) use ($active) {
-                $branches = (clone $active)->where('ward_code', $w->code)->count();
+                $branchIds = (clone $active)->where('ward_code', $w->code)->pluck('categorie_id')->unique()->all();
+                $branches  = count($branchIds);
+                // Bảng wards không có toạ độ — lấy từ phòng của các chi nhánh trong phường. Trước đây luôn null,
+                // app không có điểm để dời bản đồ / tìm quanh vị trí nên rơi về toạ độ mặc định (Cần Thơ) →
+                // gõ "Đà Lạt" (gợi ý đầu là phường Xuân Hương - Đà Lạt) ra 0 phòng.
+                [$lat, $lng] = $this->roomCoords($branchIds);
 
                 return [
                     'type'          => 'ward',
@@ -186,8 +198,8 @@ class SearchLocationService
                     'province_name' => $w->province?->name,
                     'room_count'    => null,
                     'image_url'     => null,
-                    'latitude'      => null,
-                    'longitude'     => null,
+                    'latitude'      => $lat,
+                    'longitude'     => $lng,
                     'ward_code'     => $w->code,
                     'params'        => ['ward_code' => $w->code],
                 ];
@@ -223,6 +235,42 @@ class SearchLocationService
                 'params'        => ['q' => $p->address],
             ])
             ->values();
+    }
+
+    /**
+     * Toạ độ đại diện cho 1 nhóm chi nhánh (phường / tỉnh không có lat/lng riêng): tâm của CỤM phòng đông
+     * nhất — gom phòng đang bán theo ô ~11 km (làm tròn 1 chữ số thập phân) rồi lấy trung bình của ô nhiều
+     * phòng nhất. Không lấy trung bình cả tỉnh: tỉnh sau sáp nhập trải rộng (Lâm Đồng gồm Đà Lạt + Phan
+     * Thiết), điểm trung bình rơi vào giữa rừng, tìm quanh đó ra 0 phòng.
+     *
+     * @param  array<int, int|string>  $branchIds
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function roomCoords(array $branchIds): array
+    {
+        if ($branchIds === []) {
+            return [null, null];
+        }
+
+        $categoryIds = array_values(array_unique(array_merge(
+            $branchIds,
+            Category::whereIn('parent_id', $branchIds)->pluck('id')->all()
+        )));
+
+        $row = Product::query()->activeBranch()
+            ->where('is_activated', true)->where('is_in_stock', true)
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->where(fn ($q) => $q->whereHas('categories', fn ($c) => $c->whereIn('categories.id', $categoryIds))
+                ->orWhereIn('building_id', $categoryIds))
+            ->selectRaw('AVG(latitude) as lat, AVG(longitude) as lng, COUNT(*) as n')
+            ->groupByRaw('ROUND(latitude, 1), ROUND(longitude, 1)')
+            ->orderByDesc('n')
+            ->toBase()
+            ->first();
+
+        return $row && $row->lat !== null
+            ? [(string) round((float) $row->lat, 7), (string) round((float) $row->lng, 7)]
+            : [null, null];
     }
 
     /** Chi nhánh + các category con (khu vực). */

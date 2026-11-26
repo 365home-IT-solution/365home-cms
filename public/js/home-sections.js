@@ -335,13 +335,14 @@ if (typeof window.__roomTypeImage === 'undefined') {
 
 // Icon đứng cạnh/trên tên loại hình dịch vụ ở hàng nút "Loại hình dịch vụ" (xem flash-sale.blade.php).
 if (typeof window.__roomTypeIconMap === 'undefined') {
+    // PHẢI khớp bản render sẵn từ server (match() trong flash-sale.blade.php).
     window.__roomTypeIconMap = {
-        homestay: '/images/homestay-176.webp',
-        hotel: '/images/hotel-176.webp',
+        homestay: '/images/room-types/homestay-v2.webp',
+        hotel: '/images/room-types/hotel-v2.webp',
         motel: '/images/motel-176.webp',
-        villa: '/images/villa-176.webp',
+        villa: '/images/room-types/villa-v2.webp',
         apartment: '/images/apartment-176.webp',
-        mini_house: '/images/minihouse-176.webp',
+        mini_house: '/images/room-types/minihouse-v2.webp',
     };
 }
 

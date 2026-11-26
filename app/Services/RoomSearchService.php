@@ -408,6 +408,7 @@ class RoomSearchService
         // nhiều chi nhánh (category cha, cách nhau bởi dấu phẩy), vd /s/254-xuan-thuy-an-binh-can-tho
         // hoặc /s/branch-a,branch-b khi khối đó chọn nhiều chi nhánh cùng lúc.
         $branchCategories = null;
+        $locationKeyword  = null;
         if ($province === null && ! empty($filters['province'])) {
             $slugs = array_values(array_filter(array_map('trim', explode(',', (string) $filters['province']))));
             if (! empty($slugs)) {
@@ -445,8 +446,13 @@ class RoomSearchService
                 $branchCatIds   = $branchIds;
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
             } else {
-                // location không khớp cả tỉnh lẫn chi nhánh nào → trả về rỗng thay vì hiện lố toàn quốc
-                $query->whereRaw('1 = 0');
+                // location không khớp slug tỉnh lẫn chi nhánh nào (vd app gửi province=da-lat hoặc "Đà lạt" —
+                // Đà Lạt không phải tỉnh) → coi đó là từ khoá địa điểm (gạch nối → khoảng trắng) và lọc như ô
+                // tìm kiếm "q" bên dưới, thay vì trả rỗng. Từ khoá không khớp gì vẫn ra rỗng, không hiện lố toàn quốc.
+                $locationKeyword = trim(str_replace(['-', '_'], ' ', implode(' ', $slugs ?? []))) ?: null;
+                $locationKeyword !== null
+                    ? $this->applyKeyword($query, $locationKeyword, null)
+                    : $query->whereRaw('1 = 0');
             }
         }
 
@@ -533,39 +539,8 @@ class RoomSearchService
             $query->whereNotIn('id', $bookedIds);
         }
 
-        // Keyword search — không phân biệt dấu (collation unicode_ci) và đ = d ("da lat" ra "Đà Lạt"):
-        // so sánh trên cột đã chuẩn hoá đ → d (SearchLocationService::column) với từ khoá đã chuẩn hoá.
         if (! empty($validated['q'])) {
-            $q   = $validated['q'];
-            $loc = app(\App\Services\SearchLocationService::class);
-            $pat = \App\Services\SearchLocationService::pattern($q);
-            $col = fn (string $column) => \App\Services\SearchLocationService::column($column) . ' like ?';
-
-            // Khi province đã được auto-resolve thì không cần tìm theo tên tỉnh nữa
-            $provinceCategoryIds = $province === null
-                ? $this->getCategoryIdsByProvinceName($q)
-                : [];
-
-            // Toà nhà MiniHouse: tên toà (categories.name qua products.building_id) và địa chỉ/tỉnh/
-            // phường nhập ở cài đặt toà nhà (minihouse_building_settings) — phòng homestay có
-            // building_id = null nên 2 điều kiện này không ảnh hưởng gì tới chúng.
-            $buildingIdsByAddress = BuildingSetting::query()
-                ->where(fn ($b) => $b->whereRaw($col('address'), [$pat])
-                    ->orWhereRaw($col('province_name_raw'), [$pat])
-                    ->orWhereRaw($col('ward_raw'), [$pat]))
-                ->select('category_id');
-
-            $query->where(function ($sub) use ($col, $pat, $provinceCategoryIds, $buildingIdsByAddress) {
-                $sub->whereRaw($col('name'), [$pat])
-                    ->orWhereRaw($col('address'), [$pat])
-                    ->orWhereHas('categories', fn ($cq) => $cq->whereRaw($col('name'), [$pat]))
-                    ->orWhereIn('building_id', Category::whereRaw($col('name'), [$pat])->select('id'))
-                    ->orWhereIn('building_id', $buildingIdsByAddress);
-
-                if (! empty($provinceCategoryIds)) {
-                    $sub->orWhere(fn ($b) => $this->whereInBranches($b, $provinceCategoryIds));
-                }
-            });
+            $this->applyKeyword($query, $validated['q'], $province);
         }
         // Filter rooms by available time slots khi tìm theo_gio có time_from & time_to — khớp
         // theo kiểu OVERLAP (khung giờ của phòng chỉ cần giao nhau với [time_from, time_to] khách
@@ -610,11 +585,26 @@ class RoomSearchService
                 . '+ sin( radians(?) ) * sin( radians(latitude) ) '
                 . ') ) )';
 
-            $query->whereNotNull('latitude')
+            // Có từ khoá / địa điểm (q, hoặc province không khớp slug → từ khoá) mà KHÔNG phòng nào khớp nằm
+            // trong bán kính quanh lat/lng → bỏ giới hạn bán kính, vẫn xếp gần → xa. App gửi kèm toạ độ bản đồ
+            // đang đứng (vd Cần Thơ) khi khách gõ "Đà Lạt" — trước đây lọc "trong 3 km quanh Cần Thơ VÀ khớp
+            // Đà Lạt" nên luôn 0 phòng. Không có từ khoá thì giữ nguyên tìm quanh vị trí như cũ.
+            $hasPlaceKeyword = ! empty($validated['q']) || $locationKeyword !== null;
+            $applyRadius     = ! $hasPlaceKeyword || (clone $query)
+                ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
-                // whereRaw hoạt động đúng trong cả data query lẫn COUNT query của paginate()
                 ->whereRaw("{$haversine} <= ?", [$lat, $lng, $lat, $radius])
-                ->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
+                ->exists();
+
+            if ($applyRadius) {
+                $query->whereNotNull('latitude')
+                    ->whereNotNull('longitude')
+                    // whereRaw hoạt động đúng trong cả data query lẫn COUNT query của paginate()
+                    ->whereRaw("{$haversine} <= ?", [$lat, $lng, $lat, $radius]);
+            }
+
+            $query->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
+                ->orderByRaw('distance IS NULL')
                 ->orderBy('distance');
         } else {
             $query->latest();
@@ -630,6 +620,41 @@ class RoomSearchService
             'timeTo'           => $timeTo,
             'geoActive'        => $geoActive,
         ];
+    }
+
+    // Keyword search — không phân biệt dấu (collation unicode_ci) và đ = d ("da lat" ra "Đà Lạt"):
+    // so sánh trên cột đã chuẩn hoá đ → d (SearchLocationService::column) với từ khoá đã chuẩn hoá.
+    // Dùng cho "q" và cho "province" không khớp slug tỉnh/chi nhánh nào (xem applyFilters()).
+    private function applyKeyword(Builder $query, string $q, ?Province $province): void
+    {
+        $pat = \App\Services\SearchLocationService::pattern($q);
+        $col = fn (string $column) => \App\Services\SearchLocationService::column($column) . ' like ?';
+
+        // Khi province đã được auto-resolve thì không cần tìm theo tên tỉnh nữa
+        $provinceCategoryIds = $province === null
+            ? $this->getCategoryIdsByProvinceName($q)
+            : [];
+
+        // Toà nhà MiniHouse: tên toà (categories.name qua products.building_id) và địa chỉ/tỉnh/
+        // phường nhập ở cài đặt toà nhà (minihouse_building_settings) — phòng homestay có
+        // building_id = null nên 2 điều kiện này không ảnh hưởng gì tới chúng.
+        $buildingIdsByAddress = BuildingSetting::query()
+            ->where(fn ($b) => $b->whereRaw($col('address'), [$pat])
+                ->orWhereRaw($col('province_name_raw'), [$pat])
+                ->orWhereRaw($col('ward_raw'), [$pat]))
+            ->select('category_id');
+
+        $query->where(function ($sub) use ($col, $pat, $provinceCategoryIds, $buildingIdsByAddress) {
+            $sub->whereRaw($col('name'), [$pat])
+                ->orWhereRaw($col('address'), [$pat])
+                ->orWhereHas('categories', fn ($cq) => $cq->whereRaw($col('name'), [$pat]))
+                ->orWhereIn('building_id', Category::whereRaw($col('name'), [$pat])->select('id'))
+                ->orWhereIn('building_id', $buildingIdsByAddress);
+
+            if (! empty($provinceCategoryIds)) {
+                $sub->orWhere(fn ($b) => $this->whereInBranches($b, $provinceCategoryIds));
+            }
+        });
     }
 
     private function isMinihouseSearch(array $validated): bool

@@ -272,6 +272,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
         Route::get('branches',    [SearchController::class, 'branches'])->name('branches');
+        // Ô tìm kiếm trang chủ mobile: tỉnh/thành cũ (provinces.open-api.vn v1) + kết quả chỉ gồm card phòng,
+        // khuyến mãi lên đầu — xem Api\HomeSearchController.
+        Route::get('destinations', [\App\Http\Controllers\Api\HomeSearchController::class, 'destinations'])->name('destinations');
+        Route::get('home-rooms',   [\App\Http\Controllers\Api\HomeSearchController::class, 'rooms'])->name('home-rooms');
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
 });

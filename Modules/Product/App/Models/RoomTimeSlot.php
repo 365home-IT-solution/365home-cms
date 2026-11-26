@@ -105,8 +105,12 @@ class RoomTimeSlot extends Model
      * Giá của khung này vào ngày ở $date. Giai đoạn 2 (config price_boards.phase2): chọn bảng giá thắng
      * của ĐÚNG ngày đó (App\Services\PriceBoards\StayPriceResolver) thay vì giá hiện tại; tắt cờ hoặc
      * khung "ngày đặc biệt" (date != null, giá đã chốt theo ngày) thì trả đúng cột price như trước.
+     *
+     * $resolver: nơi tính giá HÀNG LOẠT (vd bảng lịch Livewire\Book — hàng trăm ô phòng × khung × ngày)
+     * truyền vào 1 instance dùng chung để cache bảng giá theo phòng của resolver có tác dụng; không truyền
+     * thì mỗi lần gọi tạo instance mới (≈10 truy vấn bảng giá cho MỖI ô).
      */
-    public function priceOn(\Carbon\Carbon|string|null $date): ?int
+    public function priceOn(\Carbon\Carbon|string|null $date, ?\App\Services\PriceBoards\StayPriceResolver $resolver = null): ?int
     {
         if ($this->price === null) {
             return null;
@@ -116,7 +120,7 @@ class RoomTimeSlot extends Model
             return (int) $this->price;
         }
 
-        return app(\App\Services\PriceBoards\StayPriceResolver::class)->slotPrice($this, $date);
+        return ($resolver ?? app(\App\Services\PriceBoards\StayPriceResolver::class))->slotPrice($this, $date);
     }
 
     /**

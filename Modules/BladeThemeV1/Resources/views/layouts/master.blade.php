@@ -169,20 +169,24 @@
             .home-explore-section{padding-top:1.5rem;padding-bottom:1.5rem;background:#fff}
             .home-explore-container{width:100%;max-width:80rem;margin-left:auto;margin-right:auto;padding-left:1rem;padding-right:1rem}
             .home-explore-title{margin:0 0 1rem;font-size:1.5rem;line-height:2rem;font-weight:700;color:#111827}
-            .home-explore-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
-            .explore-card{position:relative;overflow:hidden;width:100%;height:150px;border-radius:16px;background:#f3f4f6;display:flex;align-items:center}
-            .explore-card-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
-            .explore-card-bg-right{object-position:right center}
-            .explore-card-content{position:relative;z-index:1;max-width:62%;padding:0 20px;display:flex;flex-direction:column;gap:6px}
-            .explore-card-badge{height:26px;width:auto;aspect-ratio:149/48;display:block}
+            {{-- "Ưu đãi dành cho bạn" (flash-sale.blade.php): carousel 2 banner ảnh 640×224. --}}
+            .offer-carousel{position:relative}
+            .offer-track{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+            .offer-track::-webkit-scrollbar{display:none}
+            .offer-slide{position:relative;display:block;flex:0 0 100%;aspect-ratio:640/224;padding:0;border:0;border-radius:16px;overflow:hidden;background:#e8f4f3;scroll-snap-align:start;cursor:pointer}
+            .offer-slide img{display:block;width:100%;height:100%;object-fit:cover}
+            .offer-hot{position:absolute;z-index:2;border-radius:10px}
+            .offer-hot-all{inset:0;z-index:1;border-radius:0}
             @media(min-width:640px){.home-explore-container{padding-left:1.5rem;padding-right:1.5rem}}
-            @media(min-width:1024px){.home-explore-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.explore-card{height:190px}.explore-card-content{padding:0 28px}.explore-card-badge{height:42px}}
+            @media(min-width:1024px){.offer-slide{flex-basis:calc(50% - 6px)}}
         </style>
-        @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
+        {{-- ThemeVite thay @vite(..., 'build-bladethemev1'): hot file riêng của theme, để dev server
+             Vite gốc (public/hot) không chiếm asset theme — xem Modules\BladeThemeV1\Support\ThemeVite. --}}
+        {{ \Modules\BladeThemeV1\Support\ThemeVite::tags(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js']) }}
     @else
         {{-- app.css nạp chặn render như stylesheet thường (xem AppServiceProvider) — nạp non-blocking
              từng làm trang vẽ HTML trần rồi restyle (CLS 1.0 trên trang chi tiết phòng). --}}
-        @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+        {{ \Modules\BladeThemeV1\Support\ThemeVite::tags(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js']) }}
     @endif
     {{-- Real-time "khung giờ đang bị admin giữ chỗ" (xem App\Services\TimeslotHoldService) — nhúng
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn

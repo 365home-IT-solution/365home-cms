@@ -171,10 +171,8 @@ class HomeController extends Controller
             'home' => [
                 'page'        => 'home',
                 'province_id' => $province?->id,
-                'room_types'  => RoomType::where('is_active', true)
-                    ->orderBy('sort_order')
-                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
-                    ->toArray(),
+                // Trang chủ web: chỉ loại hình đang có phòng (hoặc Mini House có toà nhà).
+                'room_types'  => \App\Support\HomeRoomTypes::visible(),
                 'sections'    => $sections,
             ],
         ]);
