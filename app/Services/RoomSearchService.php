@@ -403,13 +403,37 @@ class RoomSearchService
 
         $province = $this->resolveProvince($filters, $authUser);
 
+        // Có từ khoá "q" mà KHÔNG phòng nào trong tỉnh đó khớp → bỏ lọc tỉnh, tìm theo từ khoá trên toàn bộ.
+        // App gửi kèm province_id của khu vực đang chọn (hoặc lấy province_id mặc định của tài khoản, xem
+        // resolveProvince()) — gõ "Đà Lạt" khi khu vực là Cần Thơ thành "Đà Lạt BÊN TRONG Cần Thơ" → 0 phòng.
+        // Từ khoá khớp phòng trong tỉnh (vd tên đường/chi nhánh của tỉnh đó) thì vẫn giữ lọc tỉnh như cũ.
+        $provinceDroppedForKeyword = false;
+        if ($province !== null && ! empty($validated['q'])) {
+            $provinceDroppedForKeyword = true;
+            $inProvince = clone $query;
+            $branchIds  = $province->branches()->where('status', true)->pluck('categorie_id')->all();
+            $branchIds  = array_merge($branchIds, Category::whereIn('parent_id', $branchIds ?: [0])->pluck('id')->all());
+
+            if ($branchIds === []) {
+                $province = null;
+            } else {
+                $this->whereInBranches($inProvince, $branchIds);
+                $this->applyKeyword($inProvince, $validated['q'], $province);
+
+                if (! $inProvince->exists()) {
+                    $province = null;
+                }
+            }
+            $provinceDroppedForKeyword = $province === null;
+        }
+
         // "location" (path /s/{location} → query ?province=) có thể là slug tỉnh (ở trên) hoặc —
         // khi nút "Xem tất cả" của 1 khối phòng theo chi nhánh cụ thể được bấm — slug của 1 hoặc
         // nhiều chi nhánh (category cha, cách nhau bởi dấu phẩy), vd /s/254-xuan-thuy-an-binh-can-tho
         // hoặc /s/branch-a,branch-b khi khối đó chọn nhiều chi nhánh cùng lúc.
         $branchCategories = null;
         $locationKeyword  = null;
-        if ($province === null && ! empty($filters['province'])) {
+        if ($province === null && ! $provinceDroppedForKeyword && ! empty($filters['province'])) {
             $slugs = array_values(array_filter(array_map('trim', explode(',', (string) $filters['province']))));
             if (! empty($slugs)) {
                 $branchCategories = Category::whereIn('slug', $slugs)
