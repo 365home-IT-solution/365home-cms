@@ -180,16 +180,21 @@ if (typeof window.roomCardHtml === 'undefined') {
             ? '/' + roomTypeUrlSlug + '/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
             : '/room/' + room.slug + '/';
         // original_amount: giá gốc khi đang giảm (Flash Sale phòng theo ngày — HomeController::fetchRegionFlashSaleRooms()).
+        // Dòng giá co theo bề rộng card: cỡ chữ clamp() theo vw, và giá gốc (gạch ngang) là 1 khối nowrap
+        // riêng — card hẹp (mobile ~160px) thì nó tự xuống thành dòng trên, "giá bán / đơn vị" ở dòng dưới
+        // cạnh sao đánh giá; card rộng (desktop) vẫn 1 dòng như cũ. Trước đây cả dòng nowrap nên trên mobile
+        // tràn đè lên sao đánh giá.
+        const smallText = 'font-size:clamp(10px, 2.8vw, 11px);';
         const oldPriceHtml = room.price && room.price.original_amount > room.price.amount
-            ? '<span style="color:#9ca3af; font-size:11px; text-decoration:line-through; margin-right:4px;">' + window.__homeVnd(room.price.original_amount) + '</span>'
+            ? '<span style="display:inline-block; white-space:nowrap; color:#9ca3af; ' + smallText + ' text-decoration:line-through; margin-right:4px;">' + window.__homeVnd(room.price.original_amount) + '</span>'
             : '';
         const priceHtml = room.price
-            ? oldPriceHtml + '<span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
-                + '<span style="color:#9ca3af; font-size:11px;"> ' + (room.price.unit_label || '') + '</span>'
+            ? oldPriceHtml + '<span style="display:inline-block; white-space:nowrap;"><span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
+                + '<span style="color:#9ca3af; ' + smallText + '"> ' + (room.price.unit_label || '') + '</span></span>'
             : '<span style="font-weight:700;">Liên hệ</span>';
 
         const ratingHtml = room.rating
-            ? '<span style="font-size:12px; color:#374151; white-space:nowrap; display:flex; align-items:center; gap:2px; flex-shrink:0;">'
+            ? '<span style="font-size:clamp(11px, 3vw, 12px); color:#374151; white-space:nowrap; display:flex; align-items:center; gap:2px; flex-shrink:0;">'
                 + '<svg style="width:12px;height:12px;color:#f59e0b;flex-shrink:0;" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>'
                 + Number(room.rating).toFixed(1) + '</span>'
             : '';
@@ -223,8 +228,8 @@ if (typeof window.roomCardHtml === 'undefined') {
             + '</div>'
             + '<div style="padding:0 2px; display:flex; flex-direction:column; gap:3px;">'
             + '<p style="font-size:13px; font-weight:600; color:#111827; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + (room.name || '') + '</p>'
-            + '<div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">'
-            + '<p style="font-size:13px; color:#111827; margin:0; white-space:nowrap;">' + priceHtml + '</p>'
+            + '<div style="display:flex; align-items:flex-end; justify-content:space-between; gap:6px;">'
+            + '<p style="font-size:clamp(12px, 3.3vw, 13px); line-height:1.3; color:#111827; margin:0; min-width:0;">' + priceHtml + '</p>'
             + ratingHtml
             + '</div></div></a>';
     };
