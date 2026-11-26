@@ -37,6 +37,10 @@ class HeroSection extends Component
     // #header-search-slot; bấm pill thì cuộn lên banner rồi mở đúng ô (window.__heroOverlayOpen,
     // public/js/alpine-blocks.js) thay vì giãn form ngay trong header như các trang khác.
     public bool   $homeOverlay     = false;
+    // Instance mặc định (thanh thu gọn khi cuộn + menu drawer): false = không in thanh thu gọn. Trang chủ
+    // truyền false — ở đó khung ngoài là lg:hidden còn nút mở bên trong là hidden lg:block, nên thanh này
+    // không bao giờ hiện, chỉ tốn ~190 phần tử DOM + binding Alpine lúc tải trang mobile.
+    public bool   $compactBar      = true;
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';

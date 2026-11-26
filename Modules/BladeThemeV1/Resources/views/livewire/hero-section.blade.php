@@ -212,7 +212,8 @@
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><use href="#i-check"/></svg>';
     @endphp
 
-    {{-- Compact bar --}}
+    {{-- Compact bar (HeroSection::$compactBar — trang chủ tắt, xem giải thích ở đó) --}}
+    @if ($compactBar)
     <div x-show="heroShrunk"
          x-cloak
          class="lg:hidden"
@@ -229,6 +230,7 @@
         @include('bladethemev1::livewire.hero-section._compact-pill')
         @include('bladethemev1::livewire.hero-section._compact-form')
     </div>
+    @endif
 
     @include('bladethemev1::livewire.hero-section._menu-drawer')
 </div>

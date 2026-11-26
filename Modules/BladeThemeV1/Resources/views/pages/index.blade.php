@@ -53,7 +53,8 @@
              có thanh tìm kiếm thu gọn + menu của MOBILE (lg:hidden) — máy tính không in (xem
              App\Support\ViewportMode). --}}
         @if (\App\Support\ViewportMode::rendersMobile())
-            @livewire('bladethemev1::hero-section')
+            {{-- compactBar=false: thanh thu gọn của instance này không bao giờ hiện ở trang chủ (xem HeroSection). --}}
+            @livewire('bladethemev1::hero-section', ['compactBar' => false])
             {{-- Mobile: ô tìm kiếm kiểu Agoda ngay đầu trang (thay thanh tìm kiếm gọn trong header —
                  header-main.blade.php không in thanh đó ở trang chủ nữa). --}}
             <x-bladethemev1::home.mobile-search :room-types="data_get($criticalHome ?? [], 'room_types', [])" />

@@ -578,7 +578,7 @@
                                              $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
                                         <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;" @if ($typeUrlSlug && ($type['slug'] ?? '') !== 'mini_house') :href="roomTypeHref(@js('/'.$typeUrlSlug))" @endif>
                                             {{-- PHẢI khớp window.__roomTypeIconMap (public/js/home-sections.js). --}}
-                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'room-types/hotel-v2.webp', 'motel' => 'motel-176.webp', 'villa' => 'room-types/villa-v2.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'room-types/minihouse-v2.webp', default => 'room-types/homestay-v2.webp' }) }}"
+                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'room-types/hotel-v3.webp', 'motel' => 'motel-176.webp', 'villa' => 'room-types/villa-v3.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'room-types/minihouse-v3.webp', default => 'room-types/homestay-v3.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
                                             <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
                                         </a>
@@ -922,12 +922,12 @@
         <section class="py-6 sm:py-8 bg-gray-50">
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <x-bladethemev1::seo-content.feature-grid title="Các loại hình lưu trú tại 365 Home" :columns="3" :items="[
-                    ['image' => 'images/hotel-176.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
-                    ['image' => 'images/motel-176.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
-                    ['image' => 'images/villa-176.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
-                    ['image' => 'images/apartment-176.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
-                    ['image' => 'images/minihouse-176.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
-                    ['image' => 'images/homestay-176.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
+                    ['image' => 'images/hotel-88.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
+                    ['image' => 'images/motel-88.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
+                    ['image' => 'images/villa-88.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
+                    ['image' => 'images/apartment-88.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
+                    ['image' => 'images/minihouse-88.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
+                    ['image' => 'images/homestay-88.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
                 ]" />
             </div>
         </section>

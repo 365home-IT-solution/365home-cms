@@ -137,7 +137,8 @@ window.homeMobileSearch = function (config) {
                 this.adults = Math.max(1, Number(last.adults) || 2);
                 this.children = Math.max(0, Number(last.children) || 0);
             }
-            this.months = this.buildMonths();
+            // Lịch (6 tháng × ~37 ô, mỗi ô vài binding Alpine) KHÔNG dựng lúc tải trang — từng là khối DOM
+            // lớn nhất trang chủ mobile, kéo dài tác vụ khởi tạo Alpine và trễ LCP. Dựng ở lần mở đầu (openDates()).
 
             window.addEventListener('popstate', (e) => {
                 const hms = e.state && Array.isArray(e.state.hms) ? e.state.hms : [];
@@ -372,6 +373,7 @@ window.homeMobileSearch = function (config) {
             return out;
         },
         openDates() {
+            if (!this.months.length) this.months = this.buildMonths();
             this.draftIn = this.checkin;
             this.draftOut = this.checkout;
             this.push('dates');

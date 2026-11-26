@@ -18,11 +18,15 @@
     <span hidden x-data x-init="(() => { const mq = window.matchMedia('(min-width: 1024px)'); const sync = () => { const want = mq.matches ? 'desktop' : 'mobile'; if ($wire.layout !== want) { resetSelection(); $wire.setLayout(want); } }; sync(); mq.addEventListener('change', sync); })()"></span>
     <div class="w-full mx-auto">
         @if ($this->deferred)
-        {{-- Chế độ hoãn tải (Book::$deferred, trang chủ): chỉ in khung chờ; khi khối này cách vùng nhìn
-             dưới 1000px (trên desktop là gần như ngay lúc vào trang) thì gọi loadBoard() lấy bảng thật.
-             Trình duyệt không có IntersectionObserver thì tải luôn. Chỉ dùng nháy đơn trong x-init. --}}
+        {{-- Chế độ hoãn tải (Book::$deferred, trang chủ): chỉ in khung chờ rồi gọi loadBoard() lấy bảng thật khi:
+             - Desktop: khối cách vùng nhìn dưới 1000px (gần như ngay lúc vào trang) — như trước.
+             - Mobile: khối ĐÃ lọt vào màn hình (máy màn hình cao), HOẶC sau lần tương tác đầu tiên (cuộn/chạm/
+               phím) thì đón trước 600px. Bảng lịch là ~1.250 phần tử DOM + 1 lượt Livewire — tải ngay lúc mở trang
+               (khối nằm ~900px, dưới ô tìm kiếm + loại hình + ưu đãi) từng chặn luồng chính, trễ LCP mobile.
+             Chỉ đổi THỜI ĐIỂM tải, thao tác trên lịch giữ nguyên. Không có IntersectionObserver thì tải luôn.
+             Chỉ dùng nháy đơn trong x-init. --}}
         <div class="book-deferred" x-data
-             x-init="(() => { const go = () => { if ($wire.deferred) $wire.loadBoard(); }; if (!('IntersectionObserver' in window)) { go(); return; } const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { io.disconnect(); go(); } }, { rootMargin: '1000px 0px' }); io.observe($el); })()">
+             x-init="(() => { const go = () => { if ($wire.deferred) $wire.loadBoard(); }; if (!('IntersectionObserver' in window)) { go(); return; } const el = $el; const watch = (margin) => { const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { io.disconnect(); go(); } }, { rootMargin: margin }); io.observe(el); }; if (window.matchMedia('(min-width: 1024px)').matches) { watch('1000px 0px'); return; } watch('0px'); const types = ['scroll', 'touchstart', 'pointerdown', 'keydown']; const arm = () => { types.forEach((t) => removeEventListener(t, arm)); watch('600px 0px'); }; types.forEach((t) => addEventListener(t, arm, { passive: true })); })()">
             @include('bladethemev1::livewire.book._skeleton')
         </div>
         @else

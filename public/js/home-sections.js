@@ -337,12 +337,12 @@ if (typeof window.__roomTypeImage === 'undefined') {
 if (typeof window.__roomTypeIconMap === 'undefined') {
     // PHẢI khớp bản render sẵn từ server (match() trong flash-sale.blade.php).
     window.__roomTypeIconMap = {
-        homestay: '/images/room-types/homestay-v2.webp',
-        hotel: '/images/room-types/hotel-v2.webp',
+        homestay: '/images/room-types/homestay-v3.webp',
+        hotel: '/images/room-types/hotel-v3.webp',
         motel: '/images/motel-176.webp',
-        villa: '/images/room-types/villa-v2.webp',
+        villa: '/images/room-types/villa-v3.webp',
         apartment: '/images/apartment-176.webp',
-        mini_house: '/images/room-types/minihouse-v2.webp',
+        mini_house: '/images/room-types/minihouse-v3.webp',
     };
 }
 
