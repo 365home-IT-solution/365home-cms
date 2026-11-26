@@ -34,7 +34,7 @@ class BranchLodgingSchema
     // Các node của mọi chi nhánh đang hoạt động đã có toạ độ — cho trang chủ.
     public static function forHomepage(): array
     {
-        return Cache::remember('branch-lodging-schema:v5:home', now()->addMinutes(self::CACHE_TTL_MINUTES), function () {
+        return Cache::remember('branch-lodging-schema:v6:home', now()->addMinutes(self::CACHE_TTL_MINUTES), function () {
             return ProvinceBranch::where('status', true)
                 ->with('category.partner')
                 ->get()
@@ -54,7 +54,7 @@ class BranchLodgingSchema
     public static function forBranch(Category $branch, ?string $url = null): ?array
     {
         return Cache::remember(
-            'branch-lodging-schema:v5:branch:'.$branch->id,
+            'branch-lodging-schema:v6:branch:'.$branch->id,
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => self::build($branch, $url)
         );
@@ -86,6 +86,9 @@ class BranchLodgingSchema
             '@type'        => 'LodgingBusiness',
             '@id'          => $url.'#lodging',
             'name'         => $partnerName !== '' ? $partnerName.' - '.$branchName : $branchName,
+            // Tên chi nhánh KHÔNG kèm tên đối tác (vd "Trung Đông 1" thay vì "CÔNG TY TNHH ... - Trung Đông 1") —
+            // thuộc tính chuẩn schema.org; trang chủ dùng làm nhãn hiển thị (khối "Khu vực có phòng 365 Home").
+            'alternateName' => $partnerName !== '' ? $branchName : null,
             'url'          => $url,
             'telephone'    => self::TELEPHONE,
             'priceRange'   => '$$',

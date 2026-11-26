@@ -897,7 +897,8 @@
                 <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     @foreach ($homeBranchAreas as $homeBranchArea)
                         <li class="rounded-2xl border border-gray-100 p-4">
-                            <a href="{{ $homeBranchArea['url'] }}" class="font-semibold text-gray-900 hover:underline">{{ $homeBranchArea['name'] }}</a>
+                            {{-- alternateName = tên chi nhánh không kèm tên đối tác (BranchLodgingSchema). --}}
+                            <a href="{{ $homeBranchArea['url'] }}" class="font-semibold text-gray-900 hover:underline">{{ $homeBranchArea['alternateName'] ?? $homeBranchArea['name'] }}</a>
                             @if (!empty($homeBranchArea['address']['addressLocality']))
                                 <p class="text-sm text-gray-500 mt-1">{{ $homeBranchArea['address']['addressLocality'] }}, {{ $homeBranchArea['address']['addressRegion'] ?? 'Cần Thơ' }}</p>
                             @endif
