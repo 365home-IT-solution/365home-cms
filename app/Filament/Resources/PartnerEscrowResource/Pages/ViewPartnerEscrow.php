@@ -77,7 +77,7 @@ class ViewPartnerEscrow extends ViewRecord
 
         return [
             Action::make('depositQr')
-                ->label('Nạp ký quỹ (QR PayOS)')->icon('heroicon-o-qr-code')->color('success')
+                ->label('Nạp ký quỹ (QR chuyển khoản)')->icon('heroicon-o-qr-code')->color('success')
                 ->form([Forms\Components\TextInput::make('amount')->label('Số tiền nạp (đ)')->numeric()->required()
                     ->minValue((int) config('escrow.deposit_min_amount'))->default(fn () => max((int) config('escrow.deposit_min_amount'), $this->escrow()->summary($this->getRecord()->fresh())['shortfall']))])
                 ->action(function (array $data) {
@@ -87,7 +87,7 @@ class ViewPartnerEscrow extends ViewRecord
                         ->title('Đã tạo yêu cầu nạp ' . self::money((int) $deposit->amount))
                         ->body($deposit->payos_checkout_url
                             ? "Mở liên kết để quét QR thanh toán (hạn {$deposit->payos_expired_at->format('d/m/Y H:i')}): {$deposit->payos_checkout_url}"
-                            : "Chưa tạo được QR PayOS — chuyển khoản theo nội dung {$deposit->transaction_code}, Super Admin sẽ ghi nhận.")
+                            : "Chưa tạo được QR thanh toán — chuyển khoản theo nội dung {$deposit->transaction_code}, Super Admin sẽ ghi nhận.")
                         ->send();
                 }),
 

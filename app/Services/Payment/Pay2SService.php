@@ -17,6 +17,9 @@ use Modules\Payment\Entities\SePayPaymentLink;
 //   2. Kéo giao dịch từ API Pay2S (pull(), lệnh sepay:sync, trang QR) — dự phòng vì Pay2S chỉ gửi lại webhook 5 lần cách nhau 60 giây.
 class Pay2SService
 {
+    /** Token Bearer đã xác thực request webhook hiện tại (null = chưa xác thực / không qua webhook). */
+    private ?string $verifiedToken = null;
+
     public function __construct(private readonly SePayService $sePay)
     {
     }
@@ -30,6 +33,7 @@ class Pay2SService
 
         $given = $match[1];
         $valid = false;
+        $this->verifiedToken = null;
 
         PartnerSePayAccount::query()->where('provider', PartnerSePayAccount::PROVIDER_PAY2S)->whereNotNull('webhook_token')->get()
             ->each(function (PartnerSePayAccount $account) use ($given, &$valid) {
@@ -37,10 +41,65 @@ class Pay2SService
 
                 if ($token !== '' && hash_equals($token, $given)) {
                     $valid = true;
+                    $this->verifiedToken = $given;
                 }
             });
 
+        // Webhook của tài khoản 365home và của từng toà nhà MiniHouse thu qua Pay2S (token lưu ngoài bảng tài khoản đối tác).
+        foreach ($this->extraWebhookTokens() as $token) {
+            if ($token !== '' && hash_equals($token, $given)) {
+                $valid = true;
+                $this->verifiedToken = $given;
+            }
+        }
+
         return $valid;
+    }
+
+    /** @return list<string> */
+    private function extraWebhookTokens(): array
+    {
+        $tokens = [];
+
+        try {
+            $tokens[] = (string) Pay2SConfig::platformAccount(false)?->webhook_token;
+
+            foreach (\Modules\Minihouse\App\Models\BuildingSetting::query()->whereNotNull('pay2s_webhook_token')->get(['category_id', 'pay2s_webhook_token']) as $setting) {
+                $tokens[] = (string) $setting->pay2s_webhook_token;
+            }
+        } catch (\Throwable) {
+            // Bảng/cột chưa có (vừa deploy, chưa migrate): chỉ dùng token của tài khoản đối tác.
+        }
+
+        return array_values(array_filter($tokens));
+    }
+
+    /**
+     * Token vừa xác thực có quyền báo giao dịch của tài khoản này không? Tài khoản của 365home chỉ nhận qua token webhook của 365home; tài khoản ngân hàng của chủ toà
+     * MiniHouse (chọn Pay2S) chỉ nhận qua token của chính toà đó. Tài khoản đối tác giữ cách kiểm tra cũ (SePayService::handleIncoming).
+     */
+    private function tokenMayReport(array $tx): bool
+    {
+        $numbers = array_values(array_filter([trim((string) ($tx['vaNumber'] ?? '')), trim((string) ($tx['accountNumber'] ?? ''))]));
+        $token = (string) $this->verifiedToken;
+
+        try {
+            $platform = Pay2SConfig::platformAccount(false);
+
+            if ($platform && in_array((string) $platform->account_number, $numbers, true)) {
+                return $token !== '' && filled($platform->webhook_token) && hash_equals((string) $platform->webhook_token, $token);
+            }
+
+            $buildings = \Modules\Minihouse\App\Models\BuildingSetting::query()->whereIn('owner_bank_account_number', $numbers)->whereNotNull('pay2s_webhook_token')->get(['category_id', 'pay2s_webhook_token']);
+
+            if ($buildings->isNotEmpty()) {
+                return $token !== '' && $buildings->contains(fn ($b) => filled($b->pay2s_webhook_token) && hash_equals((string) $b->pay2s_webhook_token, $token));
+            }
+        } catch (\Throwable) {
+            // Bảng/cột chưa có hoặc không giải mã được: không có tài khoản 365/toà nào được bảo vệ ở đây.
+        }
+
+        return true;
     }
 
     /** Giao dịch Pay2S (webhook) → định dạng chung của SePayService::handleIncoming. */
@@ -70,6 +129,13 @@ class Pay2SService
 
         foreach ($transactions as $tx) {
             if (! is_array($tx) || Str::upper((string) ($tx['transferType'] ?? '')) !== 'IN' || (int) ($tx['id'] ?? 0) <= 0) {
+                continue;
+            }
+
+            // Token của đối tác / toà nhà KHÔNG được báo tiền vào tài khoản của 365home (hay của toà khác): nếu không, đối tác giả giao dịch để cộng ký quỹ / đóng gói / xác nhận đơn.
+            if (! $this->tokenMayReport($tx)) {
+                Log::warning('Pay2S webhook: token không có quyền báo giao dịch vào tài khoản này, bỏ qua', ['id' => $tx['id'] ?? null, 'account_tail' => substr((string) ($tx['accountNumber'] ?? ''), -4)]);
+
                 continue;
             }
 
@@ -187,7 +253,7 @@ class Pay2SService
             ];
 
             // Giao dịch không có mã thanh toán của hệ thống là tiền không liên quan (không ghi vào nhật ký đối soát).
-            if ($this->sePay->extractCode($payload) === null) {
+            if ($this->sePay->extractCode($payload) === null && ! app(PlatformCollectionService::class)->detect(Str::upper($payload['content']), true, [$payload['accountNumber']])) {
                 continue;
             }
 

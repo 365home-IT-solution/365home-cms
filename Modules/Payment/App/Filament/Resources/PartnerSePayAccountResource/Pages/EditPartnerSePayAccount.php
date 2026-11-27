@@ -34,6 +34,20 @@ class EditPartnerSePayAccount extends EditRecord
                         ->persistent()
                         ->send();
                 }),
+            Actions\Action::make('provisionWebhook')
+                ->label('Lấy token webhook tự động')
+                ->icon('heroicon-o-key')
+                ->color('gray')
+                ->visible(fn () => app(Pay2SBankHubService::class)->configured() && $this->record->provider === \Modules\Payment\Entities\PartnerSePayAccount::PROVIDER_PAY2S)
+                ->requiresConfirmation()
+                ->modalHeading('Tạo webhook nhận tiền ở Pay2S và lấy token?')
+                ->modalDescription('Hệ thống tìm tài khoản này trong danh sách đã liên kết ở Pay2S, tạo webhook "Nhận tiền" trỏ về ' . (\App\Support\Pay2SConfig::get('webhook_url') ?: route('webhook.pay2s')) . ' rồi lưu token. Pay2S gọi từ internet nên địa chỉ nội bộ có thể không nhận được.')
+                ->action(function () {
+                    $result = app(Pay2SBankHubService::class)->provisionWebhook($this->record->refresh());
+                    $this->record->refresh();
+
+                    Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'danger'}()->persistent(! $result['ok'])->send();
+                }),
             Actions\Action::make('linkPay2s')
                 ->label('Liên kết ngân hàng Pay2S')
                 ->icon('heroicon-o-link')
@@ -87,6 +101,16 @@ class EditPartnerSePayAccount extends EditRecord
     protected function mutateFormDataBeforeSave(array $data): array
     {
         return PartnerSePayAccountResource::normalize($data);
+    }
+
+    // Super Admin lưu tài khoản Pay2S chưa có token: đăng ký webhook ngay.
+    protected function afterSave(): void
+    {
+        $result = app(Pay2SBankHubService::class)->ensureWebhook($this->record->refresh());
+
+        if ($result['created']) {
+            Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'warning'}()->send();
+        }
     }
 
     protected function getRedirectUrl(): string

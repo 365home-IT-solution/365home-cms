@@ -46,7 +46,15 @@ class PaymentGatewaySettingsService
                 $data[$key] = filled($data[$key] ?? null) ? rtrim(trim((string) $data[$key]), '/') : null;
             }
 
-            return array_intersect_key($data, array_flip(['enabled', 'api_token', 'partner_access_key', 'partner_secret_key', 'partner_api_url', 'partner_parent_origin']));
+            // Cổng chuyển khoản mặc định + tài khoản ngân hàng Pay2S của 365home (nhận các khoản 365 thu hộ). Token webhook của tài khoản này để trống = giữ nguyên.
+            $data['default_gateway'] = in_array($data['default_gateway'] ?? null, ['payos', 'pay2s'], true) ? $data['default_gateway'] : null;
+            $data['platform_webhook_token'] = filled($data['platform_webhook_token'] ?? null) ? trim((string) $data['platform_webhook_token']) : $current->platform_webhook_token;
+            foreach (['platform_bank_code', 'platform_bank_bin', 'platform_account_number', 'platform_account_holder'] as $key) {
+                $data[$key] = filled($data[$key] ?? null) ? trim((string) $data[$key]) : null;
+            }
+
+            return array_intersect_key($data, array_flip(['enabled', 'api_token', 'partner_access_key', 'partner_secret_key', 'partner_api_url', 'partner_parent_origin',
+                'default_gateway', 'platform_bank_code', 'platform_bank_bin', 'platform_account_number', 'platform_account_holder', 'platform_webhook_token']));
         }
 
         $data['webhook_secret'] = filled($data['webhook_secret'] ?? null) ? trim((string) $data['webhook_secret']) : $current->webhook_secret;
@@ -81,9 +89,10 @@ class PaymentGatewaySettingsService
             foreach (['partner_access_key', 'partner_secret_key'] as $key) {
                 $data[$key] = $input[$key] ?? null;
             }
-            foreach (['partner_api_url', 'partner_parent_origin'] as $key) {
+            foreach (['partner_api_url', 'partner_parent_origin', 'default_gateway', 'platform_bank_code', 'platform_bank_bin', 'platform_account_number', 'platform_account_holder'] as $key) {
                 $data[$key] = array_key_exists($key, $input) ? $input[$key] : $settings->{$key};
             }
+            $data['platform_webhook_token'] = $input['platform_webhook_token'] ?? null;
         }
 
         if ($provider === PartnerSePayAccount::PROVIDER_SEPAY) {
@@ -151,7 +160,25 @@ class PaymentGatewaySettingsService
             'partner_api_url' => ['value' => Pay2SConfig::get('partner_api_url'), 'source' => Pay2SConfig::source('partner_api_url')],
             'partner_parent_origin' => ['value' => Pay2SConfig::get('partner_parent_origin') ?: config('app.url'), 'source' => Pay2SConfig::source('partner_parent_origin')],
             'can_link_bank' => app(\App\Services\Payment\Pay2SBankHubService::class)->configured(),
+            // Cổng chuyển khoản mặc định của khoản thu mới (payos | pay2s) và tài khoản Pay2S của 365home nhận các khoản 365 thu hộ.
+            'default_gateway' => ['value' => Pay2SConfig::gateway(), 'source' => Pay2SConfig::source('default_gateway')],
+            'collecting_via_pay2s' => Pay2SConfig::collectsViaPay2S() && Pay2SConfig::platformAccount() !== null,
+            'platform_account' => $this->platformAccountStatus(),
             'accounts' => $this->accountCounts(PartnerSePayAccount::PROVIDER_PAY2S),
+        ];
+    }
+
+    private function platformAccountStatus(): array
+    {
+        $account = Pay2SConfig::platformAccount(false);
+
+        return [
+            'configured' => $account !== null,
+            'bank_code' => $account?->bank_code,
+            'bank_bin' => $account?->bank_bin,
+            'account_number' => $account?->account_number,
+            'account_holder' => $account?->account_holder,
+            'webhook_token' => ['configured' => filled($account?->webhook_token)],
         ];
     }
 

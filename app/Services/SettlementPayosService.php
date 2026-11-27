@@ -32,6 +32,11 @@ class SettlementPayosService
     {
         $amount = (int) $settlement->net_amount;
 
+        // Cổng Pay2S: chuyển khoản vào tài khoản 365, nội dung = mã bảng đối soát (DSyymm-XXXXX); webhook Pay2S khớp theo mã (PlatformCollectionService).
+        if ($amount > 0 && app(\App\Services\Payment\PlatformCollectionService::class)->attach(\App\Services\Payment\PlatformCollectionService::KIND_SETTLEMENT, $settlement, $amount, (string) $settlement->code, now()->addHours((int) config('settlement.payment_link_hours', 24)))) {
+            return $settlement->fresh();
+        }
+
         if ($amount < 2000 || ! $this->isConfigured()) {
             return $settlement;
         }

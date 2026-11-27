@@ -28,12 +28,13 @@ class BuildingSetting extends Model
         'payment_method',
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
-        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
+        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox', 'pay2s_webhook_token',
         'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
         'fixed_due_day', 'contract_expiry_reminder_days_before', 'note',
     ];
 
     protected $casts = [
         'payment_sandbox' => 'boolean',
+        'pay2s_webhook_token' => \App\Casts\TolerantEncrypted::class,
     ];
 }

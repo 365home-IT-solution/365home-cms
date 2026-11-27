@@ -17,7 +17,7 @@ return [
     'Quản lý' => [
         'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Loại hình phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố', 'Kiểm tra dọn phòng', 'Dữ liệu mẫu'],
         'Thuê xe & GPS' => ['Lịch xe', 'Đội xe', 'Đơn thuê xe', 'Duyệt giấy tờ', 'Cảnh báo GPS', 'Bản đồ GPS', 'Thiết bị GPS', 'Nhật ký đồng bộ GPS', 'Cài đặt thuê xe', 'Cấu hình Motrak'],
-        'Đối tác & Báo cáo' => ['Đối tác', 'Duyệt thay đổi', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Thống kê hoa hồng', 'Đơn bị giữ khoản bù', 'Yêu cầu hoàn tiền', 'Tài khoản ngân hàng', 'Thống kê lương'],
+        'Đối tác & Báo cáo' => ['Đối tác', 'Duyệt thay đổi', 'Ký quỹ đối tác', 'Đối soát hoa hồng', 'Thống kê hoa hồng', 'Đơn bị giữ khoản bù', 'Yêu cầu hoàn tiền', 'Tài khoản ngân hàng', 'Liên kết ngân hàng Pay2S', 'Thống kê lương'],
         'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng', 'Đánh giá phòng', 'Khai báo lưu trú', 'Chặn SĐT đặt phòng'],
         'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
         'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Bảng giá mẫu', 'Khuyến mãi & Giảm giá', 'Chiến dịch đồng tài trợ'],
@@ -30,7 +30,7 @@ return [
         'Cấu hình chung' => ['Chung', 'Ẩn chi nhánh', 'Thông tin công ty'],
         'Pass cổng' => ['Khóa thủ công', 'Pass Cổng', 'Khóa cổng'],
         'Giao diện website' => ['Menu', 'Trang', 'Thư viện', 'Banner'],
-        'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'PayOS theo chi nhánh', 'PayOS theo đối tác', 'Ký quỹ', 'Chữ ký số', 'Tài khoản TTLock', 'Camera', 'Email'],
+        'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'PayOS theo chi nhánh', 'PayOS theo đối tác', 'Pay2S — cấu hình chung', 'SePay — cấu hình chung', 'SePay / Pay2S theo đối tác', 'Mã thu tiền', 'Giao dịch SePay / Pay2S', 'Pay2S — thanh toán thẻ', 'Giao dịch thẻ Pay2S', 'Ký quỹ', 'Chữ ký số', 'Tài khoản TTLock', 'Camera', 'Email'],
     ],
 
     'Phân quyền' => [

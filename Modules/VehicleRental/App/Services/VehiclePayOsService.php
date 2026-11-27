@@ -41,11 +41,33 @@ class VehiclePayOsService
         if ($booking->status !== VehicleBooking::STATUS_PENDING_PAYMENT || $booking->paid_at !== null) {
             throw new \RuntimeException('Đơn không ở trạng thái chờ thanh toán.');
         }
+        $amount = (int) $booking->total_amount;
+        $collection = app(\App\Services\Payment\PlatformCollectionService::class);
+
+        // Cổng Pay2S: chuyển khoản vào tài khoản 365, nội dung = mã đơn (XE…); webhook Pay2S khớp theo mã (PlatformCollectionService). Còn hạn thì dùng lại.
+        if ($collection->active()) {
+            if ($amount <= 0) {
+                throw new \RuntimeException('Số tiền thanh toán không hợp lệ.');
+            }
+
+            if ($booking->payos_checkout_url && $booking->payos_expires_at?->isFuture()) {
+                return $booking;
+            }
+
+            $expiresAt = $booking->hold_expires_at && $booking->hold_expires_at->isFuture()
+                ? $booking->hold_expires_at
+                : now()->addMinutes((int) config('vehiclerental.hold_minutes', 15));
+
+            $collection->attach($collection::KIND_VEHICLE, $booking, $amount, (string) $booking->code, $expiresAt,
+                ['expires' => 'payos_expires_at', 'bank_bin' => null, 'account' => null, 'holder' => null, 'link_id' => null]);
+
+            return $booking->fresh();
+        }
+
         if (! $this->isConfigured()) {
             throw new \RuntimeException('Chưa cấu hình cổng thanh toán.');
         }
 
-        $amount = (int) $booking->total_amount;
         if ($amount < 2000) {
             throw new \RuntimeException('Số tiền thanh toán quá nhỏ.');
         }

@@ -300,6 +300,7 @@ class ActivityLogFormatter
             'payment_method' => [
                 Building::PAYMENT_METHOD_VIETQR => 'VietQR (chuyển khoản tĩnh)',
                 Building::PAYMENT_METHOD_PAYOS  => 'PayOS',
+                Building::PAYMENT_METHOD_PAY2S  => 'Pay2S',
                 Building::PAYMENT_METHOD_MOMO   => 'MoMo',
                 Building::PAYMENT_METHOD_VNPAY  => 'VNPay',
             ],

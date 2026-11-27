@@ -132,6 +132,10 @@ class PartnerSePayAccountController extends Controller
             [...$data, 'provider' => $provider, 'bank_bin' => $bank['bin'], 'account_number' => trim($data['account_number']), 'account_holder' => mb_strtoupper(trim($data['account_holder'])), 'updated_by' => $request->user()->id]
         );
 
+        // Tài khoản Pay2S chưa có token: đăng ký webhook ngay (không làm hỏng việc lưu nếu Pay2S lỗi).
+        $webhook = app(\App\Services\Payment\Pay2SBankHubService::class)->ensureWebhook($account);
+        $account = $account->fresh();
+
         return response()->json(['message' => 'Đã lưu tài khoản ' . (PartnerSePayAccount::PROVIDERS[$provider] ?? 'SePay') . ($categoryId ? ' của chi nhánh.' : ' của đối tác.'), 'data' => $this->data($partner->fresh(), $account->fresh(), $categoryId)]);
     }
 
@@ -161,12 +165,8 @@ class PartnerSePayAccountController extends Controller
         $this->authorizeAccess($request, $partner, true);
         $categoryId = $this->branchId($request, $partner);
 
-        if (\Modules\Payment\Entities\PartnerPayOsAccount::query()->where('partner_id', $partner->id)->where('is_active', true)->exists()) {
-            return response()->json(['message' => 'Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi liên kết Pay2S (mỗi đối tác chỉ dùng một kênh).'], 422);
-        }
-
-        if (! $bankHub->configured()) {
-            return response()->json(['message' => 'Chưa cấu hình khoá Partner API của Pay2S. Liên hệ 365 HOME để bật tính năng liên kết ngân hàng.'], 422);
+        if ($reason = $bankHub->startBlockedReason($partner)) {
+            return response()->json(['message' => $reason], 422);
         }
 
         try {
@@ -193,6 +193,21 @@ class PartnerSePayAccountController extends Controller
         $account = $record->applied ? $this->data($partner->fresh(), $this->accountOf($partner, $record->category_id), $record->category_id) : null;
 
         return response()->json(['data' => $bankHub->present($record) + ['account' => $account]]);
+    }
+
+    /** Lấy token webhook Pay2S tự động cho tài khoản (mặc định hoặc ?category_id=): tạo webhook "Nhận tiền" ở Pay2S rồi lưu token. */
+    public function pay2sWebhook(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+        $account = $this->accountOf($partner, $this->branchId($request, $partner));
+
+        if (! $account || $account->provider !== PartnerSePayAccount::PROVIDER_PAY2S) {
+            return response()->json(['message' => 'Đối tác chưa có tài khoản nhận tiền dùng cổng Pay2S ở phạm vi này.'], 404);
+        }
+
+        $result = $bankHub->provisionWebhook($account);
+
+        return response()->json(['message' => $result['message'], 'data' => ['created' => $result['created'], 'has_webhook_token' => (bool) $account->fresh()->webhook_token]], $result['ok'] ? 200 : 422);
     }
 
     /** Nút "Kiểm tra liên kết": tài khoản Pay2S của đối tác (hoặc của chi nhánh, ?category_id=) đã liên kết xong / đủ token webhook / đã nhận giao dịch chưa. */
@@ -260,7 +275,8 @@ class PartnerSePayAccountController extends Controller
     {
         abort_if($partner->isSystemPartner() || $partner->isMinihouse(), 404);
         $user = $request->user();
-        $isOwner = $user->partner_id === $partner->id && $partner->payos_self_setup_enabled;
+        // Chủ đối tác (vai trò partner) tự cài tài khoản nhận tiền Pay2S / SePay, không cần Super Admin bật quyền; quyền riêng "tự nhập kênh PayOS" vẫn do 365home cấp.
+        $isOwner = $user->partner_id === $partner->id && ($partner->payos_self_setup_enabled || $user->hasRole('partner'));
         abort_unless($user->isSuperAdmin() || (!$manage && $user->partner_id === $partner->id) || ($manage && $isOwner), 403);
     }
 }

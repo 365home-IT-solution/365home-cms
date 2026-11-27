@@ -112,6 +112,12 @@ Route::post('/webhook/payos', [PaymentController::class, 'handlePayOSWebhook'])
 Route::get('/thanh-toan-sepay/{code}', [\Modules\Payment\Http\Controllers\SePayCheckoutController::class, 'show'])
     ->whereNumber('code')->name('sepay.checkout');
 
+// Trang QR chuyển khoản Pay2S cho khoản 365 thu hộ ngoài đơn phòng (gói, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse) — thay cho checkout của PayOS.
+Route::get('/thanh-toan-chuyen-khoan/{kind}/{code}', [\Modules\Payment\Http\Controllers\PlatformCollectionController::class, 'show'])
+    ->where('kind', 'subscription|escrow|settlement|vehicle|minihouse|collection')->middleware('throttle:60,1')->name('platform-collect.show');
+Route::get('/thanh-toan-chuyen-khoan/{kind}/{code}/trang-thai', [\Modules\Payment\Http\Controllers\PlatformCollectionController::class, 'status'])
+    ->where('kind', 'subscription|escrow|settlement|vehicle|minihouse|collection')->middleware('throttle:120,1')->name('platform-collect.status');
+
 Route::post('/webhook/sepay', '\\App\\Http\\Controllers\\SePayWebhookController')
     ->name('webhook.sepay.legacy');
 

@@ -50,7 +50,7 @@ class EditInvoice extends EditRecord
 
                     return $record->remainingAmount() > 0 && InvoicePayOsService::isConfiguredFor($building);
                 })
-                ->modalHeading('Mã QR thanh toán PayOS')
+                ->modalHeading('Mã QR thanh toán (tự động xác nhận)')
                 ->modalSubmitAction(false)
                 ->modalCancelActionLabel('Đóng')
                 ->form(function () {
@@ -89,11 +89,11 @@ class EditInvoice extends EditRecord
                             ->label('')
                             ->content(new HtmlString(
                                 '<div style="text-align:center">'
-                                . '<img src="' . e($qrImage) . '" alt="QR PayOS" style="margin:0 auto;width:260px;height:260px" />'
+                                . '<img src="' . e($qrImage) . '" alt="QR thanh toán" style="margin:0 auto;width:260px;height:260px" />'
                                 . '<p style="margin-top:12px">Số tiền cần thanh toán: <strong>' . number_format((float) $amount, 0, ',', '.') . 'đ</strong></p>'
                                 . '<p>Hết hạn lúc: ' . $expiredAt->format('H:i d/m/Y') . '</p>'
                                 . '<div style="margin-top:12px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">'
-                                . '<a href="' . e($checkoutUrl) . '" target="_blank" rel="noopener" style="' . $btnStyle . ' background:rgba(var(--primary-600),1); color:#fff;">Mở trang thanh toán PayOS</a>'
+                                . '<a href="' . e($checkoutUrl) . '" target="_blank" rel="noopener" style="' . $btnStyle . ' background:rgba(var(--primary-600),1); color:#fff;">Mở trang thanh toán</a>'
                                 . '<a href="' . e($qrImage) . '" download="qr-thanh-toan-hoa-don-' . $record->id . '.svg" style="' . $btnStyle . ' background:#e5e7eb; color:#374151;">Tải ảnh QR</a>'
                                 . '</div>'
                                 . '</div>'

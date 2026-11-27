@@ -110,7 +110,8 @@ trait InteractsWithTenantPortalData
         $method = $building?->activePaymentMethod();
 
         return match ($method) {
-            Building::PAYMENT_METHOD_PAYOS  => TenantPortalService::normalizePayOsResult(InvoicePayOsService::createQr($invoice, $returnUrl)),
+            Building::PAYMENT_METHOD_PAYOS,
+            Building::PAYMENT_METHOD_PAY2S  => TenantPortalService::normalizePayOsResult(InvoicePayOsService::createQr($invoice, $returnUrl)),
             Building::PAYMENT_METHOD_MOMO   => TenantPortalService::normalizeMomoResult(InvoiceMomoService::createPaymentRequest($invoice, $returnUrl)),
             Building::PAYMENT_METHOD_VNPAY  => TenantPortalService::normalizeVnpayResult(InvoiceVnpayService::createPaymentUrl($invoice, (string) $clientIp, $returnUrl)),
             Building::PAYMENT_METHOD_VIETQR => $building ? TenantPortalService::normalizeVietQrResult($invoice, $building) : null,

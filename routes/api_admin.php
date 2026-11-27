@@ -182,6 +182,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     // Đối tác dùng "xác nhận thủ công": danh sách khoản chuyển khoản chờ xác nhận và nút xác nhận đã nhận tiền.
     Route::get('manual-payments', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'index'])->name('manual-payments.index');
     Route::post('manual-payments/{link}/confirm', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'confirm'])->whereNumber('link')->name('manual-payments.confirm');
+    Route::post('partners/{partner}/pay2s-webhook', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sWebhook'])->middleware('throttle:10,1')->name('partners.pay2s-webhook');
     Route::get('partners/{partner}/pay2s-link-check', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkCheck'])->name('partners.pay2s-link.check');
     Route::get('partners/{partner}/pay2s-link/{session}', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStatus'])->name('partners.pay2s-link.status');
     // SePay / Pay2S — cùng chức năng với các trang CMS (Super Admin): danh sách tài khoản mọi đối tác, cấu hình chung từng cổng, nhật ký giao dịch.
@@ -207,6 +208,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('pay2s-card/payments/{id}', [\App\Http\Controllers\Api\Admin\Pay2SCardAdminController::class, 'showPayment'])->whereNumber('id')->name('pay2s-card.payments.show');
     Route::post('pay2s-card/payments/{id}/sync', [\App\Http\Controllers\Api\Admin\Pay2SCardAdminController::class, 'syncPayment'])->whereNumber('id')->middleware('throttle:20,1')->name('pay2s-card.payments.sync');
     Route::post('pay2s-card/payments/{id}/resolve', [\App\Http\Controllers\Api\Admin\Pay2SCardAdminController::class, 'resolvePayment'])->whereNumber('id')->name('pay2s-card.payments.resolve');
+    // Mã thu tiền độc lập (khoản thu do admin tạo, thu qua Pay2S) — chỉ Super Admin.
+    Route::get('payment-collections', [\App\Http\Controllers\Api\Admin\PaymentCollectionController::class, 'index'])->name('payment-collections.index');
+    Route::post('payment-collections', [\App\Http\Controllers\Api\Admin\PaymentCollectionController::class, 'store'])->middleware('throttle:30,1')->name('payment-collections.store');
+    Route::get('payment-collections/{id}', [\App\Http\Controllers\Api\Admin\PaymentCollectionController::class, 'show'])->whereNumber('id')->name('payment-collections.show');
+    Route::post('payment-collections/{id}/cancel', [\App\Http\Controllers\Api\Admin\PaymentCollectionController::class, 'cancel'])->whereNumber('id')->name('payment-collections.cancel');
     Route::get('sepay-transactions', [\App\Http\Controllers\Api\Admin\SePayTransactionController::class, 'index'])->name('sepay-transactions.index');
     Route::get('sepay-transactions/{transaction}', [\App\Http\Controllers\Api\Admin\SePayTransactionController::class, 'show'])->whereNumber('transaction')->name('sepay-transactions.show');
     // Ký quỹ đối tác: số dư, sổ bút toán, nạp qua QR, đề xuất trừ (đồng ý / khiếu nại / chốt) — xem PartnerEscrowController.

@@ -36,6 +36,9 @@ class Building extends Category
 
     public const PAYMENT_METHOD_PAYOS = 'payos';
 
+    // Pay2S: tiền vào THẲNG tài khoản ngân hàng của chủ toà (owner_bank_*), Pay2S báo biến động số dư qua webhook riêng của tài khoản đó (token lưu theo toà).
+    public const PAYMENT_METHOD_PAY2S = 'pay2s';
+
     public const PAYMENT_METHOD_MOMO = 'momo';
 
     public const PAYMENT_METHOD_VNPAY = 'vnpay';
@@ -67,7 +70,7 @@ class Building extends Category
         'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
-        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
+        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox', 'pay2s_webhook_token',
     ];
 
     protected $appends = [
@@ -80,7 +83,7 @@ class Building extends Category
         'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
-        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
+        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox', 'pay2s_webhook_token',
     ];
 
     private array $pendingDetail = [];
@@ -390,6 +393,16 @@ class Building extends Category
         $this->pendingDetail['water_unit_price'] = $value;
     }
 
+    public function getPay2sWebhookTokenAttribute(): ?string
+    {
+        return $this->detailValue('pay2s_webhook_token');
+    }
+
+    public function setPay2sWebhookTokenAttribute($value): void
+    {
+        $this->pendingDetail['pay2s_webhook_token'] = $value;
+    }
+
     public function getPaymentSandboxAttribute(): bool
     {
         return (bool) $this->detailValue('payment_sandbox');
@@ -480,6 +493,12 @@ class Building extends Category
         return [$this->payos_client_id, $this->payos_api_key, $this->payos_checksum_key];
     }
 
+    // Pay2S của chủ toà: dùng chính tài khoản ngân hàng nhận tiền (owner_bank_*) + token webhook Pay2S của tài khoản đó.
+    public function hasOwnPay2S(): bool
+    {
+        return $this->hasOwnerBankInfo() && filled($this->pay2s_webhook_token);
+    }
+
     public function hasOwnMomo(): bool
     {
         return filled($this->momo_partner_code) && filled($this->momo_access_key) && filled($this->momo_secret_key);
@@ -506,6 +525,7 @@ class Building extends Category
     {
         return match ($this->payment_method) {
             self::PAYMENT_METHOD_PAYOS => $this->hasOwnPayOs() ? self::PAYMENT_METHOD_PAYOS : null,
+            self::PAYMENT_METHOD_PAY2S => $this->hasOwnPay2S() ? self::PAYMENT_METHOD_PAY2S : null,
             self::PAYMENT_METHOD_MOMO => $this->hasOwnMomo() ? self::PAYMENT_METHOD_MOMO : null,
             self::PAYMENT_METHOD_VNPAY => $this->hasOwnVnpay() ? self::PAYMENT_METHOD_VNPAY : null,
             self::PAYMENT_METHOD_VIETQR => $this->hasOwnerBankInfo() ? self::PAYMENT_METHOD_VIETQR : null,
