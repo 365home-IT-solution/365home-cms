@@ -251,6 +251,130 @@ class Pay2SBankHubService
         return $this->bankCall('/v1/banks/confirm-otp', $this->openApiPayload($in, true) + ['otp' => trim($otp)], false);
     }
 
+    /**
+     * Quy tắc kiểm tra dữ liệu bước 1 (dùng chung trang CMS và API). $prefix = tiền tố khoá (vd 'bank.' ở trang Livewire).
+     *
+     * @param array<string,mixed> $in dữ liệu đã nhập (cần bank + account_type để biết ô nào bắt buộc)
+     * @return array<string, list<string>>
+     */
+    public static function openApiRules(array $in, string $prefix = ''): array
+    {
+        $cfg = self::OPENAPI_BANKS[$in['bank'] ?? ''] ?? null;
+        $business = ($in['account_type'] ?? 'personal') === 'business';
+
+        return [
+            $prefix . 'bank' => ['required', 'in:' . implode(',', array_keys(self::OPENAPI_BANKS))],
+            $prefix . 'account_type' => ['required', 'in:' . implode(',', $cfg['types'] ?? ['personal', 'business'])],
+            $prefix . 'account_number' => ['required', 'regex:/^[0-9A-Za-z.-]{6,50}$/'],
+            $prefix . 'account_holder' => ['required', 'string', 'max:255'],
+            $prefix . 'phone' => ['required', 'regex:/^[0-9+ ]{9,15}$/'],
+            $prefix . 'email' => ['required', 'email', 'max:255'],
+            $prefix . 'cccd' => [($cfg['cccd'] ?? false) ? 'required' : 'nullable', 'string', 'max:20'],
+            $prefix . 'merchant_id' => ['nullable', 'string', 'max:50'],
+            $prefix . 'username' => [($cfg['username_business'] ?? false) && $business ? 'required' : 'nullable', 'string', 'max:100'],
+        ];
+    }
+
+    /**
+     * BƯỚC 1 của "liên kết nhanh bằng OTP" (dùng chung CMS và API): gửi thông tin ngân hàng cho Pay2S.
+     * Trạng thái trả về (state):
+     *  - otp_required : ngân hàng đã gửi OTP về số điện thoại → gọi confirmOpenApiLink() với mã OTP
+     *  - connected    : đã liên kết xong (tài khoản đã có sẵn ở Pay2S, hoặc ngân hàng không cần OTP) — account đã lưu + webhook đã tạo
+     *  - hosted_link  : Pay2S chưa bật API nhập OTP trực tiếp cho ứng dụng → dùng Hosted Link (createSession)
+     *  - error        : thất bại, xem message
+     *
+     * @param array<string,mixed> $in bank, account_type, account_number, account_holder, phone, email, cccd?, merchant_id?, username?
+     * @return array{state: string, message: string, account: ?PartnerSePayAccount}
+     */
+    public function submitOpenApiLink(Partner $partner, ?int $categoryId, array $in, ?\App\Models\User $actor = null): array
+    {
+        // Tài khoản đã được thêm ở Pay2S từ trước: không thêm lại, không cần OTP — lưu cho đối tác và tạo webhook luôn.
+        if ($existing = $this->existingBank($in['account_number'])) {
+            if ((int) ($existing['status'] ?? 1) === 1) {
+                return $this->finishOpenApiLink($partner, $categoryId, $in, $actor);
+            }
+
+            return ['state' => 'error', 'message' => 'Tài khoản đã có ở Pay2S nhưng đang không hoạt động (' . ($existing['statusText'] ?? 'chưa rõ') . '). Bật lại ở my.pay2s.vn rồi thử lại.', 'account' => null];
+        }
+
+        $result = $this->addOpenApiBank($in);
+
+        if (! $result['ok']) {
+            if ($result['permission']) {
+                return ['state' => 'hosted_link', 'message' => 'Pay2S chưa bật nhập OTP trực tiếp cho ứng dụng — dùng cửa sổ liên kết của Pay2S.', 'account' => null];
+            }
+
+            if (self::isAlreadyExistsMessage($result['message'])) {
+                return $this->finishOpenApiLink($partner, $categoryId, $in, $actor);
+            }
+
+            return ['state' => 'error', 'message' => 'Pay2S chưa nhận thông tin: ' . $result['message'], 'account' => null];
+        }
+
+        if ($result['needs_otp']) {
+            return ['state' => 'otp_required', 'message' => 'Ngân hàng đã gửi mã OTP về số điện thoại đăng ký với ngân hàng.', 'account' => null];
+        }
+
+        return $this->finishOpenApiLink($partner, $categoryId, $in, $actor);
+    }
+
+    /**
+     * BƯỚC 2: gửi OTP đối tác nhận được. state: connected | otp_invalid (OTP sai/hết hạn — nhập lại hoặc gửi lại bước 1) | error.
+     *
+     * @param array<string,mixed> $in cùng dữ liệu bước 1
+     * @return array{state: string, message: string, account: ?PartnerSePayAccount}
+     */
+    public function confirmOpenApiLink(Partner $partner, ?int $categoryId, array $in, string $otp, ?\App\Models\User $actor = null): array
+    {
+        $result = $this->confirmOpenApiBankOtp($in, $otp);
+
+        if (! $result['ok']) {
+            // "Record existed": lần xác nhận trước đã thành công, tài khoản đã được thêm — lưu luôn.
+            if (self::isAlreadyExistsMessage($result['message'])) {
+                return $this->finishOpenApiLink($partner, $categoryId, $in, $actor);
+            }
+
+            return ['state' => 'otp_invalid', 'message' => 'OTP chưa đúng hoặc đã hết hạn: ' . $result['message'] . '. Mỗi lần gửi thông tin ngân hàng gửi một mã MỚI và mã cũ hết hiệu lực — hãy nhập mã mới nhất.', 'account' => null];
+        }
+
+        return $this->finishOpenApiLink($partner, $categoryId, $in, $actor);
+    }
+
+    /** @return array{state: string, message: string, account: ?PartnerSePayAccount} */
+    private function finishOpenApiLink(Partner $partner, ?int $categoryId, array $in, ?\App\Models\User $actor): array
+    {
+        $result = $this->finalizeOpenApiBank($partner, $categoryId, $in);
+
+        if (! $result['ok']) {
+            return ['state' => 'error', 'message' => $result['message'], 'account' => null];
+        }
+
+        $this->recordChange($partner, $actor ?? auth()->user(), 'Tự liên kết ngân hàng Pay2S (OTP) — ' . ($result['account']?->bank_code ?? '') . ' ' . ($result['account']?->account_number ?? ''));
+
+        return ['state' => 'connected', 'message' => $result['message'], 'account' => $result['account']];
+    }
+
+    /** Ghi lịch sử hồ sơ + báo Super Admin khi chủ đối tác tự đổi nơi nhận tiền (cùng cách với kênh PayOS). */
+    public function recordChange(Partner $partner, ?\App\Models\User $user, string $note): void
+    {
+        \App\Models\PartnerStatusLog::create([
+            'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $user?->id, 'note' => $note,
+        ]);
+
+        try {
+            app(\App\Services\AdminNotificationService::class)->notify(
+                \App\Models\User::role(config('filament-shield.super_admin.name'))->get(),
+                'Đối tác tự đổi tài khoản nhận tiền Pay2S',
+                ($partner->legal_name ?: $partner->name) . ' (' . ($user?->fullname ?? '') . '): ' . $note,
+                ['type' => 'partner_payment_channel_changed', 'partner_id' => $partner->id, 'partner_type' => $partner->partner_type],
+                'heroicon-o-banknotes',
+                'warning',
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     /** @return array{ok: bool, needs_otp: bool, permission: bool, message: string} permission = Pay2S từ chối vì ứng dụng chưa có quyền dùng API này */
     private function bankCall(string $path, array $payload, bool $add): array
     {
@@ -547,7 +671,8 @@ class Pay2SBankHubService
         $values = [
             'provider' => PartnerSePayAccount::PROVIDER_PAY2S,
             'account_number' => $number,
-            'account_holder' => mb_strtoupper(trim((string) ($account['account_holder'] ?? $account['account_name'] ?? $account['holder_name'] ?? $existing?->account_holder ?? ''))) ?: 'CHUA RO',
+            // Phiên Hosted Link thường không kèm tên chủ tài khoản: lấy từ dữ liệu phiên, rồi hỏi danh sách tài khoản của Pay2S, rồi giữ tên đang lưu.
+            'account_holder' => $this->holderFrom($account) ?? $this->lookupHolder($number) ?? ($existing && $existing->account_holder !== self::UNKNOWN_HOLDER ? $existing->account_holder : null) ?? self::UNKNOWN_HOLDER,
         ];
 
         if ($bank) {
@@ -568,6 +693,55 @@ class Pay2SBankHubService
 
         // Vừa lưu tài khoản là đăng ký webhook ngay nếu bước trên chưa lấy được token.
         $this->ensureWebhook($saved);
+    }
+
+    public const UNKNOWN_HOLDER = 'CHUA RO';
+
+    /** Tên chủ tài khoản trong một dòng dữ liệu của Pay2S (tên trường khác nhau giữa các API), chữ HOA; null nếu không có. @param array<string,mixed> $row */
+    private function holderFrom(array $row): ?string
+    {
+        foreach (['account_holder', 'account_name', 'holder_name', 'accName', 'accountName', 'accountHolder', 'bankAccountName', 'ownerName', 'owner_name', 'name'] as $key) {
+            $value = $row[$key] ?? Arr::get($row, 'account.' . $key);
+
+            if (is_string($value) && trim($value) !== '') {
+                return mb_strtoupper(trim($value));
+            }
+        }
+
+        return null;
+    }
+
+    /** Hỏi danh sách tài khoản đã liên kết của Pay2S để lấy tên chủ tài khoản theo số tài khoản (hoặc số tài khoản ảo). */
+    private function lookupHolder(string $number): ?string
+    {
+        try {
+            $response = $this->http()->get($this->baseUrl() . '/v1/banks');
+            $rows = $response->json('message');
+            $rows = is_array($rows) ? $rows : (array) ($response->json('data') ?? []);
+            $row = collect($rows)->filter(fn ($r) => is_array($r))->first(fn ($r) => (string) ($r['accountNumber'] ?? '') === $number || (string) ($r['vaNumber'] ?? '') === $number);
+
+            return $row ? $this->holderFrom($row) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** Tài khoản đang lưu tên "CHUA RO" (lúc liên kết Pay2S không trả tên): thử lấy lại tên thật từ Pay2S và cập nhật. Trả true nếu đã sửa được. */
+    public function refreshHolder(PartnerSePayAccount $account): bool
+    {
+        if ($account->provider !== PartnerSePayAccount::PROVIDER_PAY2S || $account->account_holder !== self::UNKNOWN_HOLDER || ! $this->configured()) {
+            return false;
+        }
+
+        $holder = $this->lookupHolder(trim((string) $account->account_number));
+
+        if ($holder === null) {
+            return false;
+        }
+
+        $account->forceFill(['account_holder' => $holder])->save();
+
+        return true;
     }
 
     /** Một số trường hợp phiên chưa kèm account → tra danh sách tài khoản của khách. */
@@ -634,6 +808,8 @@ class Pay2SBankHubService
      */
     public function verify(PartnerSePayAccount $account): array
     {
+        $this->refreshHolder($account);
+
         $checks = [];
         $add = function (string $key, string $label, ?bool $ok, string $message) use (&$checks) {
             $checks[] = compact('key', 'label', 'ok', 'message');

@@ -34,5 +34,7 @@ trait RestoresSettings
 
         app()->forgetInstance(\App\Settings\SePaySettings::class);
         app()->forgetInstance(\App\Settings\PriceBoardSettings::class);
+        app()->forgetInstance(\Modules\Motrak\App\Settings\MotrakSettings::class);
+        \Modules\VehicleRental\App\Support\VehicleRentalFeature::forget();
     }
 }

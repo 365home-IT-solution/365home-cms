@@ -178,16 +178,121 @@ class PartnerSePayAccountController extends Controller
         return response()->json(['message' => 'Đã tạo phiên liên kết. Mở hosted_link_url để đối tác nhập thông tin ngân hàng và OTP.', 'data' => $bankHub->present($session)], 201);
     }
 
+    /**
+     * Danh sách ngân hàng liên kết nhanh bằng OTP + các ô cần nhập cho từng ngân hàng, và Pay2S đã bật API nhập OTP trực tiếp cho ứng dụng chưa
+     * (direct_api_available = false → app hiện nút "Liên kết qua Pay2S" thay vì form OTP). Dùng để dựng form nhập ở app.
+     */
+    public function pay2sBanks(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+
+        $banks = collect(\App\Services\Payment\Pay2SBankHubService::OPENAPI_BANKS)->map(fn (array $cfg, string $code) => [
+            'code' => $code,
+            'label' => $cfg['label'],
+            'account_types' => $cfg['types'],
+            'requires_cccd' => $cfg['cccd'],
+            'accepts_merchant_id' => $cfg['merchant'],
+            // ACB doanh nghiệp (OneBiz) bắt buộc tên đăng nhập.
+            'requires_username_for_business' => $cfg['username_business'],
+        ])->values();
+
+        $blocked = $bankHub->startBlockedReason($partner);
+
+        return response()->json(['data' => [
+            'banks' => $banks,
+            'available' => $blocked === null,
+            'blocked_reason' => $blocked,
+            'direct_api_available' => $blocked === null && $bankHub->directBankApiAvailable(),
+        ]]);
+    }
+
+    /**
+     * BƯỚC 1 — đối tác nhập thông tin ngân hàng (ACB / MB / BIDV), Pay2S yêu cầu ngân hàng gửi OTP về số điện thoại đăng ký ngân hàng.
+     * data.state: otp_required (→ gọi bước 2) | connected (xong, đã lưu tài khoản + webhook) | hosted_link (Pay2S chưa bật OTP trực tiếp → mở data.session.hosted_link_url).
+     * App phải GỬI LẠI cùng bộ thông tin này ở bước 2 (server không giữ trạng thái giữa hai bước). Không bao giờ gửi mật khẩu ngân hàng.
+     */
+    public function pay2sBankSubmit(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+        $categoryId = $this->branchId($request, $partner);
+
+        if ($blocked = $this->linkBlockedReason($partner, $categoryId, $bankHub)) {
+            return response()->json(['message' => $blocked], 422);
+        }
+
+        $in = $request->validate(\App\Services\Payment\Pay2SBankHubService::openApiRules($request->all()) + ['category_id' => ['nullable', 'integer']]);
+        $result = $bankHub->submitOpenApiLink($partner, $categoryId, $in, $request->user());
+
+        return $this->openApiResponse($request, $partner, $categoryId, $result, $bankHub);
+    }
+
+    /** BƯỚC 2 — gửi mã OTP vừa nhận cùng lại bộ thông tin của bước 1. state: connected | otp_invalid (nhập lại OTP, hoặc gọi lại bước 1 để nhận mã mới) | error. */
+    public function pay2sBankConfirmOtp(Request $request, Partner $partner, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $this->authorizeAccess($request, $partner, true);
+        $categoryId = $this->branchId($request, $partner);
+
+        if ($blocked = $this->linkBlockedReason($partner, $categoryId, $bankHub)) {
+            return response()->json(['message' => $blocked], 422);
+        }
+
+        $in = $request->validate(\App\Services\Payment\Pay2SBankHubService::openApiRules($request->all()) + ['category_id' => ['nullable', 'integer'], 'otp' => ['required', 'regex:/^[0-9]{4,10}$/']]);
+        $result = $bankHub->confirmOpenApiLink($partner, $categoryId, $in, $in["otp"], $request->user());
+
+        return $this->openApiResponse($request, $partner, $categoryId, $result, $bankHub);
+    }
+
+    /** Lý do không liên kết được ở phạm vi này (kênh PayOS riêng của đối tác / chi nhánh đang bật, chưa cấu hình khoá Partner API). */
+    private function linkBlockedReason(Partner $partner, ?int $categoryId, \App\Services\Payment\Pay2SBankHubService $bankHub): ?string
+    {
+        if ($reason = $bankHub->startBlockedReason($partner)) {
+            return $reason;
+        }
+
+        if ($categoryId && BranchPayOsAccount::query()->where('category_id', $categoryId)->where('is_active', true)->exists()) {
+            return 'Chi nhánh này đang dùng kênh PayOS riêng. Tắt kênh PayOS của chi nhánh trước.';
+        }
+
+        return null;
+    }
+
+    /** @param array{state: string, message: string, account: ?PartnerSePayAccount} $result */
+    private function openApiResponse(Request $request, Partner $partner, ?int $categoryId, array $result, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
+    {
+        $data = ['state' => $result['state'], 'account' => null, 'session' => null];
+
+        if ($result['state'] === 'connected') {
+            $data['account'] = $this->data($partner->fresh(), $this->accountOf($partner, $categoryId), $categoryId);
+        } elseif ($result['state'] === 'hosted_link') {
+            try {
+                $data['session'] = $bankHub->present($bankHub->createSession($partner, $request->user()->id, $categoryId));
+            } catch (\Throwable $e) {
+                return response()->json(['message' => $e->getMessage()], 502);
+            }
+        }
+
+        // otp_invalid / error: HTTP 422 để app hiện lỗi; otp_required / connected / hosted_link: 200.
+        $failed = in_array($result['state'], ['error', 'otp_invalid'], true);
+
+        return response()->json(['message' => $result['message'], 'data' => $data], $failed ? 422 : 200);
+    }
+
     /** Hỏi kết quả phiên liên kết; khi connected hệ thống đã tự lưu tài khoản (và token webhook nếu Pay2S cấp). */
     public function pay2sLinkStatus(Request $request, Partner $partner, string $session, \App\Services\Payment\Pay2SBankHubService $bankHub): JsonResponse
     {
         $this->authorizeAccess($request, $partner, true);
         $record = \Modules\Payment\Entities\PartnerPay2sLinkSession::query()->where('partner_id', $partner->id)->where('session_id', $session)->firstOrFail();
 
+        $wasApplied = $record->applied;
+
         try {
             $record = $bankHub->refresh($record);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        if ($record->applied && ! $wasApplied) {
+            $bankHub->recordChange($partner, $request->user(), 'Tự liên kết ngân hàng Pay2S (Hosted Link).');
         }
 
         $account = $record->applied ? $this->data($partner->fresh(), $this->accountOf($partner, $record->category_id), $record->category_id) : null;

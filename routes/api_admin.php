@@ -184,6 +184,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('manual-payments/{link}/confirm', [\App\Http\Controllers\Api\Admin\ManualPaymentController::class, 'confirm'])->whereNumber('link')->name('manual-payments.confirm');
     Route::post('partners/{partner}/pay2s-webhook', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sWebhook'])->middleware('throttle:10,1')->name('partners.pay2s-webhook');
     Route::get('partners/{partner}/pay2s-link-check', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkCheck'])->name('partners.pay2s-link.check');
+    // Đối tác tự nhập OTP ngay trong app (ACB / MB / BIDV): banks → bank (bước 1) → bank/confirm-otp (bước 2). Cùng service với trang CMS "Liên kết ngân hàng Pay2S".
+    Route::get('partners/{partner}/pay2s-link/banks', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sBanks'])->name('partners.pay2s-link.banks');
+    Route::post('partners/{partner}/pay2s-link/bank', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sBankSubmit'])->middleware('throttle:10,1')->name('partners.pay2s-link.bank');
+    Route::post('partners/{partner}/pay2s-link/bank/confirm-otp', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sBankConfirmOtp'])->middleware('throttle:10,1')->name('partners.pay2s-link.bank.confirm-otp');
     Route::get('partners/{partner}/pay2s-link/{session}', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'pay2sLinkStatus'])->name('partners.pay2s-link.status');
     // SePay / Pay2S — cùng chức năng với các trang CMS (Super Admin): danh sách tài khoản mọi đối tác, cấu hình chung từng cổng, nhật ký giao dịch.
     Route::get('sepay-accounts', [\App\Http\Controllers\Api\Admin\PartnerSePayAccountController::class, 'index'])->name('sepay-accounts.index');

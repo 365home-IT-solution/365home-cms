@@ -151,7 +151,7 @@
             @if ($direct)
                 <div class="flex flex-wrap gap-2">
                     <x-filament::button type="button" size="sm" :color="$tab === 'otp' ? 'primary' : 'gray'" icon="heroicon-o-device-phone-mobile" wire:click="setLinkTab('otp')">Nhập thông tin + OTP (ACB, MB Bank, BIDV)</x-filament::button>
-                    <x-filament::button type="button" size="sm" :color="$tab === 'window' ? 'primary' : 'gray'" icon="heroicon-o-link" wire:click="setLinkTab('window')">Cửa sổ Pay2S (mọi ngân hàng)</x-filament::button>
+                    <x-filament::button type="button" size="sm" :color="$tab === 'window' ? 'primary' : 'gray'" icon="heroicon-o-link" wire:click="setLinkTab('window')">Cửa sổ Pay2S</x-filament::button>
                 </div>
             @endif
 

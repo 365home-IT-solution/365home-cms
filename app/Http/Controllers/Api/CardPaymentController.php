@@ -13,11 +13,26 @@ use RuntimeException;
 // Thanh toán thẻ (Pay2S) cho khách ở chi nhánh của 365home — xem Pay2SCardService.
 //   POST /api/orders/{order_code}/card-payment        (đăng nhập)   · POST /api/guest/orders/{order_code}/card-payment (khách vãng lai, phone)
 //   GET  /api/orders/{order_code}/card-payment        (đăng nhập)   · GET  /api/guest/orders/{order_code}/card-payment?phone=
+//   GET  /api/card-payment/options?category_id=       (công khai)   — có hiện lựa chọn thẻ ở bước đặt phòng không
 // Tạo phiên → trả payment_url để app mở (webview/trình duyệt); kết quả đến bằng webhook, GET dùng để app hỏi lại (tự hỏi Pay2S nếu webhook chậm).
 class CardPaymentController extends Controller
 {
     public function __construct(private readonly Pay2SCardService $card)
     {
+    }
+
+    /**
+     * GET /api/card-payment/options?category_id= — công khai, dùng Ở BƯỚC ĐẶT PHÒNG (chưa có đơn) để app biết có hiện lựa chọn "Thẻ quốc tế" cho chi nhánh này không.
+     * Sau khi có đơn thì dùng khối card_payment trong chi tiết đơn (chính xác theo khoản đang cần thu).
+     */
+    public function options(Request $request): JsonResponse
+    {
+        $data = $request->validate(['category_id' => 'required|integer|min:1']);
+        $available = $this->card->eligibleForCategory((int) $data['category_id']);
+
+        return response()->json(['data' => $available
+            ? ['available' => true, 'brands' => Pay2SCardService::BRANDS, 'min_amount' => Pay2SCardService::MIN_AMOUNT, 'sandbox' => (bool) $this->card->settings()->sandbox_only]
+            : ['available' => false]]);
     }
 
     public function store(Request $request, string $orderCode): JsonResponse
