@@ -33,6 +33,9 @@ class HomeSearchController extends Controller
             'dest_code' => ['nullable', 'integer', 'required_with:dest_kind'],
             // Slug chi nhánh (gợi ý "cơ sở lưu trú" từ /v1/search/locations).
             'province'  => ['nullable', 'string', 'max:255'],
+            // Tỉnh của hệ thống ("Khu vực" đang chọn — home_province_id), vd bấm "Loại hình dịch vụ" khi chưa
+            // chọn điểm đến ở ô tìm kiếm.
+            'province_id' => ['nullable', 'integer'],
             'lat'       => ['nullable', 'numeric', 'between:-90,90', 'required_with:lng'],
             'lng'       => ['nullable', 'numeric', 'between:-180,180', 'required_with:lat'],
             'radius'    => ['nullable', 'numeric', 'min:1', 'max:50'],

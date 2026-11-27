@@ -116,6 +116,7 @@ class SearchLocationService
                 'slug'          => $branch->slug,
                 'province_id'   => $row->province?->id,
                 'province_name' => $row->province?->name,
+                'province_slug' => $row->province?->slug,
                 'room_count'    => $count,
                 'image_url'     => $branch->image ? Storage::disk('public')->url($branch->image) : null,
                 'latitude'      => $coords?->latitude ? (string) $coords->latitude : null,

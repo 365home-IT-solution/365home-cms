@@ -540,7 +540,7 @@
 
                     <template x-if="!loadingResults && !resultsError && meta && meta.total === 0">
                         <div class="hms-empty">
-                            <p x-text="'Chưa có phòng phù hợp' + (summaryTitle ? ' tại ' + summaryTitle : '')"></p>
+                            <p x-text="'Chưa có phòng phù hợp' + (searched && searched.dest.kind !== 'all' ? ' tại ' + searched.dest.name : '')"></p>
                             <small>Thử đổi ngày, số khách hoặc chọn điểm đến đang có phòng bên dưới.</small>
                             <div class="hms-empty-chips">
                                 <template x-for="d in popularDestinations.slice(0, 8)" :key="'e-' + d.kind + d.code">

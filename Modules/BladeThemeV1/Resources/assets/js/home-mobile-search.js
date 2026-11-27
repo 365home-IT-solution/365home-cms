@@ -140,6 +140,34 @@ window.homeMobileSearch = function (config) {
             // Lịch (6 tháng × ~37 ô, mỗi ô vài binding Alpine) KHÔNG dựng lúc tải trang — từng là khối DOM
             // lớn nhất trang chủ mobile, kéo dài tác vụ khởi tạo Alpine và trễ LCP. Dựng ở lần mở đầu (openDates()).
 
+            // Đồng bộ 2 chiều với "Khu vực" (home_province_id — location-modal, nút Khu vực ở bottom bar):
+            //  - chưa có điểm đến → ô tìm kiếm hiện khu vực đang chọn;
+            //  - khu vực đổi ở nơi khác (modal) → ô tìm kiếm theo khu vực đó;
+            //  - chọn điểm đến ở đây → đổi luôn khu vực (syncArea()), các khối phòng/lịch đặt phòng cập nhật theo.
+            if (!this.dest) {
+                const area = this.storedArea();
+                if (area) this.dest = this.areaDest(area);
+            }
+            window.addEventListener('province-selected', (e) => {
+                if (this._syncingArea) return; // do chính syncArea() bắn
+                const p = (e && e.detail) || {};
+                if (!p.id) return;
+                if (this.dest && this.dest.area && String(this.dest.area.id) === String(p.id)) return;
+                this.dest = this.areaDest({ id: p.id, name: p.name, slug: p.slug });
+                this.saveLast();
+            });
+
+            // Bấm thẻ "Loại hình dịch vụ" (flash-sale.blade.php) trên mobile → mở danh sách phòng của loại hình đó
+            // ngay tại trang chủ thay vì sang trang /{loại hình}. Loại không có trong luồng tìm phòng ngắn hạn
+            // (Mini House — thuê tháng) thì trả false, thẻ giữ nguyên link cũ.
+            window.__hmsOpenType = (event, slug, name) => {
+                if (!window.matchMedia('(max-width: 1023.98px)').matches) return false;
+                if (!this.roomTypes.some((t) => t.slug === slug)) return false;
+                if (event) event.preventDefault();
+                this.openType(slug, name);
+                return true;
+            };
+
             window.addEventListener('popstate', (e) => {
                 const hms = e.state && Array.isArray(e.state.hms) ? e.state.hms : [];
                 this.stack = hms;
@@ -305,7 +333,10 @@ window.homeMobileSearch = function (config) {
                 code: d.code,
                 name: d.short_name,
                 subtitle: this.destSubtitle(d),
+                area: this.areaOfDestination(d),
             };
+            this.syncArea(this.dest.area);
+            this.saveLast();
             this.pop();
         },
         pickBranch(row) {
@@ -314,11 +345,15 @@ window.homeMobileSearch = function (config) {
                 slug: row.slug,
                 name: row.name,
                 subtitle: row.province_name ? 'Cơ sở lưu trú · ' + row.province_name : 'Cơ sở lưu trú',
+                area: row.province_id ? { id: row.province_id, name: row.province_name, slug: row.province_slug } : null,
             };
+            this.syncArea(this.dest.area);
+            this.saveLast();
             this.pop();
         },
         pickRecent(item) {
             this.dest = item.dest;
+            this.syncArea(item.dest && item.dest.area);
             if (item.checkin && item.checkin >= todayIso() && item.checkout > item.checkin) {
                 this.checkin = item.checkin;
                 this.checkout = item.checkout;
@@ -353,6 +388,70 @@ window.homeMobileSearch = function (config) {
                 },
                 { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
             );
+        },
+
+        // ───────────── Khu vực (home_province_id) ─────────────
+        shortName(name) {
+            return String(name || '').replace(/^(Thành phố|Tỉnh)\s+/u, '').trim();
+        },
+        storedArea() {
+            try {
+                const id = localStorage.getItem('home_province_id');
+                return id ? { id, name: localStorage.getItem('home_province_name') || '' } : null;
+            } catch (e) {
+                return null;
+            }
+        },
+        areaDest(area) {
+            return { kind: 'area', province_id: area.id, name: this.shortName(area.name) || 'Khu vực của bạn', subtitle: 'Khu vực đang chọn', area };
+        },
+        // Tỉnh của hệ thống ứng với điểm đến (server tính sẵn — HomeSearchDestinations::areaFor()); null = tỉnh chưa có phòng.
+        areaOfDestination(d) {
+            return d && d.province_id ? { id: d.province_id, name: d.province_full_name, slug: d.province_slug } : null;
+        },
+        // Đổi "Khu vực" giống hệt location-modal (selectProvince + persistSelection): lưu localStorage, bắn
+        // 'province-selected' (lịch đặt phòng, chi nhánh, khối phòng trang chủ tự nạp lại) và lưu cho tài khoản/thiết bị.
+        syncArea(area) {
+            if (!area || !area.id) return;
+            const current = this.storedArea();
+            if (current && String(current.id) === String(area.id)) return;
+            try {
+                localStorage.setItem('home_province_id', area.id);
+                localStorage.setItem('home_province_name', area.name || '');
+            } catch (e) {
+                /* private mode */
+            }
+            this._syncingArea = true;
+            try {
+                window.dispatchEvent(new CustomEvent('province-selected', { detail: { id: area.id, name: area.name, slug: area.slug } }));
+            } finally {
+                this._syncingArea = false;
+            }
+
+            const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+            const body = { province_id: area.id };
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                headers.Authorization = 'Bearer ' + token;
+            } else {
+                let device = localStorage.getItem('guest_device_token');
+                if (!device) {
+                    device = window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2);
+                    try { localStorage.setItem('guest_device_token', device); } catch (e) { /* noop */ }
+                }
+                body.device_token = device;
+            }
+            fetch('/api/v1/provinces/select', { method: 'POST', headers, body: JSON.stringify(body) }).catch(() => {});
+        },
+        saveLast() {
+            writeJson(LAST_KEY, {
+                dest: this.dest,
+                checkin: this.checkin,
+                checkout: this.checkout,
+                rooms: this.rooms,
+                adults: this.adults,
+                children: this.children,
+            });
         },
 
         // ───────────── Lịch nhận / trả phòng ─────────────
@@ -457,6 +556,7 @@ window.homeMobileSearch = function (config) {
             };
             writeJson(LAST_KEY, snapshot);
             this.remember(snapshot);
+            this.syncArea(this.dest.area);
 
             this.searched = snapshot;
             this.type = '';
@@ -485,7 +585,10 @@ window.homeMobileSearch = function (config) {
                 p.set('lat', s.dest.lat);
                 p.set('lng', s.dest.lng);
                 p.set('radius', 10);
+            } else if (s.dest.kind === 'area') {
+                p.set('province_id', s.dest.province_id);
             }
+            // kind 'all' (chưa chọn điểm đến lẫn khu vực, bấm "Loại hình dịch vụ"): không lọc địa điểm.
             p.set('checkin', s.checkin);
             p.set('checkout', s.checkout);
             // Lọc theo sức chứa của 1 phòng: chia đều số khách cho số phòng đặt.
@@ -566,9 +669,11 @@ window.homeMobileSearch = function (config) {
         get hasMore() {
             return !!this.meta && this.page < this.meta.last_page;
         },
+        // "Homestay · Cần Thơ" khi đang lọc loại hình, "Cần Thơ" khi xem tất cả.
         get summaryTitle() {
             if (!this.searched) return '';
-            return this.searched.dest.name;
+            const t = this.type ? this.roomTypes.find((x) => x.slug === this.type) : null;
+            return (t ? t.name + ' · ' : '') + this.searched.dest.name;
         },
         get summaryLine() {
             if (!this.searched) return '';
@@ -613,8 +718,33 @@ window.homeMobileSearch = function (config) {
         toggleWishlist(room, el) {
             if (window.__homeToggleWishlist) window.__homeToggleWishlist(room.id, el);
         },
+        // Mở danh sách phòng của 1 loại hình (bấm thẻ "Loại hình dịch vụ"): địa điểm = điểm đến đang chọn ở ô tìm
+        // kiếm, không có thì "Khu vực" đang chọn, không có nữa thì tất cả; ngày/khách lấy từ form như khi bấm TÌM.
+        openType(slug) {
+            const area = this.storedArea();
+            const dest = this.dest || (area ? this.areaDest(area) : { kind: 'all', name: 'Tất cả khu vực', subtitle: '' });
+            if (this.checkin < todayIso()) {
+                this.checkin = todayIso();
+                if (this.checkout <= this.checkin) this.checkout = addDays(this.checkin, 1);
+            }
+            this.searched = {
+                dest,
+                checkin: this.checkin,
+                checkout: this.checkout,
+                rooms: this.rooms,
+                adults: this.adults,
+                children: this.children,
+            };
+            this.type = slug;
+            this.sortOpen = false;
+            this.sort = dest.kind === 'nearby' ? 'distance' : 'promo';
+            this.push('results');
+            this.fetchResults(true);
+            this.loadDestinations();
+        },
         searchPopular(d) {
-            this.dest = { kind: d.kind, code: d.code, name: d.short_name, subtitle: this.destSubtitle(d) };
+            this.dest = { kind: d.kind, code: d.code, name: d.short_name, subtitle: this.destSubtitle(d), area: this.areaOfDestination(d) };
+            this.syncArea(this.dest.area);
             this.searched = Object.assign({}, this.searched, { dest: this.dest });
             writeJson(LAST_KEY, this.searched);
             this.remember(this.searched);

@@ -65,6 +65,9 @@ final class HomeSearchDestinations
         'Bà Rịa - Vũng Tàu' => ['Vũng Tàu', 'Bà Rịa'],
     ];
 
+    /** @var \Illuminate\Support\Collection<string, array>|null tỉnh đang có phòng, khoá theo key() tên tỉnh */
+    private ?\Illuminate\Support\Collection $availableProvinces = null;
+
     public function __construct(private readonly OldProvinceDirectory $directory)
     {
     }
@@ -81,8 +84,29 @@ final class HomeSearchDestinations
         return array_map(function (array $row) use ($index) {
             $row['room_count'] = count($this->matchIds($row, $index));
 
-            return $row;
+            return $row + $this->areaFor((string) $row['province_name']);
         }, $this->directory->all());
+    }
+
+    /**
+     * Tỉnh của HỆ THỐNG (bảng provinces, chỉ tỉnh đang có phòng — AvailableProvinceService) ứng với tỉnh cũ
+     * $oldProvince: chính tên đó, không có thì tỉnh mới đã nhận sáp nhập (vd Sóc Trăng → Cần Thơ, Bình Thuận
+     * → Lâm Đồng). Ô tìm kiếm trang chủ dùng để đồng bộ "Khu vực" (home_province_id) khi khách chọn điểm đến.
+     *
+     * @return array{province_id: ?int, province_slug: ?string, province_full_name: ?string}
+     */
+    public function areaFor(string $oldProvince): array
+    {
+        $this->availableProvinces ??= collect(app(\App\Services\AvailableProvinceService::class)->get())
+            ->keyBy(fn (array $p) => self::key((string) $p['name']));
+
+        foreach (array_unique([self::key($oldProvince), self::key(self::mergedInto($oldProvince) ?? $oldProvince)]) as $key) {
+            if ($p = $this->availableProvinces->get($key)) {
+                return ['province_id' => (int) $p['id'], 'province_slug' => $p['slug'], 'province_full_name' => $p['name']];
+            }
+        }
+
+        return ['province_id' => null, 'province_slug' => null, 'province_full_name' => null];
     }
 
     public function find(string $kind, int $code): ?array

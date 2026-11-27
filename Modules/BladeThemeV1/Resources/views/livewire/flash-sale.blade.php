@@ -576,7 +576,7 @@
                                              THÁNG, xem App\Http\Controllers\Minihouse\Public\StorefrontController)
                                              thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
                                              $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
-                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;" @if ($typeUrlSlug && ($type['slug'] ?? '') !== 'mini_house') :href="roomTypeHref(@js('/'.$typeUrlSlug))" @endif>
+                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;" @if ($typeUrlSlug && ($type['slug'] ?? '') !== 'mini_house') :href="roomTypeHref(@js('/'.$typeUrlSlug))" @endif @click="window.__hmsOpenType && window.__hmsOpenType($event, @js($type['slug'] ?? ''), @js($type['name'] ?? ''))">
                                             {{-- PHẢI khớp window.__roomTypeIconMap (public/js/home-sections.js). --}}
                                             <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'room-types/hotel-v3.webp', 'motel' => 'motel-176.webp', 'villa' => 'room-types/villa-v3.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'room-types/minihouse-v3.webp', default => 'room-types/homestay-v3.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
@@ -616,7 +616,7 @@
                                      (thẻ đã to hơn — xem .roomtype-card). --}}
                                 <div x-ref="track" class="roomtype-track flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
-                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? roomTypeHref('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
+                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? roomTypeHref('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;" @click="window.__hmsOpenType && window.__hmsOpenType($event, type.slug, type.name)">
                                             <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
                                             <span class="roomtype-card-label" x-text="type.name"></span>
                                         </a>

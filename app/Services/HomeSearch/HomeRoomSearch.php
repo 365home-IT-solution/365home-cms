@@ -53,7 +53,7 @@ class HomeRoomSearch extends RoomSearchRoomsService
         }
 
         $cacheKey = 'home-search:rooms:' . md5(json_encode([
-            array_intersect_key($params, array_flip(['checkin', 'checkout', 'guests', 'type', 'province', 'lat', 'lng', 'radius'])),
+            array_intersect_key($params, array_flip(['checkin', 'checkout', 'guests', 'type', 'province', 'province_id', 'lat', 'lng', 'radius'])),
             $onlyIds,
             $sort,
         ]));
@@ -97,6 +97,7 @@ class HomeRoomSearch extends RoomSearchRoomsService
             'guests'   => $params['guests'] ?? null,
             'type'     => $params['type'] ?? null,
             'province' => $params['province'] ?? null,
+            'province_id' => $params['province_id'] ?? null,
             'lat'      => $params['lat'] ?? null,
             'lng'      => $params['lng'] ?? null,
             'radius'   => isset($params['lat'], $params['lng']) ? ($params['radius'] ?? 10) : null,
