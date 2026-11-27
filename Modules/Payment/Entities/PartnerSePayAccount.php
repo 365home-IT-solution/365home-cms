@@ -20,6 +20,12 @@ class PartnerSePayAccount extends Model
 
     public const PROVIDERS = [self::PROVIDER_SEPAY => 'SePay', self::PROVIDER_PAY2S => 'Pay2S', self::PROVIDER_MANUAL => 'Xác nhận thủ công'];
 
+    /** Tài khoản của CHÍNH 365home (không phải của đối tác) — dựng từ cài đặt Pay2S, không có trong DB: tiền vào là 365 thu hộ. */
+    public function isPlatform(): bool
+    {
+        return (bool) ($this->attributes['is_platform'] ?? false);
+    }
+
     public function isManual(): bool
     {
         return $this->provider === self::PROVIDER_MANUAL;

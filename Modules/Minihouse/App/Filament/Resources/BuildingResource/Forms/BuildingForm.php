@@ -212,6 +212,7 @@ class BuildingForm
                             ->options([
                                 Building::PAYMENT_METHOD_VIETQR => 'QR chuyển khoản ngân hàng (VietQR) — xác nhận thủ công',
                                 Building::PAYMENT_METHOD_PAYOS => 'Tài khoản PayOS riêng — tự động xác nhận',
+                                Building::PAYMENT_METHOD_PAY2S => 'Pay2S (tài khoản ngân hàng nhận tiền ở dưới) — tự động xác nhận',
                                 Building::PAYMENT_METHOD_MOMO => 'Tài khoản MoMo Business riêng — tự động xác nhận',
                                 Building::PAYMENT_METHOD_VNPAY => 'Tài khoản VNPay riêng — tự động xác nhận',
                             ])
@@ -279,6 +280,22 @@ class BuildingForm
                             ->password()
                             ->revealable()
                             ->required(fn (Get $get) => $get('payment_method') === Building::PAYMENT_METHOD_PAYOS)
+                            ->maxLength(255),
+                    ]),
+
+                // Pay2S: không cần Client ID/API Key — dùng chính "Tài khoản ngân hàng nhận tiền" ở trên. Chủ toà tạo webhook "biến động số dư" trên Pay2S trỏ về
+                // URL bên dưới, rồi dán token Pay2S sinh cho webhook đó. Khách chuyển khoản ghi đúng nội dung trên QR → hệ thống tự xác nhận hoá đơn.
+                // Đổi qua lại PayOS ⇄ Pay2S chỉ cần đổi "Kiểu QR tự động" — QR/link đã tạo trước đó vẫn nhận tiền bình thường.
+                Section::make('Pay2S')
+                    ->description('Webhook biến động số dư: ' . url('/api/webhook/pay2s') . ' — dán token Pay2S sinh cho webhook của tài khoản ngân hàng ở trên.')
+                    ->visible(fn (Get $get) => $get('payment_method') === Building::PAYMENT_METHOD_PAY2S)
+                    ->columns(1)
+                    ->schema([
+                        TextInput::make('pay2s_webhook_token')
+                            ->label('Token webhook Pay2S')
+                            ->password()
+                            ->revealable()
+                            ->required(fn (Get $get) => $get('payment_method') === Building::PAYMENT_METHOD_PAY2S)
                             ->maxLength(255),
                     ]),
 

@@ -65,6 +65,14 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Thẻ Pay2S: hỏi trạng thái các phiên thẻ còn chờ (khách đóng trình duyệt sau khi trả, webhook không tới được...). Cũng đặt TRƯỚC lệnh huỷ đơn hết hạn.
+        $schedule->command('pay2s-card:sync')
+            ->everyMinute()
+            ->when(fn () => app(\App\Services\Payment\Pay2SCardService::class)->configured())
+            ->withoutOverlapping()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->runInBackground();
+
         // SePay: hỏi giao dịch tiền vào để xác nhận đơn khi webhook chậm/lỡ. Đặt TRƯỚC lệnh huỷ đơn hết hạn bên dưới để khách vừa chuyển khoản
         // sát hạn vẫn được xác nhận trước khi đơn bị huỷ. Chỉ chạy khi đã có SEPAY_API_TOKEN.
         $schedule->command('sepay:sync --hours=6')

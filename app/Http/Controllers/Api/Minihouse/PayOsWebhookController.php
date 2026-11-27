@@ -77,7 +77,7 @@ class PayOsWebhookController extends Controller
     // checksum key trước khi gọi hàm này — không cần verify lại lần 2). Trả về true nếu khớp được 1
     // hoá đơn MiniHouse (dù đã xử lý hay đã ghi nhận từ trước), false nếu orderCode không phải của
     // MiniHouse — để Home biết có nên tự báo "Order not found" hay không.
-    public static function processVerifiedData(array $data): bool
+    public static function processVerifiedData(array $data, string $channel = 'PayOS'): bool
     {
         $orderCode = $data['orderCode'] ?? null;
 
@@ -116,7 +116,7 @@ class PayOsWebhookController extends Controller
         // Đánh dấu theo đúng "reference" PayOS trả về — chặn tạo trùng nếu PayOS gọi lại webhook
         // nhiều lần cho CÙNG 1 giao dịch (họ có cơ chế tự retry khi chưa nhận được response 200).
         $reference = $data['reference'] ?? $data['paymentLinkId'] ?? (string) $orderCode;
-        $note      = 'Thanh toán qua PayOS (QR) - ref: ' . $reference;
+        $note      = 'Thanh toán qua ' . $channel . ' (QR) - ref: ' . $reference;
 
         // Khoá dòng Invoice trong 1 transaction cho cả đoạn kiểm tra + tạo — tránh 2 lần gọi webhook
         // gần như đồng thời (PayOS tự retry khi chưa nhận phản hồi kịp) cùng vượt qua exists() rồi

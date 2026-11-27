@@ -81,10 +81,29 @@ class ManagePay2SSettings extends SettingsPage
     {
         return $form->schema([
             Forms\Components\Section::make('Bật / tắt Pay2S')
-                ->description('Tắt: mọi đối tác dùng Pay2S quay về PayOS ngay (không xoá dữ liệu); các yêu cầu Pay2S đã tạo vẫn được xử lý nếu tiền về. Đối tác nào dùng Pay2S do mục "SePay / Pay2S theo đối tác" quyết định — đối tác chưa khai báo luôn dùng PayOS.')
+                ->description('Tắt: mọi đối tác dùng Pay2S quay về PayOS ngay (không xoá dữ liệu); các yêu cầu Pay2S đã tạo vẫn được xử lý nếu tiền về. Đối tác nào dùng tài khoản riêng của mình do mục "SePay / Pay2S theo đối tác" quyết định; khoản 365 thu hộ theo mục "Cổng chuyển khoản mặc định" bên dưới.')
                 ->schema([
                     Forms\Components\Toggle::make('enabled')->label('Cho phép dùng Pay2S')->columnSpanFull(),
                 ]),
+
+            Forms\Components\Section::make('Cổng chuyển khoản mặc định (PayOS ⇄ Pay2S)')
+                ->description('Chọn cổng cho khoản thu MỚI: đơn đặt phòng không có kênh riêng của đối tác, gói dịch vụ, ký quỹ, nộp hoa hồng đối soát, thuê xe, hoá đơn MiniHouse. Chọn Pay2S cần khai báo đủ tài khoản ngân hàng của 365home bên dưới. Đổi lại PayOS bất cứ lúc nào để quay về như cũ — yêu cầu thanh toán đã tạo ở cổng nào vẫn nhận tiền ở cổng đó. Đối tác / toà nhà đang có PayOS riêng giữ PayOS cho tới khi được chuyển sang Pay2S.')
+                ->schema([
+                    Forms\Components\Select::make('default_gateway')->label('Cổng đang dùng')->native(false)->selectablePlaceholder(false)
+                        ->options(['payos' => 'PayOS (như trước đây)', 'pay2s' => 'Pay2S — chuyển khoản vào tài khoản 365home'])->live(),
+                    Forms\Components\Select::make('platform_bank_bin')->label('Ngân hàng của 365home')->searchable()->native(false)->live()
+                        ->required(fn (\Filament\Forms\Get $get) => $get('default_gateway') === 'pay2s')
+                        ->options(fn () => \Modules\Minihouse\App\Support\VietnameseBanks::options())
+                        ->afterStateUpdated(fn (\Filament\Forms\Set $set, $state) => $set('platform_bank_code', \Modules\Minihouse\App\Support\VietnameseBanks::shortName($state))),
+                    Forms\Components\Hidden::make('platform_bank_code'),
+                    Forms\Components\TextInput::make('platform_account_number')->label('Số tài khoản')->maxLength(50)
+                        ->required(fn (\Filament\Forms\Get $get) => $get('default_gateway') === 'pay2s'),
+                    Forms\Components\TextInput::make('platform_account_holder')->label('Tên chủ tài khoản')->helperText('Không dấu, in hoa — đúng như trên tài khoản ngân hàng.')->maxLength(255)
+                        ->required(fn (\Filament\Forms\Get $get) => $get('default_gateway') === 'pay2s'),
+                    Forms\Components\TextInput::make('platform_webhook_token')->label('Token webhook của tài khoản này')->password()->revealable()->autocomplete(false)
+                        ->placeholder('Để trống = giữ nguyên token hiện tại')->maxLength(1000)
+                        ->helperText('Pay2S sinh một token riêng cho webhook của tài khoản này (my.pay2s.vn → Webhooks, URL ở mục bên dưới).'),
+                ])->columns(2),
 
             Forms\Components\Section::make('Webhook Pay2S')
                 ->description('Tạo webhook cho TỪNG tài khoản ngân hàng ở my.pay2s.vn → Webhooks → Thêm webhook: chọn tài khoản, loại "Nhận tiền", URL bên dưới. Pay2S hiện token một lần — chép token vào tài khoản đối tác ở "SePay / Pay2S theo đối tác". Tiền tố mã thanh toán dùng chung với SePay (mặc định DH).')
@@ -128,6 +147,8 @@ class ManagePay2SSettings extends SettingsPage
         $data['api_token'] = null;
         $data['partner_access_key'] = null;
         $data['partner_secret_key'] = null;
+        $data['platform_webhook_token'] = null;
+        $data['default_gateway'] = Pay2SConfig::gateway();
 
         return $data;
     }

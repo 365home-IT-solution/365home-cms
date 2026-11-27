@@ -45,6 +45,11 @@ class EscrowPayosService
             'status' => Deposit::STATUS_PENDING, 'created_by' => $by?->id,
         ]);
 
+        // Cổng Pay2S: chuyển khoản vào tài khoản 365, nội dung = mã giao dịch (KQxxxxxx); webhook Pay2S khớp theo mã (PlatformCollectionService).
+        if (app(\App\Services\Payment\PlatformCollectionService::class)->attach(\App\Services\Payment\PlatformCollectionService::KIND_ESCROW, $deposit, $amount, (string) $deposit->transaction_code, now()->addHours((int) config('escrow.deposit_link_hours', 24)))) {
+            return $deposit->fresh();
+        }
+
         if (! $this->isConfigured()) {
             return $deposit;
         }

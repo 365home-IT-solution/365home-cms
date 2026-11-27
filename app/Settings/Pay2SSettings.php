@@ -23,6 +23,20 @@ class Pay2SSettings extends Settings
 
     public ?string $partner_parent_origin;
 
+    // Cổng chuyển khoản mặc định: 'payos' | 'pay2s' (null = payos). Đặt 'pay2s' = mọi khoản thu mới đi qua Pay2S; link PayOS đã phát hành vẫn tra/nhận tiền được.
+    public ?string $default_gateway;
+
+    // Tài khoản ngân hàng (Pay2S) CỦA 365home — nhận các khoản 365 thu hộ. Token webhook của riêng tài khoản này (Pay2S sinh mỗi webhook một token).
+    public ?string $platform_bank_code;
+
+    public ?string $platform_bank_bin;
+
+    public ?string $platform_account_number;
+
+    public ?string $platform_account_holder;
+
+    public ?string $platform_webhook_token;
+
     public static function group(): string
     {
         return 'pay2s';
@@ -30,6 +44,6 @@ class Pay2SSettings extends Settings
 
     public static function encrypted(): array
     {
-        return ['api_token', 'partner_access_key', 'partner_secret_key'];
+        return ['api_token', 'partner_access_key', 'partner_secret_key', 'platform_webhook_token'];
     }
 }

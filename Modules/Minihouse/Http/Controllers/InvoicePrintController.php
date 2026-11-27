@@ -138,7 +138,7 @@ class InvoicePrintController extends Controller
         $activeMethod = $building?->activePaymentMethod();
         $qrImageSrc   = null;
 
-        if ($activeMethod === Building::PAYMENT_METHOD_PAYOS && $invoice->remainingAmount() > 0) {
+        if (in_array($activeMethod, [Building::PAYMENT_METHOD_PAYOS, Building::PAYMENT_METHOD_PAY2S], true) && $invoice->remainingAmount() > 0) {
             try {
                 // Còn 1 mã CHƯA hết hạn thì dùng lại đúng mã đó — tránh huỷ link cũ khách đang thao
                 // tác dở mỗi lần bấm in lại phiếu.

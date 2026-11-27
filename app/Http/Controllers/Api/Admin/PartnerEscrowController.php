@@ -112,7 +112,7 @@ class PartnerEscrowController extends Controller
 
         $deposit = $payos->createDeposit($partner, (int) $data['amount'], $request->user());
 
-        return response()->json(['message' => $deposit->payos_checkout_url ? 'Đã tạo mã thanh toán nạp ký quỹ.' : 'Chưa tạo được mã PayOS — chuyển khoản với nội dung là mã giao dịch rồi báo 365home xác nhận.', 'data' => $deposit->toApi()], 201);
+        return response()->json(['message' => $deposit->payos_checkout_url ? 'Đã tạo mã thanh toán nạp ký quỹ.' : 'Chưa tạo được mã thanh toán — chuyển khoản với nội dung là mã giao dịch rồi báo 365home xác nhận.', 'data' => $deposit->toApi()], 201);
     }
 
     // GET …/escrow/deposits — các yêu cầu nạp qua QR (để app theo dõi trạng thái sau khi quét).

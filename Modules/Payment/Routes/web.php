@@ -112,6 +112,12 @@ Route::post('/webhook/payos', [PaymentController::class, 'handlePayOSWebhook'])
 Route::get('/thanh-toan-sepay/{code}', [\Modules\Payment\Http\Controllers\SePayCheckoutController::class, 'show'])
     ->whereNumber('code')->name('sepay.checkout');
 
+// Trang QR chuyển khoản Pay2S cho khoản 365 thu hộ ngoài đơn phòng (gói, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse) — thay cho checkout của PayOS.
+Route::get('/thanh-toan-chuyen-khoan/{kind}/{code}', [\Modules\Payment\Http\Controllers\PlatformCollectionController::class, 'show'])
+    ->where('kind', 'subscription|escrow|settlement|vehicle|minihouse|collection')->middleware('throttle:60,1')->name('platform-collect.show');
+Route::get('/thanh-toan-chuyen-khoan/{kind}/{code}/trang-thai', [\Modules\Payment\Http\Controllers\PlatformCollectionController::class, 'status'])
+    ->where('kind', 'subscription|escrow|settlement|vehicle|minihouse|collection')->middleware('throttle:120,1')->name('platform-collect.status');
+
 Route::post('/webhook/sepay', '\\App\\Http\\Controllers\\SePayWebhookController')
     ->name('webhook.sepay.legacy');
 
@@ -119,5 +125,11 @@ Route::post('/webhook/pay2s', '\\App\\Http\\Controllers\\Pay2SWebhookController'
     ->name('webhook.pay2s.legacy');
 
 // Tạo link PayOS cho phần tiền còn lại (sau khi đã đặt cọc)
+// Thanh toán thẻ (Pay2S) trên trang /thong-tin-dat-phong/{code}: tạo phiên + hỏi trạng thái khi khách quay lại.
+Route::post('/dat-phong/thanh-toan-the/{code}', [\Modules\Payment\Http\Controllers\CardCheckoutController::class, 'store'])
+    ->middleware('throttle:20,1')->name('payment.card.create');
+Route::get('/dat-phong/thanh-toan-the/{code}/trang-thai', [\Modules\Payment\Http\Controllers\CardCheckoutController::class, 'status'])
+    ->middleware('throttle:60,1')->name('payment.card.status');
+
 Route::post('/dat-phong/tao-thanh-toan-con-lai/{code}', [PaymentController::class, 'createRemainingPayment'])
      ->name('payment.remaining.create');

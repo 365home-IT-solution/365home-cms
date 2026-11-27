@@ -7,6 +7,16 @@ return [
     // Super Admin không sửa được endpoint trên CMS; chỉ đổi qua biến môi trường khi Motrak đổi địa chỉ chính thức.
     'endpoint' => env('MOTRAK_ENDPOINT', 'https://api.motrak.vn/client/v2/api/v1/monitor/refreshvehicles'),
 
+    // Đăng nhập tự động (ĐÃ KIỂM CHỨNG qua trình duyệt): POST {login_endpoint} JSON {"username","password"} → data.accessToken (Bearer), data.expiresIn (giây).
+    // KHÔNG dùng refreshToken vì endpoint làm mới Token chưa được kiểm chứng — hết hạn thì đăng nhập lại bằng tài khoản đã lưu.
+    'login_endpoint' => env('MOTRAK_LOGIN_ENDPOINT', 'https://api.motrak.vn/client/v2/api/v1/auth/login'),
+
+    'auth' => [
+        'refresh_margin_seconds' => 120,  // đăng nhập lại khi Token còn dưới ngần này giây
+        'default_ttl_seconds'    => 3600, // dùng khi Motrak không trả expiresIn
+        'lock_seconds'           => 15,   // khoá chống nhiều tiến trình cùng đăng nhập một lúc
+    ],
+
     'http' => [
         'timeout'         => 15,        // giây
         'connect_timeout' => 5,         // giây

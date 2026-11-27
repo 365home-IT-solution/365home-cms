@@ -21,7 +21,7 @@ class SePayGateway extends PayOsGateway
         private readonly PartnerSePayAccount $account,
         private readonly SePayService $sePay,
     ) {
-        parent::__construct('sepay', 'sepay', 'sepay', [], null, (string) $account->partner_id);
+        parent::__construct('sepay', 'sepay', 'sepay', [], null, $account->isPlatform() ? null : (string) $account->partner_id);
     }
 
     public function isSePay(): bool
@@ -29,9 +29,10 @@ class SePayGateway extends PayOsGateway
         return true;
     }
 
+    // Tài khoản của đối tác → 'partner'; tài khoản Pay2S của 365home → 'platform' (365 thu hộ).
     public function collectedBy(): string
     {
-        return 'partner';
+        return $this->account->isPlatform() ? 'platform' : 'partner';
     }
 
     public function createPaymentLink(array $paymentData): array

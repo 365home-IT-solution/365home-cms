@@ -59,6 +59,9 @@ trait PropertiesProductDetail
     public $discountAmount = 0;
     public $isCalculating = false;
     public $paymentMethod = 'PayOS';
+    // Cách trả tiền ở bước xác nhận đặt phòng: 'qr' (chuyển khoản/QR như cũ) | 'card' (thẻ quốc tế qua Pay2S — chỉ chi nhánh 365 Home đã bật thẻ)
+    public string $payMethod = 'qr';
+    public string $cardBrand = 'visa';
     public $selectedSlots = [];
     public $style2CheckinTime = '14:00';
     public $style2CheckoutTime = '12:00';

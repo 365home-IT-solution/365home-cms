@@ -1841,7 +1841,7 @@ public function confirmBooking()
 
         Session::forget('booking_data');
         Session::forget('booking_detail_state');
-        $this->processPayOSPayment($order);
+        $this->payAfterBooking($order);
 
     } catch (\RuntimeException $e) {
         if (str_starts_with($e->getMessage(), 'SLOT_CONFLICT:')) {
@@ -2181,6 +2181,41 @@ public function confirmBooking()
         }
 
         return null;
+    }
+
+    // Có hiện lựa chọn "Thẻ quốc tế" ở bước xác nhận không: chi nhánh của phòng thuộc 365 Home và đã được bật thẻ ở CMS (Pay2S — thanh toán thẻ).
+    public function cardPayAvailable(): bool
+    {
+        try {
+            $card = app(\App\Services\Payment\Pay2SCardService::class);
+
+            // Thẻ đang tắt (mặc định) ⇒ không tốn truy vấn tìm chi nhánh — hộp xác nhận này render lại ở MỌI lần tương tác trên trang phòng.
+            return $card->configured() && $card->eligibleForCategory($this->getBranchCategoryId());
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    // Sau khi tạo đơn: khách chọn thẻ ⇒ tạo phiên Pay2S và chuyển sang trang nhập thẻ; cách khác (hoặc thẻ lỗi) ⇒ QR/PayOS như cũ, khách vẫn trả tiền được.
+    protected function payAfterBooking($order)
+    {
+        if ($this->payMethod === 'card') {
+            try {
+                $card = app(\App\Services\Payment\Pay2SCardService::class);
+                $fresh = $order->fresh() ?? $order;
+
+                if ($card->eligible($fresh)) {
+                    $payment = $card->createSession($fresh, $this->cardBrand, route('booking.detail', ['code' => $fresh->order_code]) . '?card_return=1');
+
+                    return $this->redirect($payment->payment_url);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Thanh toán thẻ lỗi lúc đặt phòng — chuyển sang QR', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                $this->dispatch('notify', ['message' => 'Thanh toán thẻ đang tạm lỗi, đã chuyển sang thanh toán QR.', 'type' => 'warning']);
+            }
+        }
+
+        return $this->processPayOSPayment($order);
     }
 
     protected function processPayOSPayment($order)

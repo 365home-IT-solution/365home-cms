@@ -74,7 +74,17 @@ class SePayService
      */
     public function accountFor(Order $order): ?PartnerSePayAccount
     {
-        if (PayOsAccountResolver::branchAccountFor($order->category_id ? (int) $order->category_id : null)) {
+        return $this->ownAccountFor($order) ?? $this->platformAccountFor($order);
+    }
+
+    /** Tài khoản của ĐỐI TÁC (kênh riêng) áp dụng cho đơn — logic gốc của accountFor(). */
+    private function ownAccountFor(Order $order): ?PartnerSePayAccount
+    {
+        // Chi nhánh có kênh PayOS riêng ghi đè kênh của đối tác. Khi đã chọn cổng Pay2S, tài khoản Pay2S của đối tác (nếu có) được ưu tiên hơn kênh PayOS đó —
+        // đó chính là bước "chuyển PayOS riêng sang Pay2S"; chưa có tài khoản Pay2S thì vẫn giữ PayOS để tiền không đi nhầm.
+        $branchHasPayOs = PayOsAccountResolver::branchAccountFor($order->category_id ? (int) $order->category_id : null) !== null;
+
+        if ($branchHasPayOs && ! Pay2SConfig::collectsViaPay2S()) {
             return null;
         }
 
@@ -86,7 +96,40 @@ class SePayService
 
         $account = $this->accountForCategory($partnerId, $order->category_id ? (int) $order->category_id : null);
 
+        if ($account && $branchHasPayOs && $account->provider !== PartnerSePayAccount::PROVIDER_PAY2S) {
+            return null;
+        }
+
         return $account && $this->providerEnabled((string) $account->provider) ? $account : null;
+    }
+
+    /**
+     * Tài khoản Pay2S của 365home cho đơn mà đối tác KHÔNG có kênh riêng (365 thu hộ) — chỉ khi đang chọn cổng Pay2S và đã khai báo tài khoản.
+     * Đơn còn kênh PayOS riêng đang bật (chi nhánh / đối tác chưa chuyển sang Pay2S) giữ PayOS: nếu thu về tài khoản 365 thì tiền đi nhầm chỗ.
+     */
+    private function platformAccountFor(Order $order): ?PartnerSePayAccount
+    {
+        $platform = Pay2SConfig::platformAccount();
+
+        if (! $platform) {
+            return null;
+        }
+
+        if (PayOsAccountResolver::branchAccountFor($order->category_id ? (int) $order->category_id : null)) {
+            return null;
+        }
+
+        $partnerId = PayOsAccountResolver::partnerIdForOrder($order);
+
+        return $partnerId && PayOsAccountResolver::partnerAccountFor($partnerId) ? null : $platform;
+    }
+
+    /** Đơn này tiền về thẳng đối tác qua chuyển khoản (kênh riêng SePay/Pay2S/thủ công) — khác với tài khoản 365 thu hộ. */
+    public function collectsToPartner(Order $order): bool
+    {
+        $account = $this->accountFor($order);
+
+        return $account !== null && ! $account->isPlatform();
     }
 
     /**
@@ -121,7 +164,8 @@ class SePayService
     /** Tài khoản của đơn kể cả đang tắt / cổng đang tắt — dùng để tra lại yêu cầu thanh toán đã phát hành. */
     private function accountOfOrder(Order $order): ?PartnerSePayAccount
     {
-        return $this->accountForCategory(PayOsAccountResolver::partnerIdForOrder($order), $order->category_id ? (int) $order->category_id : null, false);
+        return $this->accountForCategory(PayOsAccountResolver::partnerIdForOrder($order), $order->category_id ? (int) $order->category_id : null, false)
+            ?? Pay2SConfig::platformAccount(false);
     }
 
     /** Công tắc tổng của từng cổng (CMS → Cấu hình web): tắt = mọi đối tác của cổng đó quay về PayOS. */
@@ -166,6 +210,24 @@ class SePayService
      * @return array{payment_provider: string, sepay: ?array, pay2s?: ?array}
      */
     public function paymentFields(Order $order): array
+    {
+        $card = $this->cardPaymentField($order);
+
+        // Chỉ thêm khối card_payment khi thẻ THỰC SỰ dùng được cho đơn này: mọi đơn khác (đối tác, chi nhánh chưa bật thẻ, thẻ đang tắt) giữ nguyên phản hồi cũ.
+        return $this->transferPaymentFields($order) + ($card['available'] ?? false ? ['card_payment' => $card] : []);
+    }
+
+    // Có thể thanh toán thẻ (Pay2S) cho đơn này không — app hiện nút "Thanh toán thẻ" khi available = true. Lỗi cấu hình không được làm hỏng phản hồi đơn.
+    private function cardPaymentField(Order $order): array
+    {
+        try {
+            return app(Pay2SCardService::class)->availability($order);
+        } catch (\Throwable) {
+            return ['available' => false];
+        }
+    }
+
+    private function transferPaymentFields(Order $order): array
     {
         $account = $this->accountFor($order);
 
@@ -313,6 +375,12 @@ class SePayService
         $amount = (int) $payload['transferAmount'];
         $account = $this->findAccount((string) $payload['accountNumber'], (string) ($payload['subAccount'] ?? ''));
         $code = $this->extractCode($payload);
+
+        // Pay2S: khoản thu KHÔNG phải đơn phòng (gói dịch vụ, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse) mang mã riêng trong nội dung — xử lý ở PlatformCollectionService.
+        if ($code === null && $provider === PartnerSePayAccount::PROVIDER_PAY2S && ($platformResult = app(PlatformCollectionService::class)->handle($payload, $raw, $account))) {
+            return $platformResult;
+        }
+
         // Tiền vào KHÔNG mang mã thanh toán của hệ thống, đến từ cổng mà tài khoản không dùng (vd SePay vẫn còn gửi webhook cho tài khoản đã chuyển sang
         // Pay2S / xác nhận thủ công) hoặc vào số tài khoản chưa khai báo: là biến động số dư không liên quan — bỏ qua, không ghi nhật ký đối soát.
         // Khoản có mã, hoặc không mã nhưng đến đúng cổng của tài khoản (khách ghi sai nội dung), vẫn được ghi "rejected" để đối soát / hoàn tiền.
@@ -532,7 +600,10 @@ class SePayService
             }
         }
 
-        return null;
+        // Tài khoản của 365home (khai báo ở cài đặt Pay2S, không nằm trong bảng đối tác).
+        $platform = Pay2SConfig::platformAccount(false);
+
+        return $platform && in_array($platform->account_number, $numbers, true) ? $platform : null;
     }
 
     private function validatePayment(?PartnerSePayAccount $account, ?SePayPaymentLink $link, ?Order $order, int $amount, string $provider = PartnerSePayAccount::PROVIDER_SEPAY): ?string
@@ -552,8 +623,16 @@ class SePayService
         if (! $order) {
             return 'Không tìm thấy đơn của yêu cầu thanh toán.';
         }
-        if (PayOsAccountResolver::partnerIdForOrder($order) !== (string) $account->partner_id) {
+        if ($account->isPlatform()) {
+            // Tài khoản 365: chỉ nhận khoản của đơn mà 365 thu hộ — yêu cầu thanh toán của đối tác (đã gắn tài khoản riêng) chuyển nhầm vào đây thì đối soát tay.
+            if ($link->partner_sepay_account_id) {
+                return 'Tiền chuyển vào tài khoản 365home nhưng yêu cầu thanh toán này thuộc tài khoản của đối tác — đối soát/hoàn tiền thủ công.';
+            }
+        } elseif (PayOsAccountResolver::partnerIdForOrder($order) !== (string) $account->partner_id) {
             return 'Tài khoản nhận tiền không thuộc đối tác của đơn.';
+        } elseif (! $link->partner_sepay_account_id && $this->accountFor($order)?->isPlatform()) {
+            // Yêu cầu do 365home thu hộ (không gắn tài khoản đối tác) mà tiền lại vào tài khoản của đối tác: không xác nhận.
+            return 'Yêu cầu thanh toán này do 365home thu hộ nhưng tiền chuyển vào tài khoản của đối tác — đối soát/hoàn tiền thủ công.';
         }
         // Đối tác có nhiều tài khoản (mỗi chi nhánh một): tiền phải về ĐÚNG tài khoản đã phát hành cho yêu cầu này, không phải tài khoản chi nhánh khác.
         if ($link->partner_sepay_account_id && (int) $link->partner_sepay_account_id !== (int) $account->id) {

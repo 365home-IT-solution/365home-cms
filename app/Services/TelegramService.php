@@ -14,9 +14,10 @@ class TelegramService
         $this->chatId = config('services.telegram.chat_id');
     }
 
+    // PUSH_NOTIFICATIONS_ENABLED=false (App\Support\PushSwitch) ⇒ coi như chưa cấu hình: không gửi tin nào ra nhóm Telegram thật.
     public function isConfigured(): bool
     {
-        return ! empty($this->token) && ! empty($this->chatId);
+        return \App\Support\PushSwitch::enabled() && ! empty($this->token) && ! empty($this->chatId);
     }
 
     public function sendMessage(string $message, ?string $chatId = null): void

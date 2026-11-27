@@ -8,6 +8,7 @@ use Modules\BladeThemeV1\Support\QrCodeGenerator;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
+use App\Services\Payment\PlatformCollectionService;
 use PayOS\PayOS;
 
 // Tạo mã QR PayOS để khách chuyển khoản trực tiếp cho 1 hoá đơn. Ưu tiên TÀI KHOẢN PAYOS RIÊNG của
@@ -37,7 +38,9 @@ class InvoicePayOsService
     // quên xoá các ô PayOS cũ.
     public static function isConfiguredFor(?Building $building): bool
     {
-        return $building?->activePaymentMethod() === Building::PAYMENT_METHOD_PAYOS || self::isConfigured();
+        return in_array($building?->activePaymentMethod(), [Building::PAYMENT_METHOD_PAYOS, Building::PAYMENT_METHOD_PAY2S], true)
+            || self::isConfigured()
+            || app(PlatformCollectionService::class)->active();
     }
 
     /**
@@ -88,6 +91,13 @@ class InvoicePayOsService
                 ?->room?->building
             : null;
 
+        // Pay2S (đổi qua lại PayOS ⇄ Pay2S ở form toà nhà): toà chọn Pay2S → tiền vào tài khoản ngân hàng của chủ toà; toà không có kênh riêng mà 365 đang thu qua
+        // Pay2S → tài khoản 365 (thay cho tài khoản PayOS chung). Toà chọn "PayOS riêng" luôn giữ PayOS cho tới khi chuyển sang Pay2S.
+        $method = $building?->activePaymentMethod();
+        if ($method === Building::PAYMENT_METHOD_PAY2S || ($method !== Building::PAYMENT_METHOD_PAYOS && app(PlatformCollectionService::class)->active())) {
+            return self::createPay2SQr($invoice, $building, $method === Building::PAYMENT_METHOD_PAY2S, (int) round($amount));
+        }
+
         if (! self::isConfiguredFor($building)) {
             throw new \RuntimeException('Chưa cấu hình PayOS (Client ID/API Key/Checksum Key) — vào phần Cấu hình thanh toán hoặc khai báo tài khoản PayOS riêng ở Toà nhà để thêm.');
         }
@@ -133,6 +143,45 @@ class InvoicePayOsService
             'qr_code'      => $response['qrCode'] ?? '',
             'qr_image'     => filled($response['qrCode'] ?? null) ? QrCodeGenerator::dataUri($response['qrCode'], 260) : '',
             'checkout_url' => $response['checkoutUrl'] ?? '',
+            'amount'       => $amount,
+            'expired_at'   => $expiredAt->toIso8601String(),
+        ];
+    }
+
+    /**
+     * QR chuyển khoản qua Pay2S: nội dung = "MH" + mã 9 chữ số (invoices.payos_order_code, dải 9xxxxxxxx như cũ); Pay2S báo tiền vào → PlatformCollectionService khớp hoá đơn.
+     *
+     * @return array{qr_code: string, qr_image: string, checkout_url: string, amount: float, expired_at: string}
+     */
+    private static function createPay2SQr(Invoice $invoice, ?Building $building, bool $buildingAccount, int $amount): array
+    {
+        $collection = app(PlatformCollectionService::class);
+        // Giữ nguyên mã đang có (QR khách đã quét dở vẫn khớp); chưa có thì sinh mới.
+        $orderCode = $invoice->payos_order_code ?: self::generateUniqueOrderCode();
+        $content = PlatformCollectionService::MINIHOUSE_PREFIX . $orderCode;
+        $expiredAt = now()->addMinutes(self::EXPIRE_MINUTES);
+
+        $instruction = $buildingAccount
+            ? $collection->instruction((string) $building->owner_bank_bin, (string) $building->owner_bank_name, (string) $building->owner_bank_account_number, (string) $building->owner_bank_account_holder, $amount, $content)
+            : $collection->platformInstruction($amount, $content);
+
+        if (! $instruction) {
+            throw new \RuntimeException('Chưa cấu hình tài khoản Pay2S.');
+        }
+
+        $checkoutUrl = $collection->publicUrl(PlatformCollectionService::KIND_MINIHOUSE, $content);
+
+        $invoice->update([
+            'payos_order_code'   => $orderCode,
+            'payos_checkout_url' => $checkoutUrl,
+            'payos_qr_code'      => $instruction['qr_code'],
+            'payos_expired_at'   => $expiredAt,
+        ]);
+
+        return [
+            'qr_code'      => $instruction['qr_code'],
+            'qr_image'     => filled($instruction['qr_code']) ? QrCodeGenerator::dataUri($instruction['qr_code'], 260) : '',
+            'checkout_url' => $checkoutUrl,
             'amount'       => $amount,
             'expired_at'   => $expiredAt->toIso8601String(),
         ];

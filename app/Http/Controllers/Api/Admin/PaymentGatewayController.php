@@ -47,7 +47,9 @@ class PaymentGatewayController extends Controller
         }
 
         if ($provider === 'pay2s') {
-            $rules += ['partner_access_key' => ['nullable', 'string', 'max:500'], 'partner_secret_key' => ['nullable', 'string', 'max:500'], 'partner_api_url' => ['nullable', 'url', 'max:255'], 'partner_parent_origin' => ['nullable', 'url', 'max:255']];
+            $rules += ['partner_access_key' => ['nullable', 'string', 'max:500'], 'partner_secret_key' => ['nullable', 'string', 'max:500'], 'partner_api_url' => ['nullable', 'url', 'max:255'], 'partner_parent_origin' => ['nullable', 'url', 'max:255'],
+                'default_gateway' => ['nullable', 'in:payos,pay2s'], 'platform_bank_code' => ['nullable', 'string', 'max:20'], 'platform_bank_bin' => ['nullable', 'string', 'max:12'],
+                'platform_account_number' => ['nullable', 'string', 'max:50'], 'platform_account_holder' => ['nullable', 'string', 'max:255'], 'platform_webhook_token' => ['nullable', 'string', 'max:1000']];
         }
 
         $input = $request->validate($rules);

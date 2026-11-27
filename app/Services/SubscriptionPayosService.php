@@ -30,7 +30,17 @@ class SubscriptionPayosService
     /** Tạo link/QR PayOS. Lỗi PayOS không làm hỏng yêu cầu (vẫn có mã giao dịch để chuyển khoản tay & Super Admin xác nhận). */
     public function createLink(Pay $payment): void
     {
-        if (! $this->isConfigured() || $payment->payos_order_code) {
+        // Đã có link PayOS, hoặc đã có hướng dẫn chuyển khoản Pay2S: không tạo lại.
+        if ($payment->payos_order_code || filled($payment->payos_qr_code)) {
+            return;
+        }
+
+        // Cổng Pay2S: chuyển khoản vào tài khoản 365, nội dung = mã giao dịch (SBxxxxxx); webhook Pay2S khớp theo mã (PlatformCollectionService).
+        if (app(\App\Services\Payment\PlatformCollectionService::class)->attach(\App\Services\Payment\PlatformCollectionService::KIND_SUBSCRIPTION, $payment, (int) $payment->amount_vnd, (string) $payment->transaction_code, now()->addHours((int) config('subscription.payment_link_hours', 24)))) {
+            return;
+        }
+
+        if (! $this->isConfigured()) {
             return;
         }
 

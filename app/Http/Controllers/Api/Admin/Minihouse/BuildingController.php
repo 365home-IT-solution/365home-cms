@@ -177,7 +177,7 @@ class BuildingController extends Controller
             'electric_unit_price'           => 'nullable|numeric|min:0',
             'water_unit_price'              => 'nullable|numeric|min:0',
             'note'                          => 'nullable|string',
-            'payment_method'                => ['nullable', Rule::in([Building::PAYMENT_METHOD_VIETQR, Building::PAYMENT_METHOD_PAYOS, Building::PAYMENT_METHOD_MOMO, Building::PAYMENT_METHOD_VNPAY])],
+            'payment_method'                => ['nullable', Rule::in([Building::PAYMENT_METHOD_VIETQR, Building::PAYMENT_METHOD_PAYOS, Building::PAYMENT_METHOD_PAY2S, Building::PAYMENT_METHOD_MOMO, Building::PAYMENT_METHOD_VNPAY])],
             'billing_cycle_type'            => ['nullable', Rule::in([Building::BILLING_CYCLE_CALENDAR_MONTH, Building::BILLING_CYCLE_ANNIVERSARY])],
             'fixed_due_day'                 => 'nullable|integer|min:1|max:28',
             'payment_reminder_days_before'  => 'nullable|integer|min:0|max:30',
@@ -194,6 +194,7 @@ class BuildingController extends Controller
             'payos_client_id'               => 'nullable|string|max:255',
             'payos_api_key'                 => 'nullable|string|max:255',
             'payos_checksum_key'            => 'nullable|string|max:255',
+            'pay2s_webhook_token'           => 'nullable|string|max:255',
             'momo_partner_code'             => 'nullable|string|max:255',
             'momo_access_key'               => 'nullable|string|max:255',
             'momo_secret_key'               => 'nullable|string|max:255',
@@ -256,6 +257,8 @@ class BuildingController extends Controller
             // thống) — chỉ báo ĐÃ cấu hình hay chưa, giống cách Filament ẩn 2 field này dạng password.
             'payos_client_id'               => $building->payos_client_id,
             'payos_configured'              => filled($building->payos_client_id) && filled($building->payos_api_key) && filled($building->payos_checksum_key),
+            // Token webhook Pay2S là bí mật — chỉ báo đã khai báo hay chưa (cùng nguyên tắc PayOS).
+            'pay2s_configured'              => $building->hasOwnPay2S(),
             // Cùng nguyên tắc PayOS — KHÔNG trả về momo_secret_key/vnpay_hash_secret thô.
             'momo_partner_code'             => $building->momo_partner_code,
             'momo_configured'               => $building->hasOwnMomo(),

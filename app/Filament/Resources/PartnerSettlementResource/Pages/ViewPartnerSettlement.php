@@ -106,7 +106,7 @@ class ViewPartnerSettlement extends ViewRecord
                         Notification::make()->success()->persistent()->title('Nộp ' . self::money($settlement->net_amount) . " — nội dung chuyển khoản: {$settlement->code}")
                             ->body($settlement->payos_checkout_url
                                 ? "Mở liên kết để quét QR (hạn {$settlement->payos_expired_at?->format('d/m/Y H:i')}): {$settlement->payos_checkout_url}"
-                                : 'Chưa tạo được QR PayOS — chuyển khoản theo nội dung trên, Super Admin sẽ ghi nhận.')
+                                : 'Chưa tạo được QR thanh toán — chuyển khoản theo nội dung trên, Super Admin sẽ ghi nhận.')
                             ->send();
                     } catch (\DomainException $e) {
                         Notification::make()->danger()->title($e->getMessage())->send();

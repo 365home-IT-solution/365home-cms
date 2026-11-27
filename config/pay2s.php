@@ -3,6 +3,8 @@
 return [
     // Công tắc tổng: false = mọi đối tác dùng Pay2S quay về PayOS ngay — dùng khi cần ngắt Pay2S khẩn cấp.
     'enabled' => (bool) env('PAY2S_ENABLED', true),
+    // Cổng chuyển khoản mặc định cho khoản thu mới: 'payos' (như trước đây) | 'pay2s'. Đổi ở CMS → Pay2S — cấu hình chung (ưu tiên hơn .env) để bật/tắt không cần deploy.
+    'default_gateway' => env('PAYMENT_DEFAULT_GATEWAY', 'payos'),
     // Để trống thì tự lấy theo APP_URL (…/api/webhook/pay2s).
     'webhook_url' => env('PAY2S_WEBHOOK_URL'),
     // API giao dịch Pay2S (my.pay2s.vn → Tích hợp Web/App → token): cho phép hệ thống TỰ HỎI Pay2S giao dịch tiền vào khi webhook chậm/lỡ
