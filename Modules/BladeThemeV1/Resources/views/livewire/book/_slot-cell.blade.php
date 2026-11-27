@@ -158,19 +158,28 @@
     // Ảnh/nhãn khuyến mãi phủ lên ô — dựng sẵn thành 1 chuỗi thay vì 5 khối @if: mỗi @if trong
     // component Livewire bị chèn thêm 1 cặp comment <!--[if BLOCK]--> vào HTML (5 cặp/ô x hàng trăm
     // ô = phần đáng kể của HTML trang chủ). Điều kiện và markup giữ NGUYÊN như bản @if cũ.
-    $overlayHtml = '';
+    // Giá in trong ô — chỉ ô còn đặt được (ô đã đặt/đang chờ/khoá/quá giờ không cần giá). $finalPrice
+    // là giá khách trả thật: ô có ưu đãi giảm giá => giá SAU giảm (không phải giá gốc); ô phụ thu
+    // (lễ/Tết) => giá đã cộng phụ thu. Ô đổi trạng thái real-time (echo-client gắn .booked/.held…)
+    // thì CSS tự ẩn .bk-price. Giá đã thay chỗ nhãn chữ giữa ô (promotion-center-label) — ô cao
+    // 22px không đủ chỗ cho cả hai; nhãn khuyến mãi vẫn hiện ở bảng tính giá sau khi chọn.
+    $priceLabel = ($isSelectable && $finalPrice > 0)
+        ? '<span class="bk-price">' . e(\Modules\BladeThemeV1\Livewire\Book::shortPrice($finalPrice)) . '</span>'
+        : '';
+
+    $overlayHtml = $priceLabel;
     if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image) {
         $overlayHtml .= '<div class="promotion-corner-image"><img src="' . e(asset('storage/' . $displayPromotion->image))
             . '" alt="' . e($displayPromotion->name) . '" class="corner-img"></div>';
     }
-    if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client) {
+    if ($priceLabel === '' && $hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client) {
         $overlayHtml .= '<div class="promotion-center-label">' . $displayPromotion->lable_client . '</div>';
     }
     if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['image'])) {
         $overlayHtml .= '<div class="promotion-corner-image"><img src="' . e(asset('storage/' . $displayDiscountPromotion['image']))
             . '" alt="' . e($displayDiscountPromotion['name']) . '" class="corner-img"></div>';
     }
-    if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client'])) {
+    if ($priceLabel === '' && $hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client'])) {
         $overlayHtml .= '<div class="promotion-center-label">' . $displayDiscountPromotion['lable_client'] . '</div>';
     }
     if (str_contains($classes, 'held')) {

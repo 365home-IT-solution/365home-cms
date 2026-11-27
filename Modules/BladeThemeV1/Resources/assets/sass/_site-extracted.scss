@@ -3734,3 +3734,55 @@ body {
                                thị giác của tam giác lệch trái so với tâm hình học của nó). */
                             margin-left: 3px;
                         }
+
+/* --- Giá trong ô khung giờ (book/_slot-cell.blade.php: .bk-price) ---
+   position+z-index để nằm TRÊN lớp phủ trắng .selectable.promo::after (absolute) và dưới ảnh góc
+   khuyến mãi (.promotion-corner-image z-30). Ô ưu đãi: giá đã giảm, chữ đỏ. Ô đổi trạng thái
+   real-time (đã đặt/đang chờ/khoá/đang giữ/quá giờ) thì ẩn giá. */
+.bk-price {
+    position: relative;
+    z-index: 20;
+    font-size: 10px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #374151;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.selectable.promo .bk-price {
+    color: #e11d48;
+}
+
+.selectable.active .bk-price {
+    color: #fff;
+}
+
+.selectable.booked .bk-price,
+.selectable.pending .bk-price,
+.selectable.blocked .bk-price,
+.selectable.held .bk-price,
+.selectable.past-date .bk-price,
+.selectable.past-time .bk-price {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .bk-price {
+        font-size: 11.5px;
+    }
+}
+
+.book-dt-slot-cell .bk-price,
+.pd-dt-slot-cell .bk-price {
+    font-size: 12px;
+}
+
+/* .selectable gốc có padding 0 0.5rem — ô lưới mobile (bảng trang chủ/chi nhánh + trang chi tiết phòng) chỉ ~45px nên padding đó ăn mất chỗ của giá. */
+.book-slot-cell .selectable,
+.book-dt-slot-cell .selectable,
+.pd-slot-cell .selectable,
+.pd-dt-slot-cell .selectable {
+    padding: 0 2px;
+}

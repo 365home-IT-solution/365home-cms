@@ -916,6 +916,8 @@
                                                                                 data-timeslot-id="{{ $timeSlot['timeslot_id'] }}"
                                                                                 data-iso-date="{{ $date['carbon_date']->format('Y-m-d') }}"
                                                                                 @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}',@js($product['name']),@js($timeSlot['timeslot_label']),'{{ $timeSlot['over_night'] ?? 0 }}')">
+                                                                                {{-- Giá trong ô (giá khách trả: ô ưu đãi => giá SAU giảm), xem .bk-price ở _site-extracted.scss. --}}
+                                                                                {!! ($mIsSelectable && $mFinal > 0) ? '<span class="bk-price">' . e(\Modules\BladeThemeV1\Livewire\Book::shortPrice($mFinal)) . '</span>' : '' !!}
                                                                                 @if (str_contains($mClasses, 'held'))
                                                                                     <div class="lock-icon" title="Đang được {{ $mHeldByName }} xử lý cho 1 đơn khác">
                                                                                         <svg viewBox="0 0 24 24" fill="none"
@@ -1270,6 +1272,8 @@
                                                                 '{{ $timeSlot['over_night'] ?? 0 }}'
                                                              )">
 
+                                                                                {!! ($isSelectable && $finalPrice > 0) ? '<span class="bk-price">' . e(\Modules\BladeThemeV1\Livewire\Book::shortPrice($finalPrice)) . '</span>' : '' !!}
+
                                                                                 @if (str_contains($classes, 'held'))
                                                                                     <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">
                                                                                         <svg viewBox="0 0 24 24" fill="none"
@@ -1290,7 +1294,7 @@
                                                                                     </div>
                                                                                 @endif
 
-                                                                                @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client)
+                                                                                @if (!($isSelectable && $finalPrice > 0) && $hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client)
                                                                                     <div
                                                                                         class="promotion-center-label">
                                                                                         {{ $displayPromotion->lable_client }}

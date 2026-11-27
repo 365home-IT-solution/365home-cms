@@ -546,6 +546,25 @@ class Book extends Component
     // gạch giá gốc, nhãn "Giảm 8%"). Giá cuối cùng (final_price) không đổi. API (BranchController) tắt bằng hideBoardDiscountPromo().
     protected bool $showBoardDiscountAsPromo = true;
 
+    /**
+     * Giá rút gọn in trong ô khung giờ (ô mobile chỉ ~45px): 150000 → "150k", 135500 → "135,5k",
+     * 1250000 → "1,25tr". Giá đầy đủ vẫn hiện ở bảng tính giá sau khi chọn ô.
+     */
+    public static function shortPrice(float|int|string|null $amount): string
+    {
+        $amount = (float) $amount;
+        $trim   = fn (string $s) => rtrim(rtrim($s, '0'), ',');
+
+        if ($amount >= 1_000_000) {
+            return $trim(number_format($amount / 1_000_000, 2, ',', '')) . 'tr';
+        }
+        if ($amount >= 1_000) {
+            return $trim(number_format($amount / 1_000, 1, ',', '')) . 'k';
+        }
+
+        return number_format($amount, 0, ',', '.') . 'đ';
+    }
+
     public function hideBoardDiscountPromo(): static
     {
         $this->showBoardDiscountAsPromo = false;
