@@ -1,10 +1,11 @@
 {{-- Accordion FAQ dùng chung cho các khối nội dung SEO tĩnh — items: [['q' => ..., 'a' => ...]].
      $schema=true (mặc định) phát thêm JSON-LD FAQPage cho khối này. --}}
-@props(['items' => [], 'title' => 'Câu hỏi thường gặp', 'schema' => true])
+@props(['items' => [], 'title' => 'Câu hỏi thường gặp', 'schema' => true, 'wide' => false])
 
 <div>
     <h2 class="text-2xl font-bold text-gray-900 mb-5">{{ $title }}</h2>
-    <div class="space-y-3 max-w-3xl">
+    {{-- wide=true: trải hết bề ngang khung chứa (trang chủ — thẳng hàng với các mục đóng/mở phía trên). --}}
+    <div class="space-y-3 {{ $wide ? '' : 'max-w-3xl' }}">
         @foreach ($items as $item)
             <details class="group rounded-2xl border border-gray-100 bg-white open:border-[rgba(var(--color-primary-rgb),0.3)] open:shadow-sm transition-colors">
                 <summary class="flex items-center justify-between gap-4 cursor-pointer list-none px-5 py-4 select-none">

@@ -823,119 +823,109 @@
          (cũng được tái sử dụng ở product/search.blade.php và livewire/product-detail.blade.php) —
          sửa giao diện thì sửa ở đó, không lặp lại markup riêng cho từng trang. --}}
     @if (request()->is('/'))
-        <section class="py-8 sm:py-10 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-3">Về 365 Home</h2>
-                <p class="text-gray-600 leading-relaxed">
-                    365 Home là hệ thống homestay tự check-in tại Cần Thơ: khách đặt phòng online, nhận
-                    mã và tự mở cửa bằng khoá thông minh, không cần lễ tân. Bên cạnh homestay, 365 Home
-                    còn có khách sạn, nhà nghỉ, villa, căn hộ và mini house, hỗ trợ đặt theo giờ, qua đêm
-                    hoặc theo ngày với giá rẻ, minh bạch, xem trước trên lịch đặt phòng. Chi nhánh 365 Home
-                    Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều, Cần Thơ, cùng hệ thống đang mở rộng
-                    thêm nhiều khu vực khác. Toàn bộ quy trình tìm phòng, xem giá, đặt và thanh toán đều
-                    thực hiện trực tiếp trên website hoặc ứng dụng di động 365 Home, giúp khách chủ động
-                    thời gian nhận/trả phòng mà không cần gọi điện đặt trước.
-                </p>
-            </div>
-        </section>
-
-        {{-- Nội dung chữ thật cho trang chủ (SEO audit: tỉ lệ text/HTML thấp, trang thiếu phần giải
-             thích dịch vụ): homestay tự check-in là gì, cách đặt theo giờ/qua đêm/theo ngày, các khu
-             vực có phòng. Chỉ nêu dữ kiện có thật trong hệ thống (khoá thông minh + mã mở cửa, đăng
-             nhập bằng OTP Zalo, giờ nhận/trả phòng theo ngày 14:00/12:00, lịch đặt phòng trực tuyến) —
-             không nêu giá/khuyến mãi cụ thể vì mỗi phòng cấu hình khác nhau. Danh sách chi nhánh lấy
-             động từ \App\Support\BranchLodgingSchema (cùng nguồn với schema LodgingBusiness) nên tự
-             cập nhật khi thêm chi nhánh có toạ độ. --}}
+        {{-- Các khối giới thiệu bên dưới thu gọn thành từng mục đóng/mở (components/seo-content/collapse,
+             cùng kiểu với FAQ) để trang chủ mobile không bị kéo dài — nội dung vẫn render sẵn trong HTML. --}}
         <section class="py-6 sm:py-8 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-3">Homestay tự check-in tại Cần Thơ là gì?</h2>
-                <p class="text-gray-600 leading-relaxed">
-                    Là mô hình lưu trú không có quầy lễ tân: bạn chọn phòng, chọn giờ và thanh toán ngay trên website
-                    hoặc ứng dụng 365 Home, sau đó nhận mã mở cửa và tự vào phòng bằng khoá thông minh trong khung giờ
-                    đã đặt.
-                    <a href="{{ url('/homestay-tu-check-in-can-tho') }}" class="font-medium text-primary hover:underline">Xem chi tiết về homestay tự check-in</a>
-                </p>
-            </div>
-        </section>
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 space-y-3">
+                <x-bladethemev1::seo-content.collapse title="Về 365 Home">
+                    <p class="text-sm sm:text-base text-gray-600 leading-relaxed">
+                        365 Home là hệ thống homestay tự check-in tại Cần Thơ: khách đặt phòng online, nhận
+                        mã và tự mở cửa bằng khoá thông minh, không cần lễ tân. Bên cạnh homestay, 365 Home
+                        còn có khách sạn, nhà nghỉ, villa, căn hộ và mini house, hỗ trợ đặt theo giờ, qua đêm
+                        hoặc theo ngày với giá rẻ, minh bạch, xem trước trên lịch đặt phòng. Chi nhánh 365 Home
+                        Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều, Cần Thơ, cùng hệ thống đang mở rộng
+                        thêm nhiều khu vực khác. Toàn bộ quy trình tìm phòng, xem giá, đặt và thanh toán đều
+                        thực hiện trực tiếp trên website hoặc ứng dụng di động 365 Home, giúp khách chủ động
+                        thời gian nhận/trả phòng mà không cần gọi điện đặt trước.
+                    </p>
+                </x-bladethemev1::seo-content.collapse>
 
-        <section class="py-6 sm:py-8 bg-gray-50">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-3">Cách đặt phòng theo giờ, qua đêm và theo ngày</h2>
-                <p class="text-gray-600 leading-relaxed mb-4">
-                    Chọn chi nhánh, chọn khung giờ còn trống trên lịch, đăng nhập bằng số điện thoại rồi thanh toán
-                    trực tuyến để nhận mã mở cửa — không cần gọi điện giữ chỗ.
-                    <a href="{{ url('/homestay-can-tho-theo-gio') }}" class="font-medium text-primary hover:underline">Xem cách đặt homestay theo giờ</a>
-                </p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
-                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo giờ</h3>
-                        <p class="text-sm text-gray-600 leading-relaxed">Chọn một hoặc vài khung giờ ban ngày trên lịch, phù hợp để nghỉ trưa, nghỉ giữa hai chuyến đi hoặc làm việc yên tĩnh vài tiếng.</p>
+                {{-- Nội dung chữ thật cho trang chủ (SEO audit: tỉ lệ text/HTML thấp, trang thiếu phần giải
+                     thích dịch vụ): homestay tự check-in là gì, cách đặt theo giờ/qua đêm/theo ngày, các khu
+                     vực có phòng. Chỉ nêu dữ kiện có thật trong hệ thống (khoá thông minh + mã mở cửa, đăng
+                     nhập bằng OTP Zalo, giờ nhận/trả phòng theo ngày 14:00/12:00, lịch đặt phòng trực tuyến) —
+                     không nêu giá/khuyến mãi cụ thể vì mỗi phòng cấu hình khác nhau. Danh sách chi nhánh lấy
+                     động từ \App\Support\BranchLodgingSchema (cùng nguồn với schema LodgingBusiness) nên tự
+                     cập nhật khi thêm chi nhánh có toạ độ. --}}
+                <x-bladethemev1::seo-content.collapse title="Homestay tự check-in tại Cần Thơ là gì?">
+                    <p class="text-sm sm:text-base text-gray-600 leading-relaxed">
+                        Là mô hình lưu trú không có quầy lễ tân: bạn chọn phòng, chọn giờ và thanh toán ngay trên website
+                        hoặc ứng dụng 365 Home, sau đó nhận mã mở cửa và tự vào phòng bằng khoá thông minh trong khung giờ
+                        đã đặt.
+                        <a href="{{ url('/homestay-tu-check-in-can-tho') }}" class="font-medium text-primary hover:underline">Xem chi tiết về homestay tự check-in</a>
+                    </p>
+                </x-bladethemev1::seo-content.collapse>
+
+                <x-bladethemev1::seo-content.collapse title="Cách đặt phòng theo giờ, qua đêm và theo ngày">
+                    <p class="text-sm sm:text-base text-gray-600 leading-relaxed mb-4">
+                        Chọn chi nhánh, chọn khung giờ còn trống trên lịch, đăng nhập bằng số điện thoại rồi thanh toán
+                        trực tuyến để nhận mã mở cửa — không cần gọi điện giữ chỗ.
+                        <a href="{{ url('/homestay-can-tho-theo-gio') }}" class="font-medium text-primary hover:underline">Xem cách đặt homestay theo giờ</a>
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="rounded-2xl bg-gray-50 p-4">
+                            <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo giờ</h3>
+                            <p class="text-sm text-gray-600 leading-relaxed">Chọn một hoặc vài khung giờ ban ngày trên lịch, phù hợp để nghỉ trưa, nghỉ giữa hai chuyến đi hoặc làm việc yên tĩnh vài tiếng.</p>
+                        </div>
+                        <div class="rounded-2xl bg-gray-50 p-4">
+                            <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt qua đêm</h3>
+                            <p class="text-sm text-gray-600 leading-relaxed">Chọn khung giờ có biểu tượng mặt trăng (Qua đêm) trên lịch: nhận phòng buổi tối và trả phòng vào sáng hôm sau.</p>
+                        </div>
+                        <div class="rounded-2xl bg-gray-50 p-4">
+                            <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo ngày</h3>
+                            <p class="text-sm text-gray-600 leading-relaxed">Chọn ngày nhận và ngày trả trên thanh tìm kiếm: nhận phòng từ 14:00 và trả phòng trước 12:00 trưa ngày trả.</p>
+                        </div>
                     </div>
-                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
-                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt qua đêm</h3>
-                        <p class="text-sm text-gray-600 leading-relaxed">Chọn khung giờ có biểu tượng mặt trăng (Qua đêm) trên lịch: nhận phòng buổi tối và trả phòng vào sáng hôm sau.</p>
-                    </div>
-                    <div class="rounded-2xl bg-white border border-gray-100 p-5">
-                        <h3 class="text-base font-semibold text-gray-900 mb-1">Đặt theo ngày</h3>
-                        <p class="text-sm text-gray-600 leading-relaxed">Chọn ngày nhận và ngày trả trên thanh tìm kiếm: nhận phòng từ 14:00 và trả phòng trước 12:00 trưa ngày trả.</p>
-                    </div>
-                </div>
+                </x-bladethemev1::seo-content.collapse>
+
+                {{-- Chỉ chi nhánh Cần Thơ (tiêu đề khối là "tại Cần Thơ") — chi nhánh tỉnh khác (villa Lâm Đồng)
+                     nằm ở nhóm riêng của khối "Khám phá chi nhánh" (components/home/internal-links). --}}
+                @if (count($homeBranchAreas = array_values(array_filter(\App\Support\BranchLodgingSchema::forHomepage(), fn ($b) => str_contains((string) data_get($b, 'address.addressRegion'), 'Cần Thơ')))) > 0)
+                <x-bladethemev1::seo-content.collapse title="Khu vực có phòng 365 Home tại Cần Thơ">
+                    <p class="text-sm sm:text-base text-gray-600 leading-relaxed mb-4">
+                        Các chi nhánh trên 365 Home đều nằm trong khu vực trung tâm quận Ninh Kiều, thuận tiện đi
+                        bến Ninh Kiều, chợ đêm, các trường đại học và bệnh viện lớn của thành phố. Bấm vào từng chi
+                        nhánh để xem phòng và lịch trống:
+                    </p>
+                    <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        @foreach ($homeBranchAreas as $homeBranchArea)
+                            <li class="rounded-2xl bg-gray-50 p-4">
+                                {{-- alternateName = tên chi nhánh không kèm tên đối tác (BranchLodgingSchema). --}}
+                                <a href="{{ $homeBranchArea['url'] }}" class="font-semibold text-gray-900 hover:underline">{{ $homeBranchArea['alternateName'] ?? $homeBranchArea['name'] }}</a>
+                                @if (!empty($homeBranchArea['address']['addressLocality']))
+                                    <p class="text-sm text-gray-500 mt-1">{{ $homeBranchArea['address']['addressLocality'] }}, {{ $homeBranchArea['address']['addressRegion'] ?? 'Cần Thơ' }}</p>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                </x-bladethemev1::seo-content.collapse>
+                @endif
+
+                <x-bladethemev1::seo-content.collapse title="Vì sao chọn 365 Home">
+                    <x-bladethemev1::seo-content.feature-grid :show-icon="false" :items="[
+                        ['icon' => 'home', 'title' => 'Đa dạng loại hình', 'text' => 'Khách sạn, nhà nghỉ, villa, căn hộ, mini house, homestay — nhiều lựa chọn phù hợp mọi nhu cầu và ngân sách.'],
+                        ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
+                        ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa, đảm bảo an ninh cho khách lưu trú.'],
+                        ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động, tải miễn phí trên App Store và Google Play.'],
+                    ]" />
+                </x-bladethemev1::seo-content.collapse>
+
+                <x-bladethemev1::seo-content.collapse title="Các loại hình lưu trú tại 365 Home">
+                    <x-bladethemev1::seo-content.feature-grid :columns="3" :items="[
+                        ['image' => 'images/hotel-88.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
+                        ['image' => 'images/motel-88.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
+                        ['image' => 'images/villa-88.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
+                        ['image' => 'images/apartment-88.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
+                        ['image' => 'images/minihouse-88.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
+                        ['image' => 'images/homestay-88.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
+                    ]" />
+                </x-bladethemev1::seo-content.collapse>
+
+                {{-- Tóm tắt theo nhu cầu + link sang trang đích (nội dung dài đã chuyển sang các trang đó, xem
+                     components/home/explore.blade.php). --}}
+                <x-bladethemev1::home.explore />
             </div>
         </section>
-
-        {{-- Chỉ chi nhánh Cần Thơ (tiêu đề khối là "tại Cần Thơ") — chi nhánh tỉnh khác (villa Lâm Đồng)
-             nằm ở nhóm riêng của khối "Khám phá chi nhánh" (components/home/internal-links). --}}
-        @if (count($homeBranchAreas = array_values(array_filter(\App\Support\BranchLodgingSchema::forHomepage(), fn ($b) => str_contains((string) data_get($b, 'address.addressRegion'), 'Cần Thơ')))) > 0)
-        <section class="py-6 sm:py-8 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-3">Khu vực có phòng 365 Home tại Cần Thơ</h2>
-                <p class="text-gray-600 leading-relaxed mb-4">
-                    Các chi nhánh trên 365 Home đều nằm trong khu vực trung tâm quận Ninh Kiều, thuận tiện đi
-                    bến Ninh Kiều, chợ đêm, các trường đại học và bệnh viện lớn của thành phố. Bấm vào từng chi
-                    nhánh để xem phòng và lịch trống:
-                </p>
-                <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    @foreach ($homeBranchAreas as $homeBranchArea)
-                        <li class="rounded-2xl border border-gray-100 p-4">
-                            {{-- alternateName = tên chi nhánh không kèm tên đối tác (BranchLodgingSchema). --}}
-                            <a href="{{ $homeBranchArea['url'] }}" class="font-semibold text-gray-900 hover:underline">{{ $homeBranchArea['alternateName'] ?? $homeBranchArea['name'] }}</a>
-                            @if (!empty($homeBranchArea['address']['addressLocality']))
-                                <p class="text-sm text-gray-500 mt-1">{{ $homeBranchArea['address']['addressLocality'] }}, {{ $homeBranchArea['address']['addressRegion'] ?? 'Cần Thơ' }}</p>
-                            @endif
-                        </li>
-                    @endforeach
-                </ul>
-            </div>
-        </section>
-        @endif
-
-        <section class="py-6 sm:py-8 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.feature-grid title="Vì sao chọn 365 Home" :show-icon="false" :items="[
-                    ['icon' => 'home', 'title' => 'Đa dạng loại hình', 'text' => 'Khách sạn, nhà nghỉ, villa, căn hộ, mini house, homestay — nhiều lựa chọn phù hợp mọi nhu cầu và ngân sách.'],
-                    ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
-                    ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa, đảm bảo an ninh cho khách lưu trú.'],
-                    ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động, tải miễn phí trên App Store và Google Play.'],
-                ]" />
-            </div>
-        </section>
-
-        <section class="py-6 sm:py-8 bg-gray-50">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.feature-grid title="Các loại hình lưu trú tại 365 Home" :columns="3" :items="[
-                    ['image' => 'images/hotel-88.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
-                    ['image' => 'images/motel-88.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
-                    ['image' => 'images/villa-88.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
-                    ['image' => 'images/apartment-88.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
-                    ['image' => 'images/minihouse-88.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
-                    ['image' => 'images/homestay-88.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
-                ]" />
-            </div>
-        </section>
-
-        {{-- Tóm tắt theo nhu cầu + link sang trang đích (nội dung dài đã chuyển sang các trang đó, xem
-             components/home/explore.blade.php). --}}
-        <x-bladethemev1::home.explore />
 
         {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
              file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối
@@ -960,9 +950,9 @@
             ['q' => '365 Home có phòng ở những khu vực nào tại Cần Thơ?', 'a' => 'Các chi nhánh hiện có nằm tại quận Ninh Kiều, Cần Thơ, gồm khu vực đường Xuân Thủy (phường An Bình), đường Trần Nam Phú và đường 30 Tháng 4 (phường Tân An). Danh sách chi nhánh và lịch trống được cập nhật trên trang chủ.'],
             ['q' => 'Liên hệ 365 Home bằng cách nào?', 'a' => 'Khách có thể liên hệ qua hotline +84 939 174 365, email 365home.cantho@gmail.com hoặc các kênh mạng xã hội chính thức của 365 Home.'],
         ])
-        <section class="py-6 sm:py-8 bg-white">
-            <div class="max-w-3xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.faq-accordion :items="$homeFaqs" />
+        <section class="pt-2 pb-6 sm:pb-8 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.faq-accordion :items="$homeFaqs" :wide="true" />
             </div>
         </section>
     @endif
