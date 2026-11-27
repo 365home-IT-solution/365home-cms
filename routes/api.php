@@ -510,6 +510,9 @@ Route::middleware('auth:sanctum')->group(function () {
 | GET    /api/guest/orders/{order_code}/payment-status?phone=xx  → App polling trạng thái thanh toán
 |--------------------------------------------------------------------------
 */
+// Thẻ quốc tế (Pay2S): chi nhánh này có nhận thanh toán thẻ không — gọi ở bước đặt phòng, chưa cần đơn.
+Route::get('card-payment/options', [CardPaymentController::class, 'options'])->middleware('throttle:60,1')->name('api.card-payment.options');
+
 Route::prefix('guest')->name('api.guest.')->group(function () {
     Route::post('orders',                                        [GuestBookingController::class, 'store'])->name('orders.store');
     Route::post('orders/{order_code}',                           [GuestBookingController::class, 'update'])->name('orders.update');

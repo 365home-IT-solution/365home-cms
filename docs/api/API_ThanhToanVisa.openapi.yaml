@@ -1,0 +1,1389 @@
+# =====================================================================================
+#  365 HOME — Thanh toán thẻ Visa / Mastercard / JCB / AMEX / UnionPay (qua Pay2S)
+#  Định dạng OpenAPI 3.0 (YAML) theo file mẫu API Reference.
+#  Import: Admin > API Reference > chọn dự án + phiên bản > Import.
+#  Cả tính năng là MỚI ở nhánh này nên tài liệu mô tả đầy đủ. Các API đơn đã có chỉ ghi phần thêm (nhãn, khối card_payment).
+# =====================================================================================
+openapi: 3.0.3
+
+info:
+  title: Thanh toán thẻ Visa (Pay2S) - 365 HOME
+  version: 1.0.0
+  description: |
+    Khách trả tiền đơn bằng **thẻ quốc tế** (Visa, Mastercard, JCB, AMEX, UnionPay). Tiền thẻ về tài khoản Pay2S của **365 Home**.
+    Chỉ áp dụng cho **chi nhánh của 365 Home** được bật trong CMS; đơn của đối tác vẫn thanh toán chuyển khoản như cũ.
+
+    ## Nút BẬT / TẮT
+    - Có công tắc **Bật / Tắt thanh toán thẻ** ở CMS (Cấu hình web → Pay2S — thanh toán thẻ) và qua API `PUT /admin/pay2s-card/enabled`.
+    - **TẮT** ⇒ mọi thứ từ admin tới khách chạy **y như chưa có tính năng**: khách không thấy lựa chọn thẻ, phản hồi đơn **không có** khối `card_payment`,
+      API tạo phiên trả `422`, menu "Giao dịch thẻ Pay2S" ẩn (nếu chưa từng có giao dịch). Trang cấu hình vẫn còn để bật lại.
+    - Các phiên thẻ **đã tạo trước khi tắt** vẫn được xác nhận nếu tiền về (webhook / đồng bộ vẫn chạy) để không mất đơn đã thu tiền.
+    - Mặc định khi cài mới: **TẮT** và ở **chế độ thử** (sandbox).
+
+    ## Luồng cho app / web khách (làm theo thứ tự)
+    0. **Trước khi có đơn** (màn chọn phương thức thanh toán lúc đặt phòng): gọi `GET /card-payment/options?category_id={id chi nhánh}` (công khai, không cần đăng nhập)
+       để biết chi nhánh này có nhận thẻ quốc tế không. `available = false` ⇒ ẩn lựa chọn "Thẻ quốc tế". Sau khi đơn được tạo, dùng khối `card_payment` ở bước 1 (chính xác theo khoản đang cần thu).
+    1. Phản hồi đơn (xem đơn, tạo đơn, `payment-qr`, `retry-payment`, `remaining-payment`, `extra-charge-qr`, cả bản `/guest`) có khối **`card_payment`** **chỉ khi thẻ dùng được cho đơn đó**.
+       **Không có khối này ⇒ không hiện nút thẻ.** Có khối với `available = true` ⇒ hiện nút **"Thanh toán thẻ"** cạnh QR chuyển khoản; `amount` là số tiền sẽ thu, `brands` là các loại thẻ được chọn.
+    2. Khách chọn loại thẻ rồi bấm nút ⇒ `POST /orders/{order_code}/card-payment` ⇒ nhận **`payment_url`**.
+    3. **Mở `payment_url`** (webview / trình duyệt). Khách nhập thẻ **trực tiếp trên trang của cổng thanh toán** (hệ thống 365 Home không nhận số thẻ). 3D Secure làm ngay trên trang đó.
+    4. Khi khách quay lại app, gọi `GET /orders/{order_code}/card-payment` mỗi **3–5 giây** tới khi `data.status` khác `pending`. API này tự hỏi cổng khi webhook chậm.
+       Có thể truyền `return_url` (deep link hoặc trang riêng) ở bước 2 để cổng đưa khách về đúng chỗ.
+    5. Kết quả: `paid` ⇒ đơn đã chuyển `paid` (hoặc `deposit` nếu đặt cọc); `failed` / `cancelled` / `expired` ⇒ cho thử lại; `review` ⇒ hiện
+       "Chúng tôi đã nhận thanh toán, nhân viên sẽ liên hệ để xử lý".
+    6. Muốn thử lại ⇒ gọi `POST` lần nữa (phiên còn hạn, cùng loại thẻ và số tiền được dùng lại).
+
+    ## Số tiền thu theo giai đoạn của đơn
+    | `kind` | Khi nào | Số tiền |
+    |---|---|---|
+    | `initial` | Đơn `pending` | Đúng tiền cần thu ngay: 100% nếu thanh toán đủ, hoặc tiền cọc nếu đặt cọc |
+    | `remaining` | Đơn `deposit` (đã cọc) | Phần còn lại (+ khoản phát sinh nếu có) |
+    | `extra` | Đơn `paid` có khoản phát sinh chưa trả | Khoản phát sinh |
+
+    Tối thiểu **2.000đ**. Phiên thẻ hết hạn sau **15 phút**; với khoản `initial` hệ thống kéo dài hạn giữ đơn cho khớp để đơn không bị tự huỷ khi khách đang nhập thẻ.
+
+    ## Trạng thái phiên thẻ
+    | `status` | Ý nghĩa |
+    |---|---|
+    | `pending` | Đang chờ khách thanh toán |
+    | `paid` | Đã thanh toán, đơn đã được xác nhận |
+    | `failed` | Thất bại |
+    | `cancelled` | Khách huỷ (hoặc bị thay bằng phiên mới) |
+    | `expired` | Hết hạn |
+    | `review` | Cổng **đã thu tiền** nhưng đơn không còn nhận được khoản này (đơn đã huỷ / hết hạn / sai số tiền / giao dịch thử ở chế độ thật) ⇒ **hoàn tiền thủ công** |
+    | `resolved` | Khoản `review` đã được admin hoàn tiền / xử lý xong |
+
+    ## Nhãn "Thẻ"
+    Đơn **đã trả bằng thẻ** có thêm `paid_by_card = true` và `payment_label = "Thẻ"` trong phản hồi đơn (khách và admin) và nhãn **"Thẻ"** ở cột Thanh toán của danh sách đơn trong CMS.
+    Đơn khác **không có** hai khoá này (phản hồi giữ nguyên). `payment_method` vẫn là `PayOS` như cũ để báo cáo doanh thu không đổi.
+
+    ## Xác nhận tự động (như chuyển khoản)
+    Ba lớp, cùng một bộ kiểm tra (số tiền, môi trường, trạng thái đơn) nên không bao giờ xác nhận hai lần:
+    - **Webhook** của cổng gọi `POST /webhook/pay2s-card` (tức thì khi chạy trên domain công khai).
+    - **Trang / app hỏi trạng thái**: `GET .../card-payment` tự hỏi cổng khi phiên còn `pending`.
+    - **Lệnh nền** `php artisan pay2s-card:sync` chạy mỗi phút (cần cron `schedule:run`), phòng khi khách đóng trình duyệt hoặc webhook lỡ.
+
+    ## Lưu ý quan trọng
+    - Bộ thẻ của Pay2S **không có API hoàn tiền**. Khách huỷ đơn đã trả thẻ thì hoàn thủ công trên Pay2S, rồi admin bấm "Đã hoàn tiền" (`POST /admin/pay2s-card/payments/{id}/resolve`).
+    - **Chế độ thử (`sandbox_only = true`)**: dùng thẻ giả lập nhưng đơn **vẫn được đánh dấu đã thanh toán thật**. Chỉ dùng để thử; xoá đơn thử sau đó. Giao dịch sandbox bị **từ chối** (chuyển `review`) khi hệ thống đang ở chế độ thật.
+    - Chạy thật cần Pay2S duyệt hồ sơ, domain (`merchant_origin`) và gói dịch vụ; tắt chế độ thử sau khi được duyệt.
+    - `return_url` được hệ thống tự đổi gốc (origin) cho khớp `merchant_origin` đã đăng ký (cổng bắt buộc cùng origin).
+
+    ## Quy ước chung
+    - Khách có tài khoản: `Authorization: Bearer {token}`. Khách **không đăng nhập**: dùng đường dẫn `/guest/...` kèm `phone` (số điện thoại đặt phòng), không cần token.
+    - Admin: token Super Admin (`POST /api/admin/login`).
+    - Dữ liệu trả về bọc trong `data`. Lỗi trả `{ "message": "..." }`; lỗi nhập liệu (422) có thêm `errors.{tên trường}[0]`. Thông báo lỗi là tiếng Việt, hiện thẳng cho khách được.
+
+servers:
+  - url: https://365home.vn/api
+    description: Production
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token nhận được khi đăng nhập. Gửi kèm header  Authorization  Bearer <token>.
+
+  parameters:
+    OrderCode:
+      name: order_code
+      in: path
+      required: true
+      description: Mã đơn (`order_code`).
+      schema:
+        type: string
+      example: '17950000000001'
+    PaymentId:
+      name: id
+      in: path
+      required: true
+      description: ID phiên thanh toán thẻ (lấy từ `GET /admin/pay2s-card/payments`).
+      schema:
+        type: integer
+      example: 89
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Thông báo lỗi cho người dùng.
+      example:
+        message: Đơn hàng không tồn tại.
+
+    ValidationError:
+      type: object
+      description: Lỗi dữ liệu gửi lên không hợp lệ (HTTP 422).
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      example:
+        message: Đơn này chưa hỗ trợ thanh toán bằng thẻ.
+        errors:
+          order:
+            - Đơn này chưa hỗ trợ thanh toán bằng thẻ.
+
+    CardBrand:
+      type: string
+      enum: [visa, mastercard, jcb, amex, unionpay]
+      description: Loại thẻ.
+
+    CardKind:
+      type: string
+      enum: [initial, remaining, extra]
+      description: Khoản thu — `initial` thanh toán đầu / cọc, `remaining` phần còn lại, `extra` phát sinh.
+
+    CardStatus:
+      type: string
+      enum: [pending, paid, failed, cancelled, expired, review, resolved]
+
+    CardPaymentAvailability:
+      type: object
+      description: Khối `card_payment` trong phản hồi đơn. **Chỉ có khi thẻ dùng được cho đơn đó.**
+      properties:
+        available:
+          type: boolean
+          description: true ⇒ hiện nút "Thanh toán thẻ".
+          example: true
+        brands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardBrand'
+        kind:
+          $ref: '#/components/schemas/CardKind'
+        amount:
+          type: integer
+          description: Số tiền sẽ thu (VND).
+          example: 313500
+        sandbox:
+          type: boolean
+          description: true ⇒ đang ở chế độ thử, chỉ dùng thẻ giả lập.
+
+    CardPayment:
+      type: object
+      description: Một phiên thanh toán thẻ của đơn.
+      properties:
+        order_code:
+          type: string
+          example: '17950000000001'
+        order_status:
+          type: string
+          description: Trạng thái hiện tại của đơn (`pending`, `deposit`, `paid`...). Đổi theo kết quả thanh toán.
+          example: pending
+        status:
+          $ref: '#/components/schemas/CardStatus'
+        kind:
+          $ref: '#/components/schemas/CardKind'
+        amount:
+          type: integer
+          example: 313500
+        card_brand:
+          $ref: '#/components/schemas/CardBrand'
+        payment_url:
+          type: string
+          nullable: true
+          description: Link trang nhập thẻ của cổng. **Chỉ có khi `status = pending`** (null ở trạng thái khác). Mở trong webview / trình duyệt.
+          example: https://payment.pay2s.vn/card-checkout/index.html#card-session=0123456789abcdef
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Hạn của phiên (15 phút kể từ lúc tạo).
+        environment:
+          type: string
+          nullable: true
+          enum: [sandbox, production]
+
+    CardPaymentResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/CardPayment'
+
+    CardPaymentStatusResponse:
+      type: object
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/CardPayment'
+          nullable: true
+          description: Phiên thẻ mới nhất của đơn; `null` nếu đơn chưa có phiên nào.
+        card_payment:
+          type: object
+          description: 'Cùng nội dung khối `card_payment` của phản hồi đơn, **luôn có** ở API này; khi thẻ không dùng được thì chỉ có `available: false`.'
+          properties:
+            available:
+              type: boolean
+            brands:
+              type: array
+              items:
+                $ref: '#/components/schemas/CardBrand'
+            kind:
+              $ref: '#/components/schemas/CardKind'
+            amount:
+              type: integer
+            sandbox:
+              type: boolean
+
+    CardLabelFields:
+      type: object
+      description: Hai khoá chỉ có ở đơn ĐÃ trả bằng thẻ.
+      properties:
+        paid_by_card:
+          type: boolean
+          example: true
+        payment_label:
+          type: string
+          example: Thẻ
+
+    CardSettings:
+      type: object
+      description: Cấu hình thanh toán thẻ. Khoá bí mật **không bao giờ** được trả ra, chỉ báo `configured`.
+      properties:
+        enabled:
+          type: boolean
+          description: Nút bật / tắt.
+        configured:
+          type: boolean
+          description: true = đã bật **và** đủ Partner Code, Access Key, Secret Key.
+        partner_code:
+          type: string
+          nullable: true
+        access_key:
+          type: object
+          properties:
+            configured:
+              type: boolean
+        secret_key:
+          type: object
+          properties:
+            configured:
+              type: boolean
+        connection_id:
+          type: string
+          nullable: true
+          description: Kết nối Pay2S. Trống = kết nối mặc định của tài khoản Pay2S.
+        sandbox_only:
+          type: boolean
+          description: true = chế độ thử (thẻ giả lập, vẫn đánh dấu đơn đã thanh toán).
+        merchant_origin:
+          type: string
+          description: Origin HTTPS đã đăng ký với Pay2S (vd https://365home.vn). Trống = theo `APP_URL`.
+        api_url:
+          type: string
+          description: Địa chỉ API cổng thẻ (mặc định địa chỉ chính thức).
+        category_ids:
+          type: array
+          items:
+            type: integer
+          description: Chi nhánh được thanh toán thẻ (gồm cả khu vực con).
+        webhook_url:
+          type: string
+          description: Địa chỉ webhook, tự gửi kèm mỗi phiên, không cần khai báo ở Pay2S. Phải là HTTPS công khai.
+        brands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardBrand'
+
+    AdminCardPayment:
+      type: object
+      description: Một phiên thanh toán thẻ (màn đối soát).
+      properties:
+        id:
+          type: integer
+          example: 89
+        order_code:
+          type: string
+          nullable: true
+        kind:
+          $ref: '#/components/schemas/CardKind'
+        card_brand:
+          $ref: '#/components/schemas/CardBrand'
+        amount:
+          type: integer
+        status:
+          $ref: '#/components/schemas/CardStatus'
+        environment:
+          type: string
+          nullable: true
+          enum: [sandbox, production]
+        failure_reason:
+          type: string
+          nullable: true
+          description: Lý do với phiên `failed` / `cancelled` / `review`.
+        pay2s_order_id:
+          type: string
+          description: Mã đơn gửi sang Pay2S (duy nhất).
+          example: C17950000000001-ABCD1234
+        trans_id:
+          type: string
+          nullable: true
+          description: Mã giao dịch phía Pay2S (số hoá đơn).
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Lúc admin đánh dấu đã hoàn tiền (khoản `resolved`).
+        resolved_by:
+          type: string
+          nullable: true
+          description: ID admin đã đánh dấu.
+        resolution_note:
+          type: string
+          nullable: true
+
+    AdminCardPaymentDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminCardPayment'
+        - type: object
+          properties:
+            expires_at:
+              type: string
+              format: date-time
+              nullable: true
+            raw:
+              type: object
+              additionalProperties: true
+              description: Dữ liệu Pay2S gửi về, **đã bỏ `accessKey` và chữ ký**, để đối soát.
+
+    PageMeta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+        last_page:
+          type: integer
+        per_page:
+          type: integer
+        total:
+          type: integer
+
+    Pay2SWebhook:
+      type: object
+      description: Nội dung Pay2S gửi tới webhook (chỉ có ở kết quả thành công và huỷ).
+      properties:
+        accessKey:
+          type: string
+        amount:
+          type: integer
+          example: 313500
+        extraData:
+          type: string
+        message:
+          type: string
+          example: Paymentsuccessful
+        orderId:
+          type: string
+          description: Mã đơn đã gửi lúc tạo phiên (`pay2s_order_id`).
+          example: C17950000000001-ABCD1234
+        orderInfo:
+          type: string
+        orderType:
+          type: string
+          example: card
+        partnerCode:
+          type: string
+        payType:
+          type: string
+          example: card
+        requestId:
+          type: string
+        responseTime:
+          type: string
+        resultCode:
+          type: integer
+          description: "`0` thành công · `2` khách huỷ · khác = thất bại."
+          example: 0
+        transId:
+          type: string
+          description: Số hoá đơn phía Pay2S (không phải mã giao dịch thẻ).
+          example: INV123
+        m2signature:
+          type: string
+          description: HMAC-SHA256 (khoá Secret Key) trên chuỗi `key=value` nối bằng `&` theo thứ tự cố định các trường `accessKey, amount, extraData, message, orderId, orderInfo, orderType, partnerCode, payType, requestId, responseTime, resultCode, transId`.
+
+  responses:
+    Unauthenticated:
+      description: Chưa đăng nhập hoặc token hết hạn.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Unauthenticated.
+    OrderNotFound:
+      description: Đơn không tồn tại (hoặc sai số điện thoại với khách không đăng nhập).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Đơn hàng không tồn tại.
+    CardNotAvailable:
+      description: |
+        Không tạo được phiên: đơn chưa hỗ trợ thẻ (chi nhánh chưa bật, thuộc đối tác, **thẻ đang TẮT**), đơn không còn khoản cần thanh toán, hoặc loại thẻ sai.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            chua_ho_tro:
+              summary: Đơn chưa hỗ trợ thanh toán thẻ (kể cả khi thẻ đang tắt)
+              value:
+                message: Đơn này chưa hỗ trợ thanh toán bằng thẻ.
+                errors:
+                  order:
+                    - Đơn này chưa hỗ trợ thanh toán bằng thẻ.
+            het_khoan:
+              summary: Không còn khoản cần thanh toán
+              value:
+                message: Đơn không còn khoản nào cần thanh toán.
+                errors:
+                  order:
+                    - Đơn không còn khoản nào cần thanh toán.
+            sai_the:
+              summary: Loại thẻ không hợp lệ
+              value:
+                message: The selected card brand is invalid.
+                errors:
+                  card_brand:
+                    - The selected card brand is invalid.
+    GatewayError:
+      description: Cổng Pay2S tạm lỗi, không tạo được phiên. Cho khách thử lại hoặc chuyển sang QR.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Không tạo được phiên thanh toán thẻ. Vui lòng thử lại sau.
+    Forbidden:
+      description: Chỉ Super Admin.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Chỉ Super Admin được xem hoặc sửa cấu hình thanh toán thẻ.
+    TooManyRequests:
+      description: Gọi quá nhanh.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Too Many Attempts.
+
+paths:
+  # ===================================================================================
+  #  A. APP / WEB KHÁCH
+  # ===================================================================================
+  /card-payment/options:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: cardPaymentOptions
+      summary: "[Công khai] Chi nhánh này có nhận thanh toán thẻ không?"
+      description: |
+        Dùng ở **bước đặt phòng, khi chưa có đơn**, để quyết định có hiện lựa chọn "Thẻ quốc tế" hay không. Không cần đăng nhập.
+
+        `available = true` khi: thanh toán thẻ đang **BẬT**, đã cấu hình khoá, chi nhánh (hoặc chi nhánh cha) nằm trong danh sách được bật thẻ, và chi nhánh thuộc **365 Home** (không phải đối tác thường).
+        Ngược lại trả `{ "available": false }` (không phải lỗi). Khi đã có đơn, dùng khối `card_payment` trong chi tiết đơn để biết khoản và số tiền cần thu.
+        Giới hạn 60 lần / phút.
+      parameters:
+        - name: category_id
+          in: query
+          required: true
+          description: ID chi nhánh (hoặc khu vực) của sản phẩm đang đặt.
+          schema:
+            type: integer
+            minimum: 1
+          example: 203
+      security: []
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      available:
+                        type: boolean
+                      brands:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CardBrand'
+                        description: Chỉ có khi `available = true`.
+                      min_amount:
+                        type: integer
+                        description: Số tiền tối thiểu mỗi lần thanh toán thẻ (đồng). Chỉ có khi `available = true`.
+                      sandbox:
+                        type: boolean
+                        description: true ⇒ đang ở chế độ thử. Chỉ có khi `available = true`.
+              examples:
+                co:
+                  summary: Chi nhánh nhận thẻ
+                  value:
+                    data:
+                      available: true
+                      brands: [visa, mastercard, jcb, amex, unionpay]
+                      min_amount: 2000
+                      sandbox: false
+                khong:
+                  summary: Không nhận thẻ (đối tác thường, chưa bật, hoặc đang tắt)
+                  value:
+                    data:
+                      available: false
+        '422':
+          description: Thiếu hoặc sai `category_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                message: The category id field is required.
+                errors:
+                  category_id:
+                    - The category id field is required.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/{order_code}/card-payment:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: createCardPayment
+      summary: "[Khách] Tạo phiên thanh toán thẻ"
+      description: |
+        Tạo (hoặc **dùng lại** phiên còn hạn có cùng khoản, số tiền và loại thẻ) phiên thanh toán thẻ cho khoản đang chờ của đơn. Trả `payment_url` để mở trang nhập thẻ.
+
+        - Chỉ đơn của **chính khách đang đăng nhập**.
+        - Phiên cũ chưa trả của đơn tự chuyển `cancelled` khi tạo phiên mới khác khoản / số tiền.
+        - Khi thẻ **đang tắt**, hoặc đơn thuộc đối tác, trả `422`.
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                card_brand:
+                  $ref: '#/components/schemas/CardBrand'
+                return_url:
+                  type: string
+                  format: uri
+                  maxLength: 500
+                  description: Trang (deep link hoặc web) cổng đưa khách về sau khi thanh toán. Bỏ trống = trang kết quả mặc định.
+            example:
+              card_brand: visa
+              return_url: https://365home.vn/thong-tin-dat-phong/17950000000001?card_return=1
+      responses:
+        '200':
+          description: Phiên đã tạo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardPaymentResponse'
+              example:
+                data:
+                  order_code: '17950000000001'
+                  order_status: pending
+                  status: pending
+                  kind: initial
+                  amount: 313500
+                  card_brand: visa
+                  payment_url: https://payment.pay2s.vn/card-checkout/index.html#card-session=0123456789abcdef
+                  expires_at: '2026-11-19T09:13:25+07:00'
+                  environment: sandbox
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '422':
+          $ref: '#/components/responses/CardNotAvailable'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: getCardPayment
+      summary: "[Khách] Xem trạng thái thanh toán thẻ của đơn"
+      description: |
+        Trả phiên thẻ mới nhất của đơn kèm `card_payment`. Phiên đang `pending` được hệ thống **tự hỏi cổng** để cập nhật nếu webhook chậm,
+        nên app gọi lặp mỗi 3–5 giây sau khi khách quay lại là đủ.
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardPaymentStatusResponse'
+              examples:
+                dang_cho:
+                  summary: Phiên đang chờ
+                  value:
+                    data:
+                      order_code: '17950000000001'
+                      order_status: pending
+                      status: pending
+                      kind: initial
+                      amount: 313500
+                      card_brand: visa
+                      payment_url: https://payment.pay2s.vn/card-checkout/index.html#card-session=0123456789abcdef
+                      expires_at: '2026-11-19T09:13:25+07:00'
+                      environment: sandbox
+                    card_payment:
+                      available: true
+                      brands: [visa, mastercard, jcb, amex, unionpay]
+                      kind: initial
+                      amount: 313500
+                      sandbox: true
+                da_tra:
+                  summary: Đã thanh toán
+                  value:
+                    data:
+                      order_code: '17950000000001'
+                      order_status: paid
+                      status: paid
+                      kind: initial
+                      amount: 313500
+                      card_brand: visa
+                      payment_url: null
+                      expires_at: '2026-11-19T09:13:25+07:00'
+                      environment: sandbox
+                    card_payment:
+                      available: false
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+
+  /guest/orders/{order_code}/card-payment:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: guestCreateCardPayment
+      summary: "[Khách vãng lai] Tạo phiên thanh toán thẻ"
+      description: |
+        Giống `POST /orders/{order_code}/card-payment` nhưng **không cần token**; xác thực bằng `phone` (số điện thoại đã nhập lúc đặt phòng).
+        Sai số điện thoại ⇒ `404`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  maxLength: 20
+                  example: '0912345678'
+                card_brand:
+                  $ref: '#/components/schemas/CardBrand'
+                return_url:
+                  type: string
+                  format: uri
+                  maxLength: 500
+            example:
+              phone: '0912345678'
+              card_brand: mastercard
+      responses:
+        '200':
+          description: Phiên đã tạo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardPaymentResponse'
+              example:
+                data:
+                  order_code: '17950000000001'
+                  order_status: pending
+                  status: pending
+                  kind: initial
+                  amount: 313500
+                  card_brand: mastercard
+                  payment_url: https://payment.pay2s.vn/card-checkout/index.html#card-session=fedcba9876543210
+                  expires_at: '2026-11-19T09:13:25+07:00'
+                  environment: production
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '422':
+          $ref: '#/components/responses/CardNotAvailable'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: guestGetCardPayment
+      summary: "[Khách vãng lai] Xem trạng thái thanh toán thẻ"
+      description: Giống `GET /orders/{order_code}/card-payment`, không cần token, xác thực bằng `phone` (query).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+        - name: phone
+          in: query
+          required: true
+          description: Số điện thoại đã nhập lúc đặt phòng.
+          schema:
+            type: string
+            maxLength: 20
+          example: '0912345678'
+      responses:
+        '200':
+          description: Thành công (cùng cấu trúc `GET /orders/{order_code}/card-payment`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardPaymentStatusResponse'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '422':
+          description: Thiếu `phone`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /orders/{order_code}:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: getOrderCardFields
+      summary: "[Khách] Chi tiết đơn — các trường MỚI về thẻ"
+      description: |
+        API đã có từ trước; **chỉ ghi các trường mới** trong `order` (áp dụng cho mọi phản hồi đơn có khối thanh toán: tạo đơn, `payment-qr`, `retry-payment`, `remaining-payment`, `extra-charge-qr`, và bản `/guest/orders/...`):
+        - `card_payment` — **chỉ có khi thẻ dùng được** cho đơn (xem `CardPaymentAvailability`).
+        - `paid_by_card`, `payment_label` — **chỉ có khi đơn đã trả bằng thẻ**.
+
+        Đơn không thuộc hai trường hợp trên nhận phản hồi **y như trước**.
+      parameters:
+        - $ref: '#/components/parameters/OrderCode'
+      responses:
+        '200':
+          description: Thành công (chỉ minh hoạ các trường liên quan).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      card_payment:
+                        $ref: '#/components/schemas/CardPaymentAvailability'
+                      paid_by_card:
+                        type: boolean
+                      payment_label:
+                        type: string
+              examples:
+                co_the_tra_the:
+                  summary: Đơn đang chờ thanh toán, thẻ dùng được
+                  value:
+                    order:
+                      order_code: '17950000000001'
+                      status: pending
+                      payment_method: PayOS
+                      payment_provider: payos
+                      card_payment:
+                        available: true
+                        brands: [visa, mastercard, jcb, amex, unionpay]
+                        kind: initial
+                        amount: 313500
+                        sandbox: false
+                da_tra_the:
+                  summary: Đơn đã trả bằng thẻ
+                  value:
+                    order:
+                      order_code: '17950000000001'
+                      status: paid
+                      payment_method: PayOS
+                      paid_by_card: true
+                      payment_label: Thẻ
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+
+  # ===================================================================================
+  #  B. WEBHOOK (CHỈ PAY2S GỌI)
+  # ===================================================================================
+  /webhook/pay2s-card:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: pay2sCardWebhook
+      summary: "[Pay2S] Webhook kết quả thanh toán thẻ"
+      description: |
+        **Chỉ Pay2S gọi — app bỏ qua.** URL này tự gửi kèm mỗi phiên, không cần khai báo ở Pay2S (phải là HTTPS công khai).
+
+        Hệ thống xác thực chữ ký `m2signature` (và `partnerCode`, `accessKey` khớp cấu hình), rồi **đối chiếu số tiền, môi trường và trạng thái đơn**
+        trước khi xác nhận đơn. Không khớp ⇒ phiên chuyển `review` để hoàn tiền thủ công. Gửi lặp không xử lý lần hai.
+
+        - `resultCode = 0` ⇒ thanh toán thành công · `2` ⇒ khách huỷ · khác ⇒ thất bại.
+        - Trả `200 {"success":true}` sau khi đã lưu; sai chữ ký `401`; lỗi tạm thời `500` (Pay2S gửi lại tối đa 5 lần).
+        - Webhook chỉ gửi cho thành công và huỷ; các trạng thái khác hệ thống tự hỏi bằng lệnh đồng bộ.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pay2SWebhook'
+            example:
+              accessKey: ACCESSKEY_VI_DU
+              amount: 313500
+              extraData: ''
+              message: Paymentsuccessful
+              orderId: C17950000000001-ABCD1234
+              orderInfo: Thanh toan don 17950000000001
+              orderType: card
+              partnerCode: PAY2SXXXXXXXXXXXX
+              payType: card
+              requestId: r1
+              responseTime: '1763518400000'
+              resultCode: 0
+              transId: INV123
+              m2signature: 9c1f0d5e...
+      responses:
+        '200':
+          description: Đã nhận và xử lý (kể cả khi bỏ qua vì đã xử lý trước đó).
+          content:
+            application/json:
+              example:
+                success: true
+        '401':
+          description: Sai chữ ký.
+          content:
+            application/json:
+              example:
+                success: false
+                message: Invalid signature.
+        '500':
+          description: Lỗi xử lý tạm thời — Pay2S sẽ gửi lại.
+          content:
+            application/json:
+              example:
+                success: false
+
+  # ===================================================================================
+  #  C. QUẢN TRỊ (SUPER ADMIN)
+  # ===================================================================================
+  /admin/pay2s-card/settings:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: getCardSettings
+      summary: "[Admin] Xem cấu hình thanh toán thẻ"
+      description: Chỉ Super Admin. Khoá bí mật **không bao giờ** trả ra, chỉ báo `configured`.
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CardSettings'
+              example:
+                data:
+                  enabled: true
+                  configured: true
+                  partner_code: PAY2SXXXXXXXXXXXX
+                  access_key:
+                    configured: true
+                  secret_key:
+                    configured: true
+                  connection_id: null
+                  sandbox_only: true
+                  merchant_origin: https://365home.vn
+                  api_url: https://payment.pay2s.vn/api/card-popup-session.php
+                  category_ids: [203, 169, 167]
+                  webhook_url: https://365home.vn/api/webhook/pay2s-card
+                  brands: [visa, mastercard, jcb, amex, unionpay]
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [Thanh toán thẻ Visa]
+      operationId: updateCardSettings
+      summary: "[Admin] Lưu cấu hình thanh toán thẻ"
+      description: |
+        Chỉ gửi trường cần đổi. `access_key` / `secret_key` để trống hoặc không gửi = **giữ nguyên**.
+        `api_url` phải là địa chỉ cổng thẻ (chứa `card-popup-session`); **không** dùng địa chỉ cổng chuyển khoản `/v1/gateway/api/create`.
+        `sandbox_only = true` (mặc định) chỉ chạy thẻ giả lập; tắt khi Pay2S đã duyệt chạy thật.
+        Muốn chỉ bật / tắt thì dùng `PUT /admin/pay2s-card/enabled`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                sandbox_only:
+                  type: boolean
+                partner_code:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                connection_id:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                access_key:
+                  type: string
+                  maxLength: 500
+                secret_key:
+                  type: string
+                  maxLength: 500
+                merchant_origin:
+                  type: string
+                  format: uri
+                  nullable: true
+                  maxLength: 255
+                api_url:
+                  type: string
+                  format: uri
+                  nullable: true
+                  maxLength: 255
+                category_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: ID chi nhánh (categories.id) được thanh toán thẻ.
+            example:
+              enabled: true
+              sandbox_only: true
+              partner_code: PAY2SXXXXXXXXXXXX
+              access_key: ACCESSKEY_VI_DU
+              secret_key: SECRETKEY_VI_DU
+              merchant_origin: https://365home.vn
+              category_ids: [203, 169, 167]
+      responses:
+        '200':
+          description: Đã lưu.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/CardSettings'
+              example:
+                message: Đã lưu — thanh toán thẻ đang BẬT.
+                data:
+                  enabled: true
+                  configured: true
+                  partner_code: PAY2SXXXXXXXXXXXX
+                  access_key:
+                    configured: true
+                  secret_key:
+                    configured: true
+                  connection_id: null
+                  sandbox_only: true
+                  merchant_origin: https://365home.vn
+                  api_url: https://payment.pay2s.vn/api/card-popup-session.php
+                  category_ids: [203, 169, 167]
+                  webhook_url: https://365home.vn/api/webhook/pay2s-card
+                  brands: [visa, mastercard, jcb, amex, unionpay]
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Dữ liệu không hợp lệ.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /admin/pay2s-card/enabled:
+    put:
+      tags: [Thanh toán thẻ Visa]
+      operationId: toggleCardPayment
+      summary: "[Admin] Nút BẬT / TẮT thanh toán thẻ"
+      description: |
+        Bật / tắt tức thì, không đụng tới các cấu hình khác.
+
+        - **TẮT**: khách và admin không thấy gì về thẻ (như chưa có tính năng). Phiên đã tạo trước đó vẫn được xác nhận nếu tiền về.
+        - **BẬT**: khách ở các chi nhánh đã chọn thấy lựa chọn thẻ, **nếu** đã đủ Partner Code, Access Key, Secret Key (xem `configured` ở `GET /admin/pay2s-card/settings`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+            example:
+              enabled: false
+      responses:
+        '200':
+          description: Đã đổi.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/CardSettings'
+              example:
+                message: Thanh toán thẻ đang TẮT.
+                data:
+                  enabled: false
+                  configured: false
+                  partner_code: PAY2SXXXXXXXXXXXX
+                  access_key:
+                    configured: true
+                  secret_key:
+                    configured: true
+                  connection_id: null
+                  sandbox_only: true
+                  merchant_origin: https://365home.vn
+                  api_url: https://payment.pay2s.vn/api/card-popup-session.php
+                  category_ids: [203, 169, 167]
+                  webhook_url: https://365home.vn/api/webhook/pay2s-card
+                  brands: [visa, mastercard, jcb, amex, unionpay]
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Thiếu hoặc sai kiểu `enabled`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /admin/pay2s-card/test-connection:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: testCardConnection
+      summary: "[Admin] Kiểm tra khoá Pay2S"
+      description: |
+        Gọi thử Pay2S bằng khoá đang lưu (hỏi trạng thái một mã đơn không tồn tại). Pay2S trả "không tìm thấy đơn" nghĩa là **khoá và chữ ký hợp lệ** (`ok = true`).
+        Báo `ok = false` khi chưa bật / thiếu khoá, hoặc Pay2S từ chối khoá, hoặc `api_url` sai. Giới hạn 10 lần / phút.
+      responses:
+        '200':
+          description: Kết quả kiểm tra.
+          content:
+            application/json:
+              example:
+                ok: true
+                message: 'Khoá được Pay2S chấp nhận (Pay2S trả lỗi (404): Không tìm thấy đơn.).'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /admin/pay2s-card/payments:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: listCardPayments
+      summary: "[Admin] Danh sách giao dịch thẻ"
+      description: |
+        Để đối soát. Lọc `status=review` ⇒ tiền thẻ **đã thu nhưng đơn không nhận được** (đơn đã huỷ / sai số tiền / giao dịch thử ở chế độ thật) — **hoàn tiền thủ công trên Pay2S**,
+        rồi `POST /admin/pay2s-card/payments/{id}/resolve`. Mới nhất trước.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CardStatus'
+        - name: order_code
+          in: query
+          required: false
+          description: Lọc theo mã đơn.
+          schema:
+            type: string
+            maxLength: 50
+        - name: per_page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminCardPayment'
+                  meta:
+                    $ref: '#/components/schemas/PageMeta'
+              example:
+                data:
+                  - id: 89
+                    order_code: '17950000000001'
+                    kind: initial
+                    card_brand: visa
+                    amount: 313500
+                    status: review
+                    environment: production
+                    failure_reason: 'Đơn đang ở trạng thái "cancelled_payment", không nhận thanh toán đầu — hoàn tiền thủ công.'
+                    pay2s_order_id: C17950000000001-ABCD1234
+                    trans_id: INV123
+                    paid_at: null
+                    created_at: '2026-11-19T08:58:19+07:00'
+                    resolved_at: null
+                    resolved_by: null
+                    resolution_note: null
+                meta:
+                  current_page: 1
+                  last_page: 1
+                  per_page: 20
+                  total: 1
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/pay2s-card/payments/{id}:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: getCardPayment_admin
+      summary: "[Admin] Chi tiết một giao dịch thẻ"
+      description: Kèm `raw` là dữ liệu Pay2S gửi về (**đã bỏ `accessKey` và chữ ký**) và `expires_at`.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminCardPaymentDetail'
+              example:
+                data:
+                  id: 89
+                  order_code: '17950000000001'
+                  kind: initial
+                  card_brand: visa
+                  amount: 313500
+                  status: review
+                  environment: production
+                  failure_reason: 'Đơn đang ở trạng thái "cancelled_payment", không nhận thanh toán đầu — hoàn tiền thủ công.'
+                  pay2s_order_id: C17950000000001-ABCD1234
+                  trans_id: INV123
+                  paid_at: null
+                  created_at: '2026-11-19T08:58:19+07:00'
+                  resolved_at: null
+                  resolved_by: null
+                  resolution_note: null
+                  expires_at: '2026-11-19T09:13:25+07:00'
+                  raw:
+                    amount: 313500
+                    message: Paymentsuccessful
+                    orderId: C17950000000001-ABCD1234
+                    orderType: card
+                    payType: card
+                    resultCode: 0
+                    transId: INV123
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Không tìm thấy giao dịch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/pay2s-card/payments/{id}/sync:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: syncCardPayment
+      summary: "[Admin] Hỏi lại Pay2S trạng thái một giao dịch"
+      description: |
+        Chỉ cho phiên **đang `pending`** (webhook chậm / lỡ, hoặc máy local không nhận được webhook). Nếu Pay2S báo đã thanh toán thì đơn được xác nhận ngay.
+        Giới hạn 20 lần / phút (Pay2S giới hạn 30 yêu cầu / phút).
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Đã hỏi. `data.status` là trạng thái mới.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminCardPaymentDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Không tìm thấy giao dịch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Phiên không còn ở trạng thái chờ.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Chỉ đồng bộ được phiên đang chờ thanh toán.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /admin/pay2s-card/payments/{id}/resolve:
+    post:
+      tags: [Thanh toán thẻ Visa]
+      operationId: resolveCardPayment
+      summary: "[Admin] Đánh dấu đã hoàn tiền / xử lý xong"
+      description: |
+        Chỉ cho khoản **`review`** (tiền đã thu nhưng đơn không nhận). Sau khi hoàn tiền thủ công trên Pay2S, gọi API này để chuyển khoản sang `resolved`,
+        ghi lại người xử lý, lúc xử lý và ghi chú; huy hiệu đỏ ở menu CMS giảm tương ứng. Chỉ làm được một lần.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 490
+                  nullable: true
+                  description: Ghi chú (vd mã giao dịch hoàn tiền).
+            example:
+              note: Đã hoàn tay qua Pay2S ngày 19/11
+      responses:
+        '200':
+          description: Đã đánh dấu.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/AdminCardPaymentDetail'
+              example:
+                message: Đã đánh dấu đã xử lý.
+                data:
+                  id: 89
+                  order_code: '17950000000001'
+                  kind: initial
+                  card_brand: visa
+                  amount: 313500
+                  status: resolved
+                  environment: production
+                  failure_reason: 'Đơn đang ở trạng thái "cancelled_payment", không nhận thanh toán đầu — hoàn tiền thủ công.'
+                  pay2s_order_id: C17950000000001-ABCD1234
+                  trans_id: INV123
+                  paid_at: null
+                  created_at: '2026-11-19T08:58:19+07:00'
+                  resolved_at: '2026-11-19T10:05:11+07:00'
+                  resolved_by: '1'
+                  resolution_note: Đã hoàn tay qua Pay2S ngày 19/11
+                  expires_at: '2026-11-19T09:13:25+07:00'
+                  raw:
+                    resultCode: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Không tìm thấy giao dịch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Khoản không ở trạng thái `review`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Chỉ đánh dấu đã xử lý được khoản đang ở trạng thái cần hoàn tiền / đối soát.
+
+  /admin/orders:
+    get:
+      tags: [Thanh toán thẻ Visa]
+      operationId: listAdminOrdersCardLabel
+      summary: "[Admin] Danh sách đơn — trường MỚI về thẻ"
+      description: |
+        API đã có từ trước; **chỉ ghi trường mới** trong mỗi đơn (cả `GET /admin/orders/{order_code}`):
+        - `paid_by_card = true` và `payment_label = "Thẻ"` — **chỉ có khi đơn đã trả bằng thẻ**. Đơn khác không có hai khoá này.
+        - `payment_method` vẫn là `PayOS` như cũ.
+      responses:
+        '200':
+          description: Thành công (chỉ minh hoạ các trường liên quan của một đơn).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              example:
+                data:
+                  - order_code: '17950000000001'
+                    status: paid
+                    payment_method: PayOS
+                    paid_by_card: true
+                    payment_label: Thẻ
+                    amount: 313500
+        '401':
+          $ref: '#/components/responses/Unauthenticated'

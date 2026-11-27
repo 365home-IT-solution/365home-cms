@@ -314,70 +314,12 @@ class PartnerPay2sLink extends Page
             return;
         }
 
-        $this->validate([
-            'bank.bank' => ['required', 'in:' . implode(',', array_keys($this->openApiBanks()))],
-            'bank.account_type' => ['required', 'in:' . implode(',', $cfg['types'])],
-            'bank.account_number' => ['required', 'regex:/^[0-9A-Za-z.-]{6,50}$/'],
-            'bank.account_holder' => ['required', 'string', 'max:255'],
-            'bank.phone' => ['required', 'regex:/^[0-9+ ]{9,15}$/'],
-            'bank.email' => ['required', 'email', 'max:255'],
-            'bank.cccd' => [$cfg['cccd'] ? 'required' : 'nullable', 'string', 'max:20'],
-            'bank.merchant_id' => ['nullable', 'string', 'max:50'],
-            'bank.username' => [$cfg['username_business'] && $this->bank['account_type'] === 'business' ? 'required' : 'nullable', 'string', 'max:100'],
-        ], [], [
+        $this->validate(Pay2SBankHubService::openApiRules($this->bank, 'bank.'), [], [
             'bank.account_number' => 'số tài khoản', 'bank.account_holder' => 'tên chủ tài khoản', 'bank.phone' => 'số điện thoại', 'bank.email' => 'email',
             'bank.cccd' => 'CCCD/MST', 'bank.username' => 'tên đăng nhập ACB OneBiz',
         ]);
 
-        $service = app(Pay2SBankHubService::class);
-
-        // Tài khoản đã được thêm ở Pay2S từ trước (my.pay2s.vn hoặc lần liên kết trước): không thêm lại, không cần OTP — lưu cho đối tác và tạo webhook luôn.
-        if ($existing = $service->existingBank($this->bank['account_number'])) {
-            if ((int) ($existing['status'] ?? 1) === 1) {
-                Notification::make()->title('Tài khoản đã liên kết sẵn ở Pay2S — lưu cho đối tác, không cần OTP')->success()->send();
-                $this->finishBank($partner);
-
-                return;
-            }
-
-            Notification::make()->title('Tài khoản đã có ở Pay2S nhưng đang không hoạt động (' . ($existing['statusText'] ?? 'chưa rõ') . '). Bật lại ở my.pay2s.vn rồi thử lại.')->warning()->persistent()->send();
-
-            return;
-        }
-
-        $result = $service->addOpenApiBank($this->bank);
-
-        if (! $result['ok']) {
-            // Pay2S chưa bật API nhập OTP trực tiếp cho ứng dụng này: chuyển sang cửa sổ liên kết của Pay2S (nhập thông tin và OTP ở đó) để đối tác vẫn làm được ngay.
-            if ($result['permission']) {
-                Notification::make()->title('Pay2S chưa bật nhập OTP trực tiếp cho ứng dụng — mở cửa sổ liên kết của Pay2S')->body('Nhập thông tin ngân hàng và OTP trong cửa sổ Pay2S vừa hiện ra.')->warning()->send();
-                $this->startLink();
-
-                return;
-            }
-
-            // Pay2S báo thông tin đã tồn tại: tài khoản đã được thêm trước đó, chuyển sang lưu luôn.
-            if (Pay2SBankHubService::isAlreadyExistsMessage($result['message'])) {
-                Notification::make()->title('Tài khoản đã có sẵn ở Pay2S — lưu cho đối tác')->success()->send();
-                $this->finishBank($partner);
-
-                return;
-            }
-
-            Notification::make()->title('Pay2S chưa nhận thông tin: ' . $result['message'])->danger()->persistent()->send();
-
-            return;
-        }
-
-        if ($result['needs_otp']) {
-            $this->awaitingOtp = true;
-            $this->otp = '';
-            Notification::make()->title('Ngân hàng đã gửi mã OTP')->body('Nhập mã OTP gửi về số điện thoại đăng ký với ngân hàng vào ô bên dưới.')->success()->send();
-
-            return;
-        }
-
-        $this->finishBank($partner);
+        $this->applyResult(app(Pay2SBankHubService::class)->submitOpenApiLink($partner, $this->scope(), $this->bank));
     }
 
     public function confirmOtp(): void
@@ -392,22 +334,8 @@ class PartnerPay2sLink extends Page
 
         $otp = $this->otp;
         $this->otp = ''; // không giữ OTP trong trạng thái trang sau khi gửi
-        $result = app(Pay2SBankHubService::class)->confirmOpenApiBankOtp($this->bank, $otp);
 
-        if (! $result['ok']) {
-            // "Record existed": lần xác nhận trước đã thành công, tài khoản đã được thêm — lưu luôn.
-            if (Pay2SBankHubService::isAlreadyExistsMessage($result['message'])) {
-                $this->finishBank($partner);
-
-                return;
-            }
-
-            Notification::make()->title('OTP chưa đúng hoặc đã hết hạn: ' . $result['message'] . '. Mỗi lần bấm "Gửi thông tin" ngân hàng gửi một mã MỚI và mã cũ hết hiệu lực — hãy nhập mã mới nhất.')->danger()->persistent()->send();
-
-            return;
-        }
-
-        $this->finishBank($partner);
+        $this->applyResult(app(Pay2SBankHubService::class)->confirmOpenApiLink($partner, $this->scope(), $this->bank, $otp));
     }
 
     public function cancelOtp(): void
@@ -415,23 +343,36 @@ class PartnerPay2sLink extends Page
         $this->resetOtpStep();
     }
 
-    private function finishBank(Partner $partner): void
+    /** Hiển thị kết quả của service dùng chung (cũng là service mà API dùng). @param array{state: string, message: string, account: ?PartnerSePayAccount} $result */
+    private function applyResult(array $result): void
     {
-        $result = app(Pay2SBankHubService::class)->finalizeOpenApiBank($partner, $this->scope(), $this->bank);
+        switch ($result['state']) {
+            case 'otp_required':
+                $this->awaitingOtp = true;
+                $this->otp = '';
+                Notification::make()->title('Ngân hàng đã gửi mã OTP')->body('Nhập mã OTP gửi về số điện thoại đăng ký với ngân hàng vào ô bên dưới.')->success()->send();
 
-        if (! $result['ok']) {
-            Notification::make()->title($result['message'])->warning()->persistent()->send();
+                return;
 
-            return;
+            case 'hosted_link':
+                // Pay2S chưa bật API nhập OTP trực tiếp: chuyển sang cửa sổ liên kết của Pay2S để đối tác vẫn làm được ngay.
+                Notification::make()->title('Pay2S chưa bật nhập OTP trực tiếp cho ứng dụng — mở cửa sổ liên kết của Pay2S')->body('Nhập thông tin ngân hàng và OTP trong cửa sổ Pay2S vừa hiện ra.')->warning()->send();
+                $this->startLink();
+
+                return;
+
+            case 'connected':
+                $this->resetOtpStep();
+                $this->mode = 'auto';
+                $this->bank = ['bank' => $this->bank['bank'], 'account_type' => 'personal', 'account_number' => '', 'account_holder' => '', 'phone' => '', 'email' => '', 'cccd' => '', 'merchant_id' => '', 'username' => ''];
+                $this->checks = null;
+                Notification::make()->title('Đã liên kết ngân hàng thành công')->body($result['message'])->success()->send();
+
+                return;
+
+            default: // otp_invalid | error — giữ nguyên bước hiện tại để đối tác nhập lại
+                Notification::make()->title($result['message'])->danger()->persistent()->send();
         }
-
-        $this->logChange($partner, 'Tự liên kết ngân hàng Pay2S (OTP) — ' . ($result['account']?->bank_code ?? '') . ' ' . ($result['account']?->account_number ?? ''));
-        $this->resetOtpStep();
-        $this->mode = 'auto';
-        $this->bank = ['bank' => $this->bank['bank'], 'account_type' => 'personal', 'account_number' => '', 'account_holder' => '', 'phone' => '', 'email' => '', 'cccd' => '', 'merchant_id' => '', 'username' => ''];
-        $this->checks = null;
-
-        Notification::make()->title('Đã liên kết ngân hàng thành công')->body($result['message'])->success()->send();
     }
 
     // ───────────────────────── 2. Liên kết qua Pay2S (Hosted Link) ─────────────────────────
@@ -587,26 +528,8 @@ class PartnerPay2sLink extends Page
         $this->checks = app(Pay2SBankHubService::class)->verify($account)['checks'];
     }
 
-    /** Ghi lịch sử hồ sơ + báo Super Admin khi chủ đối tác tự đổi nơi nhận tiền (cùng cách với kênh PayOS). */
     private function logChange(Partner $partner, string $note): void
     {
-        $user = auth()->user();
-
-        PartnerStatusLog::create([
-            'partner_id' => $partner->id, 'from_status' => $partner->verification_status, 'to_status' => $partner->verification_status, 'changed_by' => $user?->id, 'note' => $note,
-        ]);
-
-        try {
-            app(\App\Services\AdminNotificationService::class)->notify(
-                User::role(config('filament-shield.super_admin.name'))->get(),
-                'Đối tác tự đổi tài khoản nhận tiền Pay2S',
-                ($partner->legal_name ?: $partner->name) . ' (' . ($user?->fullname ?? '') . '): ' . $note,
-                ['type' => 'partner_payment_channel_changed', 'partner_id' => $partner->id, 'partner_type' => $partner->partner_type],
-                'heroicon-o-banknotes',
-                'warning',
-            );
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        app(Pay2SBankHubService::class)->recordChange($partner, auth()->user(), $note);
     }
 }

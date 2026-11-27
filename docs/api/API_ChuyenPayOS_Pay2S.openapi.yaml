@@ -1,0 +1,1144 @@
+# =====================================================================================
+#  365 HOME — Module: CHUYỂN THANH TOÁN CHUYỂN KHOẢN TỪ PAYOS SANG PAY2S
+#  Phạm vi: công tắc cổng PayOS ⇄ Pay2S, tài khoản ngân hàng Pay2S của 365 Home, các khoản 365 thu hộ
+#  (gói dịch vụ, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse, mã thu tiền), Pay2S riêng của toà MiniHouse,
+#  trang QR công khai và webhook Pay2S.
+#  KHÔNG nằm trong file này: thẻ Visa (xem API_ThanhToanVisa) và đối tác tự liên kết ngân hàng bằng OTP (xem API_DoiTacTuNhapOTP).
+#  Định dạng OpenAPI 3.0 (YAML) theo file mẫu API Reference.
+# =====================================================================================
+openapi: 3.0.3
+info:
+  title: Chuyển PayOS sang Pay2S - 365 HOME
+  version: 2.0.0
+  description: |
+    ## 1. Vì sao có module này
+    - **PayOS** tạo cho mỗi khoản một *link thanh toán động* (có mã đơn PayOS riêng) và báo kết quả bằng webhook có chữ ký.
+    - **Pay2S** không tạo link: khách chuyển khoản vào **một số tài khoản ngân hàng**, Pay2S chỉ báo **biến động số dư** (tiền vào) qua webhook. Vì vậy hệ thống phải **khớp khoản tiền theo MÃ nằm trong nội dung chuyển khoản**.
+    - Module này cho phép chuyển *hết* các khoản chuyển khoản sang Pay2S, đổi qua lại PayOS ⇄ Pay2S bất cứ lúc nào bằng một công tắc, không cần deploy.
+
+    ## 2. Quy ước chung
+    - Máy chủ: `https://365home.vn/api`. Riêng 2 trang QR công khai ở mục "Trang QR công khai" nằm ở gốc `https://365home.vn` (không có `/api`) — mỗi đường dẫn đó đã khai báo máy chủ riêng.
+    - Đăng nhập: `Authorization: Bearer {token}`. Quyền của từng endpoint ghi ngay trong phần mô tả.
+    - Dữ liệu thành công bọc trong `data`. Lỗi trả `{ "message": "..." }`; lỗi nhập liệu (422) có thêm `errors.{tên trường}[0]`. Thông báo lỗi là tiếng Việt.
+    - Số tiền là số nguyên đồng (VND). Thời gian theo chuẩn ISO-8601.
+
+    ## 3. Công tắc cổng (default_gateway)
+    | Giá trị | Ý nghĩa |
+    |---|---|
+    | `payos` (hoặc để trống) | Mặc định. Hành vi cũ, không đổi gì. |
+    | `pay2s` | **Khoản thu MỚI** của 365 đi qua Pay2S. |
+
+    Điều kiện để khoản thu mới *thực sự* đi qua Pay2S (cờ `collecting_via_pay2s = true`): chọn `default_gateway = pay2s` **và** công tắc tổng Pay2S đang BẬT **và** đã khai báo đủ tài khoản ngân hàng của 365 (số tài khoản + ngân hàng). Thiếu một điều kiện thì hệ thống **tự giữ PayOS** — không có lỗi, không mất khoản.
+    - **Rollback**: đặt lại `default_gateway = payos` (qua `PUT /admin/payment-gateways/pay2s`). Mã PayOS cũ và webhook PayOS (`/webhook/payos`) **không bị xoá**, nên link PayOS đã phát hành vẫn nhận tiền bình thường.
+    - Khoản (link/QR) đã tạo ở cổng nào vẫn nhận tiền ở cổng đó; đổi cổng không làm mất khoản đang chờ. Chỉ khoản tạo MỚI theo cổng mới.
+    - Đối tác / chi nhánh đang có **PayOS riêng** vẫn giữ PayOS cho tới khi họ khai báo xong tài khoản Pay2S của họ (tránh tiền đi nhầm vào tài khoản 365). Lệnh `php artisan payment:pay2s-readiness` (chỉ đọc) liệt kê những nơi còn lại. Cách đối tác khai báo tài khoản Pay2S xem tài liệu API_DoiTacTuNhapOTP.
+
+    ## 4. Tài khoản nhận tiền của 365 (platform account)
+    Là tài khoản ngân hàng Pay2S của 365 Home, Super Admin khai báo ở CMS → Pay2S — cấu hình chung hoặc qua `PUT /admin/payment-gateways/pay2s` (các trường `platform_*`). Tài khoản này **không nằm trong bảng đối tác**; hệ thống dựng ra từ cài đặt. Có **token webhook riêng** (Pay2S sinh mỗi webhook một token) — lưu mã hoá, **không bao giờ trả ra**, chỉ báo `configured: true/false`.
+    Cần tạo webhook "Nhận tiền" cho tài khoản này ở my.pay2s.vn trỏ về `https://365home.vn/api/webhook/pay2s`, rồi dán token vào `platform_webhook_token`.
+
+    ## 5. Mã trong nội dung chuyển khoản (quan trọng nhất)
+    Nội dung chuyển khoản **chính là mã khoản**; khách ghi đúng mã thì hệ thống mới nhận diện. Hệ thống tìm mã *nằm bất kỳ đâu* trong nội dung (không phân biệt hoa/thường, bỏ dấu cách và dấu gạch ngang với mã đối soát/thuê xe).
+    | Mã | Khoản thu | `kind` ở trang QR | Số tiền hợp lệ |
+    |---|---|---|---|
+    | `DH` + 8 chữ số (tiền tố đổi được ở cấu hình SePay) | Đơn đặt phòng (luồng đã có) | — | Phải **đúng** số tiền của yêu cầu |
+    | `SB` + 6 ký tự (ví dụ SBAB12CD) | Phí gói dịch vụ MiniHouse | `subscription` | Nhận **≥** số cần thu |
+    | `KQ` + 6 ký tự | Nạp ký quỹ đối tác | `escrow` | Nhận **≥** số cần nạp; ký quỹ cộng theo **số tiền thực nhận** |
+    | `DS` + yymm + `-` + 5 ký tự (ví dụ DS2611-AB12C) | Nộp hoa hồng đối soát | `settlement` | Nhận **≥** số phải nộp |
+    | `XE` + yymmdd + 4 ký tự | Đơn thuê xe | `vehicle` | Nhận **≥** tổng tiền đơn |
+    | `MH` + mã 9 chữ số bắt đầu bằng 9 (ví dụ MH912345678) | Hoá đơn tiền phòng MiniHouse | `minihouse` | Lệch không quá 1đ so với số còn nợ |
+    | `TT` + 6 ký tự (ví dụ TTAB12CD) | Mã thu tiền độc lập do admin tạo | `collection` | Nhận **≥** số tiền của mã |
+    Ký tự trong mã SB/KQ/TT lấy từ bộ A–Z (bỏ I, O) và 2–9 để tránh nhầm với 0/1.
+    - Nhận **thiếu** tiền → khoản **không** ghi nhận, giao dịch bị ghi `rejected` kèm lý do để đối soát/hoàn tiền thủ công.
+    - Chuyển **trùng** vào khoản đã thanh toán, vào khoản đã huỷ/hết hạn đã đóng, hoặc sai tài khoản → cũng ghi `rejected` (xem `GET /admin/sepay-transactions?status=rejected`).
+    - Giao dịch gửi lại cùng `id` (Pay2S gửi lại tối đa 5 lần, cách 60 giây) **không bao giờ xử lý hai lần**.
+    - Mã SB/KQ/DS/XE/TT chỉ được nhận khi tiền vào **tài khoản của 365**. Mã MH nhận được ở tài khoản 365 (toà chưa có Pay2S riêng) **hoặc** tài khoản ngân hàng của chủ toà (toà chọn Pay2S).
+
+    ## 6. App/web cần làm gì khác
+    Cấu trúc phản hồi **giữ nguyên** để app đang đọc các trường cũ không phải sửa:
+    - Gói dịch vụ, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse: vẫn trả các trường kiểu `payos_*` / khối `payment`. Khi qua Pay2S:
+      - `qr_code` là **chuỗi VietQR chuẩn EMV** (bắt đầu `000201...`) — app vẽ thành ảnh QR như chuỗi QR PayOS trước đây.
+      - `bank_bin`, `account_number`, `account_name` là tài khoản 365 (hoặc tài khoản chủ toà với MiniHouse Pay2S riêng). Riêng **thuê xe không lưu thông tin ngân hàng** trong khối `payment` (chỉ có `checkout_url`, `qr_code`, `expires_at`); xem đủ thông tin ở trang QR.
+      - `checkout_url` là **trang QR công khai** `https://365home.vn/thanh-toan-chuyen-khoan/{kind}/{mã}` (không còn là trang PayOS).
+      - Mã đơn PayOS (`payos_order_code`) có thể là `null` với các khoản qua Pay2S (riêng hoá đơn MiniHouse vẫn giữ mã 9 chữ số vì nó là một phần của nội dung `MH...`).
+    - Đơn đặt phòng của chi nhánh do 365 thu hộ: `payment_provider = "pay2s"` và khối `pay2s` (cùng dạng khối `sepay`: `amount`, `payment_code`, `transfer_content`, `qr_url`, `expires_at`, `bank`).
+    - **Tra trạng thái**: hỏi `GET /thanh-toan-chuyen-khoan/{kind}/{code}/trang-thai` mỗi 3–5 giây (công khai, không cần đăng nhập), hoặc gọi lại API chi tiết của khoản (đơn thuê xe, gói, ký quỹ, đối soát). `status`: `pending` chờ · `paid` đã ghi nhận · `closed` đã đóng (hết hạn / đã huỷ).
+    - Nội dung chuyển khoản khách phải ghi: `transfer_content` (hoặc trường `content`/`transfer_content` trong khối thanh toán) — app **hiển thị đúng chuỗi này**, không tự ghép.
+    - Với Pay2S **không có "hoàn tất tức thì"** như PayOS: tiền hiện sau khi ngân hàng báo biến động số dư (thường vài giây đến vài phút).
+
+    ## 7. Webhook Pay2S và bảo mật token
+    - `POST /api/webhook/pay2s`, xác thực `Authorization: Bearer {token webhook}`. Token hợp lệ là một trong: token của tài khoản đối tác, token của tài khoản 365 (`platform_webhook_token`), token của toà MiniHouse (`pay2s_webhook_token`).
+    - **Quy tắc quyền báo giao dịch**: token chỉ được báo tiền vào **đúng tài khoản của nó**. Token của đối tác / toà **không** được báo tiền vào tài khoản 365 hay tài khoản toà khác (nếu cho phép, đối tác giả giao dịch để cộng ký quỹ, đóng gói hoặc xác nhận đơn). Giao dịch vi phạm bị bỏ qua và ghi log cảnh báo. Tài khoản 365 chỉ nhận qua token của 365; tài khoản ngân hàng của chủ toà chỉ nhận qua token của toà đó.
+    - Pay2S chỉ gửi lại webhook 5 lần. Nếu cấu hình API Token Pay2S (`api_token`), hệ thống còn tự **kéo giao dịch bù** (lệnh `sepay:sync` và khi mở trang QR đơn phòng).
+
+    ## 8. Điều gì KHÔNG đổi
+    - Webhook PayOS (`/webhook/payos`) và toàn bộ code PayOS **vẫn còn**; chưa có bước gỡ PayOS (chờ chạy ổn định vài tuần).
+    - **Thẻ Visa/Mastercard/JCB/AMEX/UnionPay** (Pay2S card-popup) vẫn chỉ áp dụng chi nhánh của 365 Home, theo tài liệu API_ThanhToanVisa.
+    - Đơn của đối tác có kênh riêng (SePay/Pay2S/thủ công của đối tác) vẫn tiền về thẳng tài khoản đối tác như trước.
+    - Các cổng khác của MiniHouse (VietQR, MoMo, VNPay) không đổi.
+
+    ## 9. Chưa có / lưu ý
+    - **Chưa có API riêng cho khách tra cứu một khoản MiniHouse / gói bằng mã** — tra bằng trang `/trang-thai` công khai ở trên hoặc các API chi tiết đã có.
+    - **Không có API liệt kê đối tác / chi nhánh còn PayOS riêng** (lệnh `payment:pay2s-readiness` chỉ chạy trên máy chủ, chỉ đọc).
+    - Cổng khách thuê MiniHouse (portal): nhãn nút `open_label` luôn là "Mở trang thanh toán PayOS" kể cả khi toà dùng Pay2S (nhãn do app tự đặt, nên bỏ qua `open_label` và dùng `open_url`).
+    - Toà MiniHouse chọn `payment_method = pay2s` nhưng **thiếu** thông tin ngân hàng chủ toà (`owner_bank_*`) hoặc `pay2s_webhook_token` thì cài đặt không có hiệu lực (`pay2s_configured = false`) và hệ thống rơi về tài khoản 365 nếu 365 đang thu qua Pay2S. API lưu toà **không báo lỗi** trường hợp thiếu này — app nên tự kiểm tra `pay2s_configured` sau khi lưu.
+    - Cấu hình toà `PUT /admin/minihouse/buildings/{id}` chỉ ghi các trường có trong tài liệu này; các trường khác của toà không thuộc phạm vi module.
+servers:
+  - url: https://365home.vn/api
+    description: Production
+tags:
+  - name: Cấu hình cổng – Quản trị
+    description: Chọn PayOS hay Pay2S, khai báo tài khoản ngân hàng của 365. Chỉ Super Admin.
+  - name: Mã thu tiền – Quản trị
+    description: Khoản thu độc lập (mã TTxxxxxx) do Super Admin tạo, thu qua Pay2S.
+  - name: Đối soát giao dịch – Quản trị
+    description: Nhật ký mọi giao dịch tiền vào (SePay/Pay2S), kể cả giao dịch bị từ chối. Chỉ Super Admin.
+  - name: Khoản 365 thu hộ
+    description: Gói dịch vụ, ký quỹ, đối soát, thuê xe — API tạo/lấy QR (đã có), nay trả QR Pay2S khi bật cổng Pay2S.
+  - name: MiniHouse
+    description: Hoá đơn MiniHouse và cấu hình thanh toán Pay2S riêng của chủ toà.
+  - name: Trang QR công khai
+    description: Trang web và API tra trạng thái cho mọi khoản 365 thu hộ qua Pay2S. Không cần đăng nhập.
+  - name: Webhook
+    description: Pay2S gọi vào hệ thống khi có tiền vào.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token đăng nhập (admin / đối tác / khách thuê tuỳ endpoint).
+  responses:
+    Unauthorized:
+      description: Chưa đăng nhập hoặc token sai.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { message: Unauthenticated. }
+    Forbidden:
+      description: Không đủ quyền với endpoint này.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { message: Chỉ Super Admin được xem hoặc sửa cấu hình cổng thanh toán. }
+    NotFound:
+      description: Không tìm thấy.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { message: Not Found. }
+    ValidationError:
+      description: Dữ liệu không hợp lệ.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ValidationError" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string, example: The amount field is required. }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          example: { amount: ["Số tiền phải từ 1.000đ đến 500.000.000đ."] }
+    PaginationMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        last_page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+    Bank:
+      type: object
+      properties:
+        code: { type: string, nullable: true, example: VCB, description: Mã/tên ngân hàng }
+        bin: { type: string, example: "970436", description: Mã BIN 6 số của ngân hàng }
+        account_number: { type: string, example: "0123456789" }
+        account_holder: { type: string, nullable: true, example: CONG TY 365HOME }
+    PlatformAccount:
+      type: object
+      description: Tài khoản ngân hàng Pay2S của 365 Home. Token webhook không bao giờ được trả ra, chỉ báo đã có hay chưa.
+      properties:
+        configured: { type: boolean, description: "true khi đã khai báo đủ số tài khoản + ngân hàng" }
+        bank_code: { type: string, nullable: true, example: VCB }
+        bank_bin: { type: string, nullable: true, example: "970436" }
+        account_number: { type: string, nullable: true, example: "0123456789" }
+        account_holder: { type: string, nullable: true, example: CONG TY 365HOME }
+        webhook_token:
+          type: object
+          properties:
+            configured: { type: boolean }
+    SecretFlag:
+      type: object
+      properties:
+        configured: { type: boolean }
+        source: { type: string, enum: [cms, env, none], description: "Giá trị đang dùng lấy từ CMS, từ .env hay chưa có" }
+    Pay2SGatewayStatus:
+      type: object
+      description: Cấu hình Pay2S. Khoá bí mật không bao giờ trả ra (chỉ báo configured).
+      properties:
+        provider: { type: string, example: pay2s }
+        label: { type: string, example: Pay2S }
+        enabled: { type: boolean, description: Công tắc tổng Pay2S (tắt = quay về PayOS ngay cho mọi nơi) }
+        enabled_source: { type: string, enum: [cms, env, none] }
+        webhook_url: { type: string, example: "https://365home.vn/api/webhook/pay2s" }
+        api_token: { $ref: "#/components/schemas/SecretFlag" }
+        can_pull: { type: boolean, description: "Có API Token để hệ thống tự kéo giao dịch bù khi webhook lỡ" }
+        partner_access_key: { $ref: "#/components/schemas/SecretFlag" }
+        partner_secret_key: { $ref: "#/components/schemas/SecretFlag" }
+        partner_api_url:
+          type: object
+          properties:
+            value: { type: string, nullable: true }
+            source: { type: string, enum: [cms, env, none] }
+        partner_parent_origin:
+          type: object
+          properties:
+            value: { type: string, nullable: true }
+            source: { type: string, enum: [cms, env, none] }
+        can_link_bank: { type: boolean, description: "Đã có khoá Partner API để đối tác tự liên kết ngân hàng" }
+        default_gateway:
+          type: object
+          properties:
+            value: { type: string, enum: [payos, pay2s], description: "Cổng đang chọn cho khoản thu mới" }
+            source: { type: string, enum: [cms, env, none] }
+        collecting_via_pay2s:
+          type: boolean
+          description: "true = khoản thu mới của 365 đang THỰC SỰ đi qua Pay2S (đã chọn cổng pay2s + Pay2S bật + đã khai báo tài khoản 365)"
+        platform_account: { $ref: "#/components/schemas/PlatformAccount" }
+        accounts:
+          type: object
+          description: Thống kê tài khoản Pay2S của đối tác
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+            missing_webhook_token: { type: integer, description: "Số tài khoản đối tác còn thiếu token webhook (webhook của họ sẽ bị từ chối)" }
+    Pay2SGatewayUpdate:
+      type: object
+      description: |
+        Cập nhật từng phần: trường **không gửi = giữ nguyên**. Các khoá bí mật (`api_token`, `partner_access_key`, `partner_secret_key`, `platform_webhook_token`) để trống hoặc không gửi = giữ giá trị đang lưu.
+        Gửi `default_gateway` là `null` = về mặc định PayOS.
+      properties:
+        enabled: { type: boolean }
+        api_token: { type: string, maxLength: 1000, nullable: true }
+        partner_access_key: { type: string, maxLength: 500, nullable: true }
+        partner_secret_key: { type: string, maxLength: 500, nullable: true }
+        partner_api_url: { type: string, format: uri, maxLength: 255, nullable: true }
+        partner_parent_origin: { type: string, format: uri, maxLength: 255, nullable: true }
+        default_gateway: { type: string, enum: [payos, pay2s], nullable: true, description: "payos | pay2s; giá trị khác bị từ chối 422" }
+        platform_bank_code: { type: string, maxLength: 20, nullable: true, example: VCB }
+        platform_bank_bin: { type: string, maxLength: 12, nullable: true, example: "970436" }
+        platform_account_number: { type: string, maxLength: 50, nullable: true, example: "0123456789" }
+        platform_account_holder: { type: string, maxLength: 255, nullable: true, example: CONG TY 365HOME }
+        platform_webhook_token: { type: string, maxLength: 1000, nullable: true, description: "Token Pay2S sinh cho webhook của tài khoản 365 (lưu mã hoá, không trả lại)" }
+    PaymentCollection:
+      type: object
+      description: Khoản thu tiền độc lập do admin tạo (không gắn đơn nào).
+      properties:
+        id: { type: integer, example: 12 }
+        code: { type: string, example: TTAB12CD, description: "Mã khoản = NỘI DUNG chuyển khoản khách phải ghi" }
+        amount: { type: integer, example: 250000 }
+        description: { type: string, nullable: true, example: Phi dich vu thang 12 }
+        customer_name: { type: string, nullable: true, example: Nguyen Van A }
+        customer_phone: { type: string, nullable: true, example: "0900000001" }
+        status: { type: string, enum: [pending, paid, cancelled] }
+        status_label: { type: string, example: Chờ thanh toán }
+        expired: { type: boolean, description: "true = quá expires_at mà chưa thanh toán. Trang QR báo đã đóng; tiền về muộn vẫn được ghi nhận nếu khoản chưa bị huỷ." }
+        expires_at: { type: string, format: date-time, nullable: true }
+        paid_at: { type: string, format: date-time, nullable: true }
+        paid_amount: { type: integer, nullable: true, description: "Số tiền thực nhận (có thể lớn hơn amount)" }
+        bank_reference: { type: string, nullable: true, example: PAY2S-920000001 }
+        checkout_url: { type: string, example: "https://365home.vn/thanh-toan-chuyen-khoan/collection/TTAB12CD", description: "Trang QR công khai để gửi khách" }
+        transfer_content: { type: string, example: TTAB12CD }
+        qr_code: { type: string, description: "Chuỗi VietQR EMV — vẽ thành ảnh QR" }
+        bank: { $ref: "#/components/schemas/Bank" }
+        created_at: { type: string, format: date-time }
+    TransferAccount:
+      type: object
+      description: Hướng dẫn chuyển khoản trong khối payment của gói dịch vụ / ký quỹ.
+      properties:
+        bank_bin: { type: string, nullable: true, example: "970436" }
+        account_number: { type: string, nullable: true, example: "0123456789" }
+        account_name: { type: string, nullable: true, example: CONG TY 365HOME }
+        content: { type: string, example: KQAB12CD, description: Nội dung chuyển khoản = mã giao dịch }
+    PaymentBlock:
+      type: object
+      description: Thông tin thanh toán của gói dịch vụ / yêu cầu nạp ký quỹ. Chỉ có khi khoản còn **chờ thanh toán** (các trạng thái khác = null).
+      properties:
+        checkout_url: { type: string, nullable: true, example: "https://365home.vn/thanh-toan-chuyen-khoan/escrow/KQAB12CD" }
+        qr_code: { type: string, nullable: true, description: "Chuỗi VietQR EMV (qua Pay2S) hoặc chuỗi QR PayOS (qua PayOS)" }
+        expired_at: { type: string, format: date-time, nullable: true }
+        account: { $ref: "#/components/schemas/TransferAccount" }
+    SubscriptionPayment:
+      type: object
+      properties:
+        id: { type: integer }
+        transaction_code: { type: string, example: SBAB12CD, description: Mã giao dịch = nội dung chuyển khoản }
+        plan:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            code: { type: string }
+            name: { type: string }
+        amount_vnd: { type: integer, example: 500000 }
+        months: { type: integer, example: 1 }
+        status: { type: string, example: pending }
+        status_label: { type: string, example: Chờ thanh toán }
+        is_renewal: { type: boolean }
+        source: { type: string, description: "request = gói chưa có phí cố định (công ty liên hệ báo số tiền, không có QR)" }
+        paid_at: { type: string, format: date-time, nullable: true }
+        extends_to: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        bank_reference: { type: string, nullable: true }
+        payment: { allOf: [{ $ref: "#/components/schemas/PaymentBlock" }], nullable: true }
+    EscrowDeposit:
+      type: object
+      properties:
+        id: { type: integer }
+        transaction_code: { type: string, example: KQAB12CD }
+        amount: { type: integer, example: 1000000 }
+        status: { type: string, example: pending }
+        status_label: { type: string, example: Chờ thanh toán }
+        paid_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        payment: { allOf: [{ $ref: "#/components/schemas/PaymentBlock" }], nullable: true }
+    SettlementPayment:
+      type: object
+      description: Khối payment của bảng đối soát (phẳng, khác dạng PaymentBlock). Là null khi chưa tạo mã thanh toán.
+      properties:
+        checkout_url: { type: string, example: "https://365home.vn/thanh-toan-chuyen-khoan/settlement/DS2611-AB12C" }
+        qr_code: { type: string }
+        bank_bin: { type: string, nullable: true }
+        account_number: { type: string, nullable: true }
+        account_name: { type: string, nullable: true }
+        transfer_content: { type: string, example: DS2611-AB12C }
+        expires_at: { type: string, format: date-time, nullable: true }
+    VehiclePaymentBlock:
+      type: object
+      description: Khối payment của đơn thuê xe. Qua Pay2S KHÔNG có thông tin ngân hàng ở đây — mở checkout_url để xem đủ.
+      properties:
+        checkout_url: { type: string, nullable: true, example: "https://365home.vn/thanh-toan-chuyen-khoan/vehicle/XE2611201234" }
+        qr_code: { type: string, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true, description: Cùng lúc hết giữ chỗ }
+    MiniHouseInvoiceQr:
+      type: object
+      properties:
+        qr_code: { type: string, description: "Chuỗi VietQR EMV (qua Pay2S) hoặc chuỗi QR PayOS" }
+        qr_image: { type: string, description: "Ảnh QR dạng data URI, hiện thẳng được" }
+        checkout_url: { type: string, example: "https://365home.vn/thanh-toan-chuyen-khoan/minihouse/MH912345678" }
+        amount: { type: number, example: 3000000, description: "Tổng còn nợ, gồm cả nợ các tháng trước" }
+        expired_at: { type: string, format: date-time }
+    BuildingPay2S:
+      type: object
+      description: Các trường liên quan Pay2S khi tạo/sửa toà MiniHouse (gửi kèm các trường khác của toà).
+      properties:
+        payment_method:
+          type: string
+          nullable: true
+          enum: [vietqr, payos, pay2s, momo, vnpay]
+          description: |
+            Cách thu tiền hoá đơn của toà. `pay2s` = thu thẳng vào tài khoản ngân hàng của chủ toà (owner_bank_*), tự xác nhận qua webhook Pay2S. Đổi qua lại `payos` ⇄ `pay2s` bất cứ lúc nào (khi tạo QR Pay2S, hoá đơn giữ mã đang có).
+            `pay2s` chỉ CÓ HIỆU LỰC khi đủ owner_bank_bin + owner_bank_account_number + pay2s_webhook_token.
+        owner_bank_bin: { type: string, maxLength: 20, nullable: true, example: "970415" }
+        owner_bank_account_number: { type: string, maxLength: 50, nullable: true, example: "7700445566" }
+        owner_bank_account_holder: { type: string, maxLength: 255, nullable: true, example: NGUYEN VAN CHU }
+        pay2s_webhook_token: { type: string, maxLength: 255, nullable: true, description: "Token webhook Pay2S của tài khoản ngân hàng chủ toà. Lưu mã hoá, không trả lại." }
+    Pay2SWebhookTransaction:
+      type: object
+      description: Một giao dịch trong body webhook Pay2S. Hệ thống chỉ xử lý giao dịch tiền vào (transferType = IN) có id > 0.
+      required: [id, transferType, transferAmount, accountNumber]
+      properties:
+        id: { type: integer, example: 920000001, description: "Mã giao dịch của Pay2S — dùng chống xử lý trùng" }
+        gateway: { type: string, example: VCB }
+        transactionDate: { type: string, example: "2026-11-27 10:15:00" }
+        transactionNumber: { type: string, example: "48213", description: Mã tham chiếu ngân hàng }
+        accountNumber: { type: string, example: "0123456789" }
+        vaNumber: { type: string, nullable: true, description: "Số tài khoản ảo (nếu giao dịch vào VA)" }
+        content: { type: string, example: NGUYEN VAN A chuyen khoan KQAB12CD }
+        transferType: { type: string, enum: [IN, OUT], description: "Chỉ IN được xử lý" }
+        transferAmount: { type: number, example: 1000000 }
+paths:
+  # ───────────────────────────── Cấu hình cổng ─────────────────────────────
+  /admin/payment-gateways/pay2s:
+    get:
+      tags: [Cấu hình cổng – Quản trị]
+      summary: Xem cấu hình Pay2S (kèm cổng đang chọn và tài khoản 365)
+      description: |
+        Chỉ **Super Admin**. Trả mọi cấu hình Pay2S; khoá bí mật chỉ báo `configured`. Cờ cần xem khi chuyển cổng: `default_gateway.value`, `collecting_via_pay2s`, `platform_account`.
+        Danh sách mọi cổng: `GET /admin/payment-gateways`.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Pay2SGatewayStatus" }
+              example:
+                data:
+                  provider: pay2s
+                  label: Pay2S
+                  enabled: true
+                  enabled_source: env
+                  webhook_url: "https://365home.vn/api/webhook/pay2s"
+                  api_token: { configured: true, source: cms }
+                  can_pull: true
+                  default_gateway: { value: pay2s, source: cms }
+                  collecting_via_pay2s: true
+                  platform_account:
+                    configured: true
+                    bank_code: VCB
+                    bank_bin: "970436"
+                    account_number: "0123456789"
+                    account_holder: CONG TY 365HOME
+                    webhook_token: { configured: true }
+                  accounts: { total: 3, active: 3, missing_webhook_token: 0 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Cấu hình cổng – Quản trị]
+      summary: Lưu cấu hình Pay2S — chọn cổng PayOS/Pay2S và tài khoản 365
+      description: |
+        Chỉ **Super Admin**. Cập nhật từng phần (trường không gửi = giữ nguyên).
+        - Chuyển sang Pay2S: gửi `default_gateway = pay2s` cùng `platform_*` (đủ số tài khoản + ngân hàng) và `platform_webhook_token`. Sau đó kiểm tra `collecting_via_pay2s = true` ở phản hồi — nếu vẫn `false` nghĩa là thiếu điều kiện (Pay2S đang tắt hoặc chưa đủ tài khoản) và khoản thu vẫn đi PayOS.
+        - Rollback: gửi `default_gateway = payos`. Tài khoản 365 đã khai báo **không bị xoá**.
+        - Chuyển cổng chỉ ảnh hưởng khoản tạo MỚI; link/QR đã phát hành vẫn nhận tiền ở cổng cũ.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Pay2SGatewayUpdate" }
+            examples:
+              chuyenSangPay2S:
+                summary: Chuyển sang Pay2S và khai báo tài khoản 365
+                value:
+                  default_gateway: pay2s
+                  platform_bank_code: VCB
+                  platform_bank_bin: "970436"
+                  platform_account_number: "0123456789"
+                  platform_account_holder: CONG TY 365HOME
+                  platform_webhook_token: "<token Pay2S sinh cho webhook>"
+              rollback:
+                summary: Quay về PayOS
+                value: { default_gateway: payos }
+      responses:
+        "200":
+          description: Đã lưu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "Đã lưu cấu hình Pay2S — Pay2S đang BẬT." }
+                  data: { $ref: "#/components/schemas/Pay2SGatewayStatus" }
+                  generated_webhook_secret: { type: string, nullable: true, description: "Luôn null với Pay2S (chỉ SePay có)" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/payment-gateways/pay2s/test-connection:
+    post:
+      tags: [Cấu hình cổng – Quản trị]
+      summary: Thử kết nối API Pay2S bằng API Token đang dùng
+      description: Chỉ **Super Admin**. Giới hạn 10 lần/phút. Kiểm tra token có hợp lệ không (token dùng để kéo giao dịch bù). `ok = false` kèm lý do tiếng Việt khi sai/hết hạn/bị giới hạn.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Kết quả kiểm tra (luôn 200, xem ok)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string, example: Kết nối API Pay2S thành công. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  # ───────────────────────────── Mã thu tiền ─────────────────────────────
+  /admin/payment-collections:
+    get:
+      tags: [Mã thu tiền – Quản trị]
+      summary: Danh sách mã thu tiền
+      description: Chỉ **Super Admin**. `available = false` nghĩa là chưa bật Pay2S hoặc chưa khai báo tài khoản ngân hàng 365 — chưa tạo được mã mới (danh sách cũ vẫn xem được).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, paid, cancelled] } }
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: "Mã, tên/SĐT khách hoặc nội dung thu" }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/PaymentCollection" } }
+                  meta: { $ref: "#/components/schemas/PaginationMeta" }
+                  available: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Mã thu tiền – Quản trị]
+      summary: Tạo mã thu tiền
+      description: |
+        Chỉ **Super Admin**. Hệ thống sinh mã `TTxxxxxx`, chuỗi QR VietQR và `checkout_url` (trang QR công khai) để gửi khách.
+        - Tiền vào **tài khoản Pay2S của 365**. Không phụ thuộc đang chọn cổng PayOS hay Pay2S, nhưng cần Pay2S BẬT và đã khai báo tài khoản 365 (nếu không → 422).
+        - Tài khoản ngân hàng được **chụp lại lúc tạo**: đổi tài khoản 365 về sau không làm đổi QR của mã đã tạo.
+        - Khách chuyển **đúng mã** và **đủ (hoặc dư)** số tiền → `status = paid` tự động. Thiếu tiền → không ghi nhận, giao dịch `rejected` để đối soát.
+        - Theo dõi: `GET /admin/payment-collections/{id}` hoặc trang `/trang-thai` công khai.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: integer, minimum: 1000, maximum: 500000000, example: 250000 }
+                description: { type: string, maxLength: 255, example: Phi dich vu thang 12 }
+                customer_name: { type: string, maxLength: 255 }
+                customer_phone: { type: string, maxLength: 30 }
+                expires_in_hours: { type: integer, minimum: 0, maximum: 720, description: "0 hoặc bỏ trống = không giới hạn; tối đa 720 giờ (30 ngày)" }
+      responses:
+        "201":
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Đã tạo mã thu tiền. }
+                  data: { $ref: "#/components/schemas/PaymentCollection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: Sai số tiền, hoặc chưa bật Pay2S / chưa khai báo tài khoản ngân hàng 365
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+              example:
+                message: The given data was invalid.
+                errors: { amount: ["Chưa bật Pay2S hoặc chưa khai báo tài khoản ngân hàng của 365home (CMS → Pay2S — cấu hình chung)."] }
+  /admin/payment-collections/{id}:
+    get:
+      tags: [Mã thu tiền – Quản trị]
+      summary: Chi tiết một mã thu tiền
+      description: Chỉ **Super Admin**.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/PaymentCollection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/payment-collections/{id}/cancel:
+    post:
+      tags: [Mã thu tiền – Quản trị]
+      summary: Huỷ mã thu tiền chưa thanh toán
+      description: |
+        Chỉ **Super Admin**. Trang QR chuyển sang `closed`. Nếu khách vẫn chuyển khoản vào mã đã huỷ, giao dịch bị ghi `rejected` (lý do "đã bị huỷ nhưng vẫn nhận được tiền") để hoàn tiền thủ công.
+        Mã đã thanh toán thì không huỷ được (422).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Đã huỷ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Đã huỷ mã thu tiền. }
+                  data: { $ref: "#/components/schemas/PaymentCollection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: Khoản đã thanh toán, không huỷ được
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+              example: { message: The given data was invalid., errors: { status: ["Khoản này đã được thanh toán, không huỷ được."] } }
+  # ───────────────────────────── Đối soát giao dịch ─────────────────────────────
+  /admin/sepay-transactions:
+    get:
+      tags: [Đối soát giao dịch – Quản trị]
+      summary: Nhật ký giao dịch tiền vào (SePay / Pay2S)
+      description: |
+        Chỉ **Super Admin**; cùng dữ liệu với CMS → Giao dịch SePay / Pay2S. Dùng để đối soát khoản bị từ chối.
+        Trạng thái: `processed` đã xác nhận · `rejected` **tiền đã vào nhưng khoản chưa ghi nhận** (thiếu tiền, chuyển trùng, khoản đã huỷ/đóng, sai tài khoản...; xem `failure_reason`) — cần hoàn tiền/xử lý tay · `failed` lỗi xử lý nội bộ (Pay2S sẽ gửi lại) · `received` đang xử lý.
+        Với khoản 365 thu hộ, `payment_code` là mã khoản (SB/KQ/DS/XE/MH/TT...) và `order_code` là null.
+        Phản hồi là dạng phân trang chuẩn (data, current_page, last_page, per_page, total...).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: provider, in: query, schema: { type: string, enum: [sepay, pay2s] } }
+        - { name: status, in: query, schema: { type: string, enum: [processed, rejected, failed, received] } }
+        - { name: partner_id, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 }, description: "Mã thanh toán hoặc mã tham chiếu ngân hàng" }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date }, description: "Phải >= from" }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        provider: { type: string, example: pay2s }
+                        provider_transaction_id: { type: integer, example: 920000001 }
+                        partner:
+                          type: object
+                          nullable: true
+                          properties:
+                            id: { type: string }
+                            name: { type: string }
+                        account_number: { type: string, nullable: true }
+                        order_id: { type: integer, nullable: true }
+                        order_code: { type: string, nullable: true }
+                        payment_code: { type: string, nullable: true, example: KQAB12CD }
+                        amount: { type: integer, example: 500000 }
+                        reference_code: { type: string, nullable: true }
+                        transaction_at: { type: string, format: date-time, nullable: true }
+                        status: { type: string, enum: [processed, rejected, failed, received] }
+                        status_label: { type: string, example: Bị từ chối }
+                        failure_reason: { type: string, nullable: true, example: "Thiếu tiền bảng đối soát DS2611-AB12C: cần 2000000, nhận 1500000 — chưa ghi nhận, xử lý thủ công." }
+                        created_at: { type: string, format: date-time }
+                  current_page: { type: integer }
+                  last_page: { type: integer }
+                  per_page: { type: integer }
+                  total: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/sepay-transactions/{transaction}:
+    get:
+      tags: [Đối soát giao dịch – Quản trị]
+      summary: Chi tiết một giao dịch (kèm dữ liệu gốc Pay2S gửi về)
+      description: Chỉ **Super Admin**. Như một dòng của danh sách, thêm trường `payload` (dữ liệu gốc của cổng, có thêm `platform_kind` với khoản 365 thu hộ).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: transaction, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    description: Các trường như dòng danh sách + payload.
+                    properties:
+                      payload: { type: object, additionalProperties: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  # ───────────────────────────── Khoản 365 thu hộ ─────────────────────────────
+  /admin/subscription/checkout:
+    post:
+      tags: [Khoản 365 thu hộ]
+      summary: MiniHouse chọn gói và tạo yêu cầu thanh toán phí gói (mã SB)
+      description: |
+        Dành cho **chủ đối tác MiniHouse** đăng nhập app quản trị. Homestay không dùng gói → 422.
+        Qua Pay2S: `data.payment` có `qr_code` VietQR, `checkout_url` (trang QR), `account.content` = mã `SBxxxxxx` — khách chuyển đúng mã; hệ thống **tự gia hạn** khi nhận đủ tiền. Hạn thanh toán 24 giờ.
+        Gói chưa có phí cố định (`source = request`): không có QR, công ty sẽ liên hệ báo số tiền; message trả về nêu rõ.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id]
+              properties:
+                plan_id: { type: integer, example: 2 }
+                periods: { type: integer, enum: [1, 3, 6, 9, 12], default: 1, description: "Số kỳ (tháng) thanh toán" }
+      responses:
+        "201":
+          description: Đã tạo yêu cầu thanh toán
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "Đã tạo yêu cầu thanh toán. Quét QR/mở link để thanh toán; hệ thống tự gia hạn khi nhận được tiền." }
+                  data: { $ref: "#/components/schemas/SubscriptionPayment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Tài khoản không thuộc đối tác nào }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/subscription/payments:
+    get:
+      tags: [Khoản 365 thu hộ]
+      summary: Lịch sử thanh toán gói của đối tác (để theo dõi sau khi quét QR)
+      description: Chủ đối tác MiniHouse. Khoản `pending` có khối `payment`; khi tiền về, `status` chuyển `paid`.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/SubscriptionPayment" } }
+                  meta: { $ref: "#/components/schemas/PaginationMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/subscription/payments/{id}:
+    get:
+      tags: [Khoản 365 thu hộ]
+      summary: Chi tiết một giao dịch gói (app hỏi trạng thái)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SubscriptionPayment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/partners/{partner}/escrow/deposit-link:
+    post:
+      tags: [Khoản 365 thu hộ]
+      summary: Tạo yêu cầu nạp ký quỹ (mã KQ)
+      description: |
+        **Chủ đối tác** (hoặc Super Admin). Giới hạn 10 lần/phút. Không áp dụng cho đối tác hệ thống / MiniHouse (404).
+        Qua Pay2S: tiền vào tài khoản 365, nội dung = `transaction_code` (KQxxxxxx). Khi nhận đủ, số dư ký quỹ được cộng **theo số tiền thực nhận**. Hạn 24 giờ. Nếu chưa tạo được mã thanh toán, `message` hướng dẫn chuyển khoản tay và báo 365 xác nhận.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: partner, in: path, required: true, schema: { type: string }, description: "ID đối tác" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: integer, minimum: 100000, maximum: 100000000000, example: 1000000, description: "Tối thiểu theo cấu hình ký quỹ (mặc định 100.000đ)" }
+      responses:
+        "201":
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Đã tạo mã thanh toán nạp ký quỹ. }
+                  data: { $ref: "#/components/schemas/EscrowDeposit" }
+              example:
+                message: Đã tạo mã thanh toán nạp ký quỹ.
+                data:
+                  id: 31
+                  transaction_code: KQAB12CD
+                  amount: 1000000
+                  status: pending
+                  status_label: Chờ thanh toán
+                  paid_at: null
+                  created_at: "2026-11-27T10:00:00+07:00"
+                  payment:
+                    checkout_url: "https://365home.vn/thanh-toan-chuyen-khoan/escrow/KQAB12CD"
+                    qr_code: "00020101021238..."
+                    expired_at: "2026-11-28T10:00:00+07:00"
+                    account: { bank_bin: "970436", account_number: "0123456789", account_name: CONG TY 365HOME, content: KQAB12CD }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/partners/{partner}/escrow/deposits:
+    get:
+      tags: [Khoản 365 thu hộ]
+      summary: Các yêu cầu nạp ký quỹ (để theo dõi sau khi quét QR)
+      description: Chủ đối tác hoặc Super Admin. Dạng phân trang chuẩn. `status` chuyển `paid` khi tiền về.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: partner, in: path, required: true, schema: { type: string } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/EscrowDeposit" } }
+                  current_page: { type: integer }
+                  last_page: { type: integer }
+                  per_page: { type: integer }
+                  total: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/partners/{partner}/settlements/{settlement}/payment-link:
+    post:
+      tags: [Khoản 365 thu hộ]
+      summary: Tạo / lấy mã thanh toán nộp hoa hồng đối soát (mã DS)
+      description: |
+        **Chủ đối tác** (hoặc Super Admin). Giới hạn 10 lần/phút. Chỉ bảng đối soát **đã gửi** hoặc **đang khiếu nại** và có khoản đối tác phải nộp (`net_amount > 0`); khác → 422.
+        Còn mã chưa hết hạn thì trả lại mã đó, hết hạn thì tạo mới. Qua Pay2S: nội dung = mã bảng `DSyymm-XXXXX` (khách có thể ghi không có dấu `-`). Nhận **≥** số phải nộp thì bảng chuyển "đã thanh toán"; thiếu thì không ghi nhận.
+        Kết quả nằm ở `data.payment` (khối phẳng, xem SettlementPayment); `payment = null` nghĩa là chưa tạo được mã.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: partner, in: path, required: true, schema: { type: string } }
+        - { name: settlement, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Bảng đối soát kèm khối payment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    description: Toàn bộ bảng đối soát (code, status, net_amount, due_at, ...) cùng khối payment.
+                    properties:
+                      code: { type: string, example: DS2611-AB12C }
+                      status: { type: string }
+                      net_amount: { type: integer }
+                      payment: { allOf: [{ $ref: "#/components/schemas/SettlementPayment" }], nullable: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: Bảng đối soát không có khoản phải nộp / chưa ở trạng thái cho phép thanh toán }
+  /vehicle-rental-bookings/{code}/payment:
+    post:
+      tags: [Khoản 365 thu hộ]
+      summary: Lấy lại / tạo lại QR cho đơn thuê xe chờ thanh toán (mã XE)
+      description: |
+        **Khách đã đăng nhập** (chủ đơn). Giới hạn 10 lần/phút. Cũng là điều hệ thống làm ngay sau `POST /vehicle-rental-bookings` (tạo đơn): nếu tạo link lỗi thì đơn vẫn được tạo và phản hồi có `payment_error`; khách gọi endpoint này để lấy lại QR.
+        Qua Pay2S: nội dung chuyển khoản = `code` của đơn (XExxxxxxxxxx). Còn QR chưa hết hạn thì dùng lại. QR hết hạn cùng lúc **giữ xe** (mặc định 15 phút). Nhận **≥** tổng tiền thì đơn tự xác nhận đã thanh toán.
+        Khối `payment` không có thông tin ngân hàng — mở `checkout_url` để xem tài khoản, số tiền, nội dung.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string }, example: XE2611201234 }
+      responses:
+        "200":
+          description: Đơn kèm khối payment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    description: Đơn thuê xe đầy đủ (code, status, total_amount, hold_expires_at, ...) cùng khối payment.
+                    properties:
+                      code: { type: string, example: XE2611201234 }
+                      status: { type: string }
+                      total_amount: { type: integer }
+                      payment: { $ref: "#/components/schemas/VehiclePaymentBlock" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: Đơn không ở trạng thái chờ thanh toán, đã hết hạn giữ chỗ, hoặc không tạo được mã thanh toán
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { message: Đơn đã hết hạn giữ chỗ, vui lòng đặt lại. }
+  # ───────────────────────────── MiniHouse ─────────────────────────────
+  /admin/minihouse/invoices/{id}/qr:
+    post:
+      tags: [MiniHouse]
+      summary: Nhân viên / chủ toà tạo QR thu tiền hoá đơn (mã MH)
+      description: |
+        Cần quyền `update_invoices` và toà trong phạm vi được quản lý. QR luôn cho đúng **tổng còn nợ** (gồm cả nợ các tháng trước, chia lại cho các hoá đơn khi ghi nhận).
+        Cách chọn tài khoản nhận tiền:
+        1. Toà chọn **`pay2s`** (và đủ owner_bank_* + pay2s_webhook_token) → tiền vào **tài khoản ngân hàng chủ toà**.
+        2. Toà **không có kênh riêng** và 365 đang thu qua Pay2S (`collecting_via_pay2s = true`) → tiền vào tài khoản 365.
+        3. Toà chọn **PayOS riêng** → giữ PayOS cho tới khi đổi sang `pay2s`.
+        Nội dung chuyển khoản = `MH` + mã 9 chữ số của hoá đơn; giữ nguyên mã đang có để QR khách đã quét dở vẫn khớp. Số tiền phải khớp (lệch không quá 1đ), tiền vào sai tài khoản của toà thì bị `rejected`.
+        Hạn QR cố định theo cấu hình dịch vụ (phút).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/MiniHouseInvoiceQr" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: Hoá đơn đã thanh toán đủ, hoặc chưa cấu hình tài khoản Pay2S / PayOS
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { message: Hoá đơn đã thanh toán đủ, không cần tạo mã QR. }
+  /minihouse/portal/invoices/{invoice}/pay:
+    post:
+      tags: [MiniHouse]
+      summary: Khách thuê bấm thanh toán hoá đơn (cổng thuê MiniHouse)
+      description: |
+        **Khách thuê đã đăng nhập** (token Tenant, khác token admin). Cùng logic chọn tài khoản như tạo QR ở trên (pay2s của toà / tài khoản 365 / PayOS).
+        Phản hồi chuẩn hoá: `qr_image` (ảnh QR data URI), `open_url` (trang QR công khai khi qua Pay2S; trang PayOS khi qua PayOS), `amount`, `expired_at`. **`open_label` luôn là "Mở trang thanh toán PayOS" kể cả khi qua Pay2S — app tự đặt nhãn của mình.**
+        409 nếu hoá đơn đã thanh toán đủ; 422 nếu chủ nhà chưa cấu hình thanh toán trực tuyến cho toà.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: invoice, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      qr_image: { type: string }
+                      open_url: { type: string, example: "https://365home.vn/thanh-toan-chuyen-khoan/minihouse/MH912345678" }
+                      open_label: { type: string, example: Mở trang thanh toán PayOS }
+                      amount: { type: number, example: 3000000 }
+                      expired_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Hoá đơn đã được thanh toán đủ }
+        "422": { description: Chủ nhà chưa cấu hình thanh toán trực tuyến }
+  /admin/minihouse/buildings:
+    post:
+      tags: [MiniHouse]
+      summary: Tạo toà nhà — thêm lựa chọn thanh toán Pay2S riêng
+      description: |
+        Cần quyền `create_buildings`. Chỉ ghi các trường liên quan Pay2S; các trường khác của toà (tên, địa chỉ, giá điện nước, chủ toà...) giữ nguyên như API cũ.
+        Phản hồi có `pay2s_configured` (true khi đủ ngân hàng chủ toà + token webhook). **Token không bao giờ trả ra.** `PUT /admin/minihouse/buildings/{id}` nhận cùng các trường.
+        Để toà thu qua Pay2S riêng: `payment_method = pay2s` + `owner_bank_bin` + `owner_bank_account_number` (+ `owner_bank_account_holder`) + `pay2s_webhook_token`. Tạo webhook "Nhận tiền" cho tài khoản chủ toà ở my.pay2s.vn trỏ về `https://365home.vn/api/webhook/pay2s` để lấy token.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/BuildingPay2S" }
+                - type: object
+                  required: [name]
+                  properties:
+                    name: { type: string, maxLength: 255, example: Toa nha A }
+            example:
+              name: Toa nha A
+              payment_method: pay2s
+              owner_bank_bin: "970415"
+              owner_bank_account_number: "7700445566"
+              owner_bank_account_holder: NGUYEN VAN CHU
+              pay2s_webhook_token: "<token Pay2S>"
+      responses:
+        "201":
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      payment_method: { type: string, nullable: true, example: pay2s }
+                      owner_bank_bin: { type: string, nullable: true }
+                      owner_bank_name: { type: string, nullable: true, description: Tên ngân hàng tự suy từ BIN }
+                      owner_bank_account_number: { type: string, nullable: true }
+                      owner_bank_account_holder: { type: string, nullable: true }
+                      pay2s_configured: { type: boolean }
+                  notice: { type: string, description: "Chỉ có khi tài khoản tạo không phải Super Admin (cần admin gán quản lý toà)" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /admin/minihouse/buildings/{id}:
+    put:
+      tags: [MiniHouse]
+      summary: Sửa toà nhà — đổi qua lại PayOS ⇄ Pay2S
+      description: |
+        Cần quyền `update_buildings`. Gửi các trường như `POST /admin/minihouse/buildings` (đều tuỳ chọn khi sửa). Đổi `payment_method` qua lại `payos` ⇄ `pay2s` bất cứ lúc nào; QR đã tạo trước đó vẫn nhận tiền ở kênh cũ.
+        `pay2s_webhook_token` để trống/không gửi = giữ token cũ. Cũng nhận `PATCH`.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BuildingPay2S" }
+            example: { payment_method: payos }
+      responses:
+        "200":
+          description: Đã lưu (trả toà nhà đầy đủ, có pay2s_configured)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      payment_method: { type: string, nullable: true }
+                      pay2s_configured: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Không tìm thấy toà nhà hoặc không có quyền }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  # ───────────────────────────── Trang QR công khai (gốc, không /api) ─────────────────────────────
+  /thanh-toan-chuyen-khoan/{kind}/{code}:
+    servers:
+      - url: https://365home.vn
+        description: Gốc website (KHÔNG có /api)
+    get:
+      tags: [Trang QR công khai]
+      summary: Trang QR chuyển khoản của khoản 365 thu hộ (trang web HTML)
+      description: |
+        Là `checkout_url` của gói dịch vụ, ký quỹ, đối soát, thuê xe, hoá đơn MiniHouse và mã thu tiền khi qua Pay2S. Hiện ảnh QR, ngân hàng, số tài khoản, số tiền, nội dung, hạn; tự hỏi trạng thái và báo "Thanh toán thành công". Mở bằng webview/trình duyệt.
+        Công khai, không cần đăng nhập; chỉ chứa thông tin chuyển khoản (không có dữ liệu cá nhân). Giới hạn 60 lượt/phút/IP.
+        Tài khoản hiển thị: với mã thu tiền là tài khoản đã chụp lúc tạo; với hoá đơn MiniHouse là tài khoản chủ toà (toà chọn Pay2S) hoặc tài khoản 365; các loại khác là tài khoản 365 (lấy cả khi đang tạm chuyển về PayOS, để link cũ còn hiển thị).
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [subscription, escrow, settlement, vehicle, minihouse, collection] }
+          description: Loại khoản (xem bảng mã ở phần mô tả chung)
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+          description: "Mã khoản = nội dung chuyển khoản (ví dụ KQAB12CD, DS2611-AB12C, XE2611201234, MH912345678, TTAB12CD, SBAB12CD)"
+      responses:
+        "200":
+          description: Trang HTML
+          content:
+            text/html:
+              schema: { type: string }
+        "404": { description: Không có khoản này (sai loại / sai mã / chưa khai báo tài khoản ngân hàng) }
+  /thanh-toan-chuyen-khoan/{kind}/{code}/trang-thai:
+    servers:
+      - url: https://365home.vn
+        description: Gốc website (KHÔNG có /api)
+    get:
+      tags: [Trang QR công khai]
+      summary: Hỏi trạng thái khoản (app/web hỏi mỗi 3–5 giây)
+      description: Công khai, không cần đăng nhập. Giới hạn 120 lượt/phút/IP. Hệ thống chỉ đọc trạng thái đã ghi nhận qua webhook (không tự kéo giao dịch ở endpoint này).
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [subscription, escrow, settlement, vehicle, minihouse, collection] }
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [pending, paid, closed]
+                        description: "pending chờ · paid đã ghi nhận · closed đã đóng (hết hạn / đã huỷ)"
+              example: { data: { status: pending } }
+        "404": { description: Không có khoản này }
+  # ───────────────────────────── Webhook ─────────────────────────────
+  /webhook/pay2s:
+    post:
+      tags: [Webhook]
+      summary: Webhook biến động số dư của Pay2S
+      description: |
+        **Pay2S gọi**, không phải app. Địa chỉ đăng ký ở my.pay2s.vn → Webhooks: `https://365home.vn/api/webhook/pay2s` (cũng còn đường dẫn cũ `/webhook/pay2s` ở gốc website). Mỗi tài khoản ngân hàng có một token riêng.
+        Xác thực: `Authorization: Bearer {token}`, token phải khớp token của tài khoản đối tác, của tài khoản 365 (`platform_webhook_token`) hoặc của toà MiniHouse (`pay2s_webhook_token`). Sai token → 401.
+        Xử lý từng giao dịch trong `transactions`:
+        - Bỏ qua giao dịch không phải tiền vào (`transferType` ≠ IN) hoặc `id` ≤ 0.
+        - Kiểm tra quyền báo của token (xem phần "Webhook và bảo mật token": token đối tác/toà không được báo tiền vào tài khoản 365 hay toà khác).
+        - Nội dung có mã đơn phòng `DH...` → xử lý như luồng đặt phòng (đúng số tiền).
+        - Không có mã đơn phòng nhưng có mã khoản 365 (SB/KQ/DS/XE/MH/TT) → khớp khoản tương ứng theo bảng mã.
+        - Mọi giao dịch có mã đều ghi nhật ký (provider `pay2s`); gửi lại cùng `id` không xử lý hai lần. Giao dịch không hợp lệ được lưu `rejected` kèm lý do nhưng **vẫn trả 200** để Pay2S không gửi lại.
+        Phản hồi: 200 `{success:true}` khi xử lý xong (kể cả có giao dịch bị từ chối); 500 `{success:false}` chỉ khi có lỗi xử lý nội bộ để Pay2S gửi lại.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactions]
+              properties:
+                transactions:
+                  type: array
+                  items: { $ref: "#/components/schemas/Pay2SWebhookTransaction" }
+            example:
+              transactions:
+                - id: 920000001
+                  gateway: VCB
+                  transactionDate: "2026-11-27 10:15:00"
+                  transactionNumber: "48213"
+                  accountNumber: "0123456789"
+                  content: NGUYEN VAN A chuyen khoan KQAB12CD
+                  transferType: IN
+                  transferAmount: 1000000
+      responses:
+        "200":
+          description: Đã nhận
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+        "401":
+          description: Token không khớp tài khoản nào
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { message: Invalid Pay2S token. }
+        "422": { description: Thiếu mảng transactions }
+        "500":
+          description: Lỗi xử lý nội bộ — Pay2S sẽ gửi lại
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: false }

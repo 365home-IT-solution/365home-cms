@@ -1,0 +1,1276 @@
+# =====================================================================================
+#  365 HOME — Đối tác TỰ LIÊN KẾT NGÂN HÀNG PAY2S (tự nhập OTP ngay trong app)
+#  Định dạng OpenAPI 3.0 (YAML) theo file mẫu API Reference.
+#  Import: Admin > API Reference > chọn dự án + phiên bản > Import.
+#  Cùng chức năng với trang CMS "Quản lý → Liên kết ngân hàng Pay2S" (cùng một service phía server).
+# =====================================================================================
+openapi: 3.0.3
+
+info:
+  title: Đối tác tự liên kết ngân hàng Pay2S (nhập OTP) - 365 HOME
+  version: 1.0.0
+  description: |
+    Chủ đối tác tự chọn **tài khoản ngân hàng nhận tiền đặt phòng** ngay trong app, không cần nhờ 365 Home.
+    Tiền khách chuyển khoản về **thẳng tài khoản của đối tác**; hệ thống tự nhận biết khách đã trả nhờ webhook của Pay2S.
+
+    ## Ai dùng được
+    - **Chủ đối tác** (vai trò `partner`, hoặc đối tác được 365 Home bật quyền tự cấu hình) — chỉ với đối tác của chính mình.
+    - **Super Admin** — với mọi đối tác (có thể gửi `partner` bất kỳ ở đường dẫn).
+    - Nhân viên khác của đối tác chỉ **xem** được (các API `GET`), không sửa được.
+    - Đối tác hệ thống (365 Home) và toà MiniHouse không dùng nhóm API này (trả `404`).
+    - Mọi API cần `Authorization: Bearer {token}` (token đăng nhập CMS/app quản trị). Thiếu quyền trả `403`.
+
+    ## Phạm vi tài khoản: cả đối tác hoặc từng chi nhánh
+    - Mỗi đối tác có **một tài khoản mặc định** (áp cho mọi chi nhánh) và có thể thêm **một tài khoản riêng cho từng chi nhánh**.
+    - Gửi `category_id` = id chi nhánh để liên kết/đọc/xoá tài khoản **riêng của chi nhánh đó**. **Không gửi** = tài khoản mặc định của đối tác.
+    - Chi nhánh không thuộc đối tác ⇒ `422` (`category_id`: "Chi nhánh không thuộc đối tác này.").
+    - Đơn của chi nhánh dùng tài khoản của chi nhánh; chi nhánh chưa có tài khoản riêng dùng tài khoản mặc định.
+
+    ## Ba cách nhận tiền
+    | Cách | Phù hợp | API |
+    |---|---|---|
+    | **1. Nhập thông tin + OTP trong app** (ACB, MB Bank, BIDV) | Nhanh nhất, không rời app, **không cần mật khẩu ngân hàng** | `pay2s-link/banks` → `pay2s-link/bank` → `pay2s-link/bank/confirm-otp` |
+    | **2. Liên kết qua cửa sổ Pay2S (Hosted Link)** | Mọi ngân hàng khác (Vietcombank, VietinBank, Techcombank...). Đối tác nhập thông tin + OTP **trên trang của Pay2S** | `POST pay2s-link` → mở `hosted_link_url` → hỏi `GET pay2s-link/{session}` |
+    | **3. Nhập thủ công** | Ngân hàng không liên kết được, hoặc muốn tự đối chiếu | `POST sepay-account` với `provider = manual` |
+
+    **Hệ thống KHÔNG BAO GIỜ thu mật khẩu ngân hàng.** Ngân hàng cần mật khẩu (Vietcombank, VietinBank, Techcombank...) chỉ liên kết được bằng cách 2.
+
+    ## Luồng cách 1 — nhập OTP trong app (làm theo thứ tự)
+    1. **Dựng form**: `GET /partners/{partner}/pay2s-link/banks` → danh sách ngân hàng và ô cần nhập cho từng ngân hàng.
+       - `available = false` (kèm `blocked_reason`) ⇒ không cho liên kết, hiện lý do (đang dùng kênh PayOS riêng, chưa bật tính năng).
+       - `direct_api_available = false` ⇒ Pay2S chưa bật nhập OTP trực tiếp: **ẩn form OTP**, chỉ hiện nút "Liên kết qua Pay2S" (cách 2).
+    2. **Bước 1 — gửi thông tin**: `POST /partners/{partner}/pay2s-link/bank`. Ngân hàng gửi **mã OTP về số điện thoại đối tác đã đăng ký với ngân hàng**.
+       Đọc `data.state` (xem bảng dưới). Thường là `otp_required` ⇒ hiện ô nhập OTP.
+    3. **Bước 2 — gửi OTP**: `POST /partners/{partner}/pay2s-link/bank/confirm-otp`, gửi **lại đúng bộ thông tin của bước 1** kèm `otp`.
+       (Server **không giữ trạng thái** giữa hai bước nên app phải giữ thông tin trên màn hình và gửi lại.)
+    4. `data.state = connected` ⇒ xong. `data.account` là tài khoản đã lưu (có `account_number` để khách chuyển khoản, `has_webhook_token = true`).
+    5. (Tuỳ chọn) `GET /partners/{partner}/pay2s-link-check` để xác nhận tình trạng liên kết, chuyển thử 1 khoản nhỏ đúng nội dung để chắc chắn.
+
+    ### Giá trị `data.state`
+    | `state` | HTTP | Ý nghĩa | App làm gì |
+    |---|---|---|---|
+    | `otp_required` | 200 | Ngân hàng đã gửi OTP | Hiện ô nhập OTP, gọi bước 2 |
+    | `connected` | 200 | Liên kết xong, **đã lưu tài khoản + tạo webhook** | Báo thành công, hiện `data.account` |
+    | `hosted_link` | 200 | Pay2S chưa bật OTP trực tiếp cho ứng dụng; server **đã tạo sẵn phiên Hosted Link** ở `data.session` | Mở `data.session.hosted_link_url` (cách 2), rồi hỏi trạng thái phiên |
+    | `otp_invalid` | **422** | OTP sai hoặc hết hạn | Cho nhập lại OTP, hoặc gọi lại bước 1 để nhận mã mới |
+    | `error` | **422** | Pay2S/ngân hàng từ chối (sai thông tin, tài khoản trùng...) — đọc `message` | Hiện `message`, cho sửa thông tin |
+
+    ### Các tình huống cần biết
+    - **Mỗi lần gọi bước 1 là ngân hàng gửi một mã OTP MỚI và mã cũ hết hiệu lực.** Khách phải nhập mã mới nhất.
+    - **Tài khoản đã được thêm sẵn ở Pay2S** (đối tác từng liên kết ở my.pay2s.vn hoặc lần trước): bước 1 trả luôn `connected`, **không cần OTP**.
+    - Bước 2 mà trước đó đã thành công (gọi lặp / mạng chậm): vẫn trả `connected`, không lỗi.
+    - **Số tài khoản lưu** để khách chuyển khoản là **số tài khoản ảo (VA)** nếu Pay2S cấp (ngân hàng OpenAPI bắt buộc chuyển vào VA mới có biến động số dư).
+      Luôn hiển thị `data.account.account_number` — đừng hiển thị số đối tác vừa nhập.
+    - Số tài khoản đã gắn cho đối tác / chi nhánh khác ⇒ `error` ("Số tài khoản này đã gắn cho một đối tác hoặc chi nhánh khác.").
+    - **Mỗi đối tác chỉ dùng một kênh**: đang bật kênh PayOS riêng (của đối tác hoặc của chi nhánh đang chọn) ⇒ `422`, cần tắt PayOS trước.
+    - Giới hạn gọi: bước 1 và bước 2 tối đa **10 lần / phút** (`429` khi vượt).
+
+    ## Ô cần nhập theo ngân hàng
+    | Ngân hàng (`bank`) | Loại tài khoản (`account_type`) | `cccd` | `username` | `merchant_id` |
+    |---|---|---|---|---|
+    | `ACB` | `personal`, `business` | Không dùng | **Bắt buộc nếu `business`** (tên đăng nhập ACB OneBiz) | Không dùng |
+    | `MB` (MB Bank) | `personal`, `business` | **Bắt buộc** (CCCD, hoặc mã số thuế nếu doanh nghiệp) | Không dùng | Không dùng |
+    | `BIDV` | chỉ `personal` | **Bắt buộc** | Không dùng | Tuỳ chọn (mã merchant BIDV nếu có) |
+
+    Ô không áp dụng cho ngân hàng đó sẽ bị bỏ qua. App nên đọc `GET .../pay2s-link/banks` để biết ô nào bắt buộc thay vì cố định trong app.
+    `account_holder` nên đúng tên đăng ký ngân hàng; hệ thống tự chuyển thành chữ HOA không dấu khi gửi Pay2S.
+
+    ## Luồng cách 2 — Hosted Link (mọi ngân hàng)
+    1. `POST /partners/{partner}/pay2s-link` ⇒ `201`, nhận `data.hosted_link_url` và `data.session_id`. Phiên sống **15 phút**.
+    2. App mở `hosted_link_url` trong webview / trình duyệt. Đối tác chọn ngân hàng, nhập thông tin và OTP **trên trang Pay2S**.
+    3. App gọi `GET /partners/{partner}/pay2s-link/{session_id}` mỗi **3–5 giây** tới khi `data.pending = false`.
+       - `data.connected = true` ⇒ xong; hệ thống đã tự lưu tài khoản và tạo webhook (kèm `data.account`).
+       - `status` thuộc `cancelled | failed | expired | revoked` ⇒ thất bại, đọc `error_message`, cho tạo phiên mới.
+    4. Số tài khoản đã gắn chỗ khác trong hệ thống: phiên vẫn `connected` nhưng chưa lưu, `error_code = ACCOUNT_TAKEN` — gỡ dòng cũ rồi gọi lại GET để hoàn tất (không phải liên kết lại ngân hàng).
+
+    ## Luồng cách 3 — nhập thủ công
+    `POST /partners/{partner}/sepay-account` với `provider = manual`, ngân hàng, số tài khoản, tên chủ tài khoản. Khách chuyển khoản theo QR;
+    **đối tác tự đối chiếu và xác nhận đã nhận tiền** ở mục "Chờ xác nhận chuyển khoản" (`GET /manual-payments`, `POST /manual-payments/{link}/confirm`).
+    Cách này **không có webhook**, hệ thống không tự biết khách đã trả.
+
+    ## Token webhook
+    Webhook là đường Pay2S báo "tài khoản có tiền vào". Cách 1 và 2 **tự tạo webhook và lưu token**. Nếu tài khoản (đã liên kết ở Pay2S bằng cách khác) chưa có token:
+    - `POST /partners/{partner}/pay2s-webhook` — hệ thống tự tạo webhook ở Pay2S rồi lưu token.
+    - Pay2S chỉ hiện token **một lần** lúc tạo. Nếu webhook đã tồn tại mà hệ thống không giữ token ⇒ phải xoá webhook ở my.pay2s.vn rồi gọi lại (hệ thống không tự xoá).
+    - Hoặc lưu token tay qua `POST /partners/{partner}/sepay-account` (trường `webhook_token`, chỉ có tác dụng với `provider = pay2s`).
+
+    ## Nhật ký và thông báo
+    Mỗi lần đối tác tự đổi nơi nhận tiền (liên kết OTP, Hosted Link) hệ thống ghi vào **lịch sử hồ sơ đối tác** và **gửi thông báo cho Super Admin**
+    ("Đối tác tự đổi tài khoản nhận tiền Pay2S").
+
+    ## Quy ước chung
+    - Dữ liệu trả về bọc trong `data`. Lỗi trả `{ "message": "..." }`; lỗi nhập liệu (`422`) có thêm `errors.{tên trường}[0]`. Thông báo là tiếng Việt, hiện thẳng cho người dùng được.
+    - `502`: Pay2S tạm lỗi / không kết nối được — cho thử lại sau.
+
+servers:
+  - url: https://365home.vn/api
+    description: Production
+
+tags:
+  - name: Liên kết nhanh bằng OTP
+    description: Cách 1 — ACB / MB / BIDV, nhập thông tin và OTP ngay trong app.
+  - name: Liên kết qua cửa sổ Pay2S
+    description: Cách 2 — Hosted Link, mọi ngân hàng.
+  - name: Tài khoản nhận tiền
+    description: Xem, nhập thủ công, xoá tài khoản nhận tiền của đối tác / chi nhánh.
+  - name: Webhook & kiểm tra
+    description: Lấy token webhook tự động, kiểm tra tình trạng liên kết.
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token đăng nhập (Sanctum)
+
+  parameters:
+    partner:
+      name: partner
+      in: path
+      required: true
+      description: ID đối tác (chủ đối tác dùng id đối tác của chính mình).
+      schema:
+        type: string
+        example: 9d3f2a10-7c1e-4b9a-8f55-1a2b3c4d5e6f
+    categoryIdQuery:
+      name: category_id
+      in: query
+      required: false
+      description: ID chi nhánh. Không gửi = tài khoản mặc định của đối tác.
+      schema:
+        type: integer
+        example: 203
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    BankOption:
+      type: object
+      description: Một ngân hàng liên kết nhanh được bằng OTP và các ô cần nhập.
+      properties:
+        code:
+          type: string
+          enum: [ACB, MB, BIDV]
+          description: Mã gửi lên ở trường `bank`.
+        label:
+          type: string
+          example: MB Bank
+        account_types:
+          type: array
+          items:
+            type: string
+            enum: [personal, business]
+          description: personal = cá nhân, business = doanh nghiệp.
+        requires_cccd:
+          type: boolean
+          description: true ⇒ bắt buộc nhập `cccd` (CCCD / mã số thuế).
+        accepts_merchant_id:
+          type: boolean
+          description: true ⇒ có ô `merchant_id` (tuỳ chọn).
+        requires_username_for_business:
+          type: boolean
+          description: true ⇒ khi `account_type = business` bắt buộc nhập `username` (ACB OneBiz).
+
+    BanksResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            banks:
+              type: array
+              items:
+                $ref: '#/components/schemas/BankOption'
+            available:
+              type: boolean
+              description: false ⇒ chưa liên kết được, xem `blocked_reason`.
+            blocked_reason:
+              type: string
+              nullable: true
+            direct_api_available:
+              type: boolean
+              description: false ⇒ Pay2S chưa bật nhập OTP trực tiếp; ẩn form OTP, dùng Hosted Link.
+
+    BankInput:
+      type: object
+      description: Thông tin ngân hàng đối tác nhập. **Bước 2 gửi lại đúng bộ này** kèm `otp`.
+      required: [bank, account_type, account_number, account_holder, phone, email]
+      properties:
+        bank:
+          type: string
+          enum: [ACB, MB, BIDV]
+        account_type:
+          type: string
+          enum: [personal, business]
+          description: BIDV chỉ hỗ trợ `personal`.
+        account_number:
+          type: string
+          description: Số tài khoản ngân hàng (6–50 ký tự chữ, số, dấu chấm, gạch ngang).
+          example: '0988776655'
+        account_holder:
+          type: string
+          description: Tên chủ tài khoản.
+          example: Nguyen Van Chu
+        phone:
+          type: string
+          description: Số điện thoại đã đăng ký với ngân hàng — **nơi ngân hàng gửi OTP**. 9–15 ký tự số, có thể có dấu +.
+          example: '0900000001'
+        email:
+          type: string
+          format: email
+          example: chu@example.com
+        cccd:
+          type: string
+          description: Bắt buộc với MB và BIDV (CCCD, hoặc mã số thuế nếu doanh nghiệp).
+          example: '012345678901'
+        merchant_id:
+          type: string
+          description: Chỉ BIDV, tuỳ chọn.
+        username:
+          type: string
+          description: Chỉ ACB doanh nghiệp (bắt buộc khi `account_type = business`) — tên đăng nhập ACB OneBiz.
+        category_id:
+          type: integer
+          nullable: true
+          description: ID chi nhánh. Không gửi = tài khoản mặc định của đối tác.
+
+    ConfirmOtpInput:
+      allOf:
+        - $ref: '#/components/schemas/BankInput'
+        - type: object
+          required: [otp]
+          properties:
+            otp:
+              type: string
+              pattern: '^[0-9]{4,10}$'
+              description: Mã OTP ngân hàng gửi về điện thoại (4–10 chữ số). Luôn dùng mã mới nhất.
+              example: '123456'
+
+    Account:
+      type: object
+      description: Tài khoản nhận tiền của một phạm vi (đối tác hoặc chi nhánh).
+      properties:
+        configured:
+          type: boolean
+          description: false ⇒ phạm vi này chưa có tài khoản (các trường còn lại là null / mặc định).
+        category_id:
+          type: integer
+          nullable: true
+        branch:
+          type: string
+          nullable: true
+          description: Tên chi nhánh (khi `category_id` có giá trị).
+        provider:
+          type: string
+          enum: [sepay, pay2s, manual]
+          description: pay2s = tự động qua Pay2S, manual = xác nhận thủ công, sepay = cổng SePay (cấu hình bởi 365 Home).
+        has_webhook_token:
+          type: boolean
+          description: Chỉ có nghĩa với `pay2s`. false ⇒ webhook sẽ bị từ chối, cần lấy token.
+        is_active:
+          type: boolean
+        bank_code:
+          type: string
+          nullable: true
+          example: MB
+        bank_bin:
+          type: string
+          nullable: true
+          example: '970422'
+        account_number:
+          type: string
+          nullable: true
+          description: Số tài khoản khách chuyển khoản vào (là số tài khoản ảo nếu Pay2S cấp).
+          example: VA0988776655
+        account_holder:
+          type: string
+          nullable: true
+          example: NGUYEN VAN CHU
+        note:
+          type: string
+          nullable: true
+        eligible:
+          type: boolean
+          description: Đối tác có đang ở chế độ nhận tiền trực tiếp (không qua 365 Home thu hộ) không.
+        webhook_url:
+          type: string
+          nullable: true
+          description: Địa chỉ Pay2S gọi khi có tiền vào. null với `manual`.
+        code_prefix:
+          type: string
+          example: DH
+
+    LinkSession:
+      type: object
+      description: Phiên Hosted Link.
+      properties:
+        session_id:
+          type: string
+          example: sess-123
+        category_id:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          description: |
+            Đang xử lý: `created`, `sending`, `awaiting_otp`, `verifying`, `uncertain`.
+            Thành công: `connected`. Thất bại: `cancelled`, `failed`, `expired`, `revoked`.
+          example: awaiting_otp
+        pending:
+          type: boolean
+          description: true ⇒ tiếp tục hỏi trạng thái.
+        connected:
+          type: boolean
+          description: true ⇒ đã lưu tài khoản + tạo webhook.
+        hosted_link_url:
+          type: string
+          nullable: true
+          description: Địa chỉ mở trong webview. null khi phiên đã xong hoặc thất bại.
+          example: https://hosted.pay2s.vn/link/sess-123
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+          example: ACCOUNT_TAKEN
+        error_message:
+          type: string
+          nullable: true
+
+    LinkCheck:
+      type: object
+      properties:
+        linked:
+          type: boolean
+          description: true ⇒ mọi mục kiểm tra được đều đạt (mục `ok = null` là không kiểm tra được, không tính).
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+                enum: [provider, active, webhook_token, pay2s_linked, last_transaction]
+              label:
+                type: string
+              ok:
+                type: boolean
+                nullable: true
+                description: true đạt · false không đạt · null không kiểm tra được.
+              message:
+                type: string
+
+  responses:
+    Unauthorized:
+      description: Chưa đăng nhập hoặc token hết hạn.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Unauthenticated.
+    Forbidden:
+      description: Không có quyền với đối tác này (không phải chủ đối tác / Super Admin).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Không tìm thấy (đối tác hệ thống / MiniHouse không dùng nhóm API này, hoặc chưa có tài khoản).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Blocked:
+      description: Không liên kết được ở phạm vi này (đang dùng kênh PayOS riêng, chưa bật tính năng) hoặc dữ liệu nhập sai.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            payos:
+              summary: Đối tác đang dùng kênh PayOS riêng
+              value:
+                message: Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi liên kết Pay2S (mỗi đối tác chỉ dùng một kênh).
+            chua_bat:
+              summary: Chưa bật tính năng
+              value:
+                message: Chưa cấu hình khoá Partner API của Pay2S. Liên hệ 365 HOME để bật tính năng liên kết ngân hàng.
+            nhap_sai:
+              summary: Nhập thiếu / sai
+              value:
+                message: The cccd field is required.
+                errors:
+                  cccd:
+                    - The cccd field is required.
+    GatewayError:
+      description: Pay2S tạm lỗi hoặc không kết nối được. Cho thử lại sau.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Gọi quá nhanh (tối đa 10 lần / phút cho bước gửi thông tin và bước gửi OTP).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Too Many Attempts.
+
+paths:
+  # ===================================================================================
+  #  A. CÁCH 1 — LIÊN KẾT NHANH BẰNG OTP
+  # ===================================================================================
+  /admin/partners/{partner}/pay2s-link/banks:
+    get:
+      tags: [Liên kết nhanh bằng OTP]
+      operationId: pay2sLinkBanks
+      summary: Danh sách ngân hàng liên kết bằng OTP + ô cần nhập
+      description: |
+        Gọi đầu tiên để dựng form. Cho biết ngân hàng nào, ô nào bắt buộc, và có hiện form OTP được không.
+
+        - `available = false` ⇒ hiện `blocked_reason`, không cho liên kết.
+        - `direct_api_available = false` ⇒ Pay2S chưa bật nhập OTP trực tiếp cho hệ thống: ẩn form OTP, chỉ hiện nút liên kết qua cửa sổ Pay2S (cách 2).
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BanksResponse'
+              example:
+                data:
+                  banks:
+                    - code: ACB
+                      label: ACB
+                      account_types: [personal, business]
+                      requires_cccd: false
+                      accepts_merchant_id: false
+                      requires_username_for_business: true
+                    - code: MB
+                      label: MB Bank
+                      account_types: [personal, business]
+                      requires_cccd: true
+                      accepts_merchant_id: false
+                      requires_username_for_business: false
+                    - code: BIDV
+                      label: BIDV
+                      account_types: [personal]
+                      requires_cccd: true
+                      accepts_merchant_id: true
+                      requires_username_for_business: false
+                  available: true
+                  blocked_reason: null
+                  direct_api_available: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/partners/{partner}/pay2s-link/bank:
+    post:
+      tags: [Liên kết nhanh bằng OTP]
+      operationId: pay2sLinkBankSubmit
+      summary: Bước 1 — gửi thông tin ngân hàng, ngân hàng gửi OTP
+      description: |
+        Gửi thông tin ngân hàng của đối tác cho Pay2S. Ngân hàng gửi **mã OTP về số điện thoại `phone`**.
+
+        Kết quả nằm ở `data.state`:
+        - `otp_required` (200) — hiện ô nhập OTP, gọi bước 2.
+        - `connected` (200) — tài khoản đã có sẵn ở Pay2S hoặc ngân hàng không cần OTP: **đã lưu xong**, không cần bước 2.
+        - `hosted_link` (200) — Pay2S chưa bật OTP trực tiếp: `data.session` là phiên Hosted Link đã tạo sẵn, mở `hosted_link_url` rồi hỏi trạng thái phiên.
+        - `error` (422) — Pay2S/ngân hàng từ chối, đọc `message`.
+
+        Mỗi lần gọi ngân hàng gửi OTP **mới**, mã cũ hết hiệu lực. Tối đa 10 lần / phút.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BankInput'
+            examples:
+              mb_ca_nhan:
+                summary: MB Bank — cá nhân
+                value:
+                  bank: MB
+                  account_type: personal
+                  account_number: '0988776655'
+                  account_holder: Nguyen Van Chu
+                  phone: '0900000001'
+                  email: chu@example.com
+                  cccd: '012345678901'
+              acb_doanh_nghiep:
+                summary: ACB — doanh nghiệp, riêng cho một chi nhánh
+                value:
+                  bank: ACB
+                  account_type: business
+                  account_number: '12345678'
+                  account_holder: CONG TY TNHH ABC
+                  phone: '0900000002'
+                  email: ketoan@abc.vn
+                  username: abc_onebiz
+                  category_id: 203
+      responses:
+        '200':
+          description: Đã xử lý. Xem `data.state`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      state:
+                        type: string
+                        enum: [otp_required, connected, hosted_link]
+                      account:
+                        nullable: true
+                        allOf:
+                          - $ref: '#/components/schemas/Account'
+                        description: Chỉ có khi `state = connected`.
+                      session:
+                        nullable: true
+                        allOf:
+                          - $ref: '#/components/schemas/LinkSession'
+                        description: Chỉ có khi `state = hosted_link`.
+              examples:
+                otp_required:
+                  summary: Ngân hàng đã gửi OTP
+                  value:
+                    message: Ngân hàng đã gửi mã OTP về số điện thoại đăng ký với ngân hàng.
+                    data:
+                      state: otp_required
+                      account: null
+                      session: null
+                connected:
+                  summary: Đã có sẵn ở Pay2S — lưu luôn, không cần OTP
+                  value:
+                    message: Đã liên kết ngân hàng và tạo webhook nhận tiền.
+                    data:
+                      state: connected
+                      account:
+                        configured: true
+                        category_id: null
+                        branch: null
+                        provider: pay2s
+                        has_webhook_token: true
+                        is_active: true
+                        bank_code: MB
+                        bank_bin: '970422'
+                        account_number: VA0988776655
+                        account_holder: NGUYEN VAN CHU
+                        note: null
+                        eligible: true
+                        webhook_url: https://365home.vn/api/webhook/pay2s
+                        code_prefix: DH
+                      session: null
+                hosted_link:
+                  summary: Pay2S chưa bật OTP trực tiếp — dùng cửa sổ Pay2S
+                  value:
+                    message: Pay2S chưa bật nhập OTP trực tiếp cho ứng dụng — dùng cửa sổ liên kết của Pay2S.
+                    data:
+                      state: hosted_link
+                      account: null
+                      session:
+                        session_id: sess-123
+                        category_id: null
+                        status: created
+                        pending: true
+                        connected: false
+                        hosted_link_url: https://hosted.pay2s.vn/link/sess-123
+                        expires_at: '2026-11-27T10:15:00+07:00'
+                        error_code: null
+                        error_message: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Nhập thiếu/sai, không liên kết được ở phạm vi này, hoặc Pay2S/ngân hàng từ chối (`data.state = error`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - type: object
+                    properties:
+                      message:
+                        type: string
+                      data:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [error]
+              examples:
+                nhap_thieu:
+                  summary: Thiếu CCCD (MB / BIDV)
+                  value:
+                    message: The cccd field is required.
+                    errors:
+                      cccd:
+                        - The cccd field is required.
+                payos:
+                  summary: Đang dùng kênh PayOS riêng
+                  value:
+                    message: Đối tác đang dùng kênh PayOS riêng. Tắt kênh PayOS trước khi liên kết Pay2S (mỗi đối tác chỉ dùng một kênh).
+                pay2s_tu_choi:
+                  summary: Pay2S / ngân hàng từ chối
+                  value:
+                    message: 'Pay2S chưa nhận thông tin: Thông tin tài khoản không đúng.'
+                    data:
+                      state: error
+                      account: null
+                      session: null
+                da_gan_noi_khac:
+                  summary: Số tài khoản đã gắn cho đối tác / chi nhánh khác
+                  value:
+                    message: Số tài khoản này đã gắn cho một đối tác hoặc chi nhánh khác.
+                    data:
+                      state: error
+                      account: null
+                      session: null
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+  /admin/partners/{partner}/pay2s-link/bank/confirm-otp:
+    post:
+      tags: [Liên kết nhanh bằng OTP]
+      operationId: pay2sLinkBankConfirmOtp
+      summary: Bước 2 — gửi mã OTP để hoàn tất liên kết
+      description: |
+        Gửi mã OTP đối tác vừa nhận **cùng lại đúng bộ thông tin của bước 1** (server không giữ trạng thái giữa hai bước).
+
+        - Đúng ⇒ `connected` (200): hệ thống kiểm tra lại với Pay2S, **lưu tài khoản** (số tài khoản ảo nếu có), **tạo webhook**, ghi lịch sử và báo Super Admin.
+        - Sai / hết hạn ⇒ `otp_invalid` (**422**): giữ nguyên màn nhập OTP cho nhập lại, hoặc gọi lại bước 1 để nhận mã mới (mã cũ sẽ hết hiệu lực).
+        - Gọi lặp sau khi đã thành công ⇒ vẫn `connected`.
+
+        Tối đa 10 lần / phút.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmOtpInput'
+            example:
+              bank: MB
+              account_type: personal
+              account_number: '0988776655'
+              account_holder: Nguyen Van Chu
+              phone: '0900000001'
+              email: chu@example.com
+              cccd: '012345678901'
+              otp: '123456'
+      responses:
+        '200':
+          description: Liên kết xong.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      state:
+                        type: string
+                        enum: [connected]
+                      account:
+                        $ref: '#/components/schemas/Account'
+                      session:
+                        nullable: true
+                        type: object
+              example:
+                message: Đã liên kết ngân hàng và tạo webhook nhận tiền.
+                data:
+                  state: connected
+                  account:
+                    configured: true
+                    category_id: null
+                    branch: null
+                    provider: pay2s
+                    has_webhook_token: true
+                    is_active: true
+                    bank_code: MB
+                    bank_bin: '970422'
+                    account_number: VA0988776655
+                    account_holder: NGUYEN VAN CHU
+                    note: null
+                    eligible: true
+                    webhook_url: https://365home.vn/api/webhook/pay2s
+                    code_prefix: DH
+                  session: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: OTP sai/hết hạn (`otp_invalid`), nhập thiếu/sai, hoặc không lưu được (`error`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - type: object
+                    properties:
+                      message:
+                        type: string
+                      data:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [otp_invalid, error]
+              examples:
+                otp_sai:
+                  summary: OTP sai hoặc hết hạn
+                  value:
+                    message: 'OTP chưa đúng hoặc đã hết hạn: Fail to verify OTP value. Mỗi lần gửi thông tin ngân hàng gửi một mã MỚI và mã cũ hết hiệu lực — hãy nhập mã mới nhất.'
+                    data:
+                      state: otp_invalid
+                      account: null
+                      session: null
+                thieu_otp:
+                  summary: Chưa gửi OTP
+                  value:
+                    message: The otp field is required.
+                    errors:
+                      otp:
+                        - The otp field is required.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+  # ===================================================================================
+  #  B. CÁCH 2 — LIÊN KẾT QUA CỬA SỔ PAY2S (HOSTED LINK)
+  # ===================================================================================
+  /admin/partners/{partner}/pay2s-link:
+    post:
+      tags: [Liên kết qua cửa sổ Pay2S]
+      operationId: pay2sLinkStart
+      summary: Tạo phiên liên kết (Hosted Link)
+      description: |
+        Dùng cho **mọi ngân hàng**, nhất là ngân hàng cần mật khẩu (Vietcombank, VietinBank, Techcombank...). Đối tác nhập thông tin và OTP **trên trang của Pay2S**.
+
+        Sau khi nhận `hosted_link_url`: mở trong webview / trình duyệt, rồi gọi `GET /admin/partners/{partner}/pay2s-link/{session}` mỗi 3–5 giây.
+        Phiên sống 15 phút.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                  nullable: true
+                  description: ID chi nhánh. Không gửi = tài khoản mặc định của đối tác.
+            example:
+              category_id: 203
+      responses:
+        '201':
+          description: Đã tạo phiên.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/LinkSession'
+              example:
+                message: Đã tạo phiên liên kết. Mở hosted_link_url để đối tác nhập thông tin ngân hàng và OTP.
+                data:
+                  session_id: sess-123
+                  category_id: null
+                  status: created
+                  pending: true
+                  connected: false
+                  hosted_link_url: https://hosted.pay2s.vn/link/sess-123
+                  expires_at: '2026-11-27T10:15:00+07:00'
+                  error_code: null
+                  error_message: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Blocked'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+  /admin/partners/{partner}/pay2s-link/{session}:
+    get:
+      tags: [Liên kết qua cửa sổ Pay2S]
+      operationId: pay2sLinkStatus
+      summary: Hỏi kết quả phiên liên kết
+      description: |
+        Gọi mỗi **3–5 giây** sau khi mở `hosted_link_url`, cho tới khi `pending = false`. Gọi lặp lại an toàn.
+
+        - `connected = true` ⇒ **xong**: hệ thống đã tự lưu tài khoản và tạo webhook, kèm `account`. Lần đầu thấy `connected` hệ thống ghi lịch sử và báo Super Admin.
+        - `status` là `cancelled | failed | expired | revoked` ⇒ thất bại, đọc `error_message`, cho tạo phiên mới.
+        - `error_code = ACCOUNT_TAKEN` (phiên vẫn `connected`): số tài khoản đã gắn chỗ khác trong hệ thống — gỡ dòng cũ rồi gọi lại API này để hoàn tất.
+        - `status = expired` khi quá 15 phút mà đối tác chưa làm xong.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+        - name: session
+          in: path
+          required: true
+          description: '`session_id` lấy từ phản hồi tạo phiên.'
+          schema:
+            type: string
+            example: sess-123
+      responses:
+        '200':
+          description: Trạng thái phiên.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/LinkSession'
+                      - type: object
+                        properties:
+                          account:
+                            nullable: true
+                            allOf:
+                              - $ref: '#/components/schemas/Account'
+                            description: Chỉ có khi đã lưu tài khoản (`connected = true`).
+              examples:
+                dang_cho:
+                  summary: Đang chờ đối tác nhập OTP trên trang Pay2S
+                  value:
+                    data:
+                      session_id: sess-123
+                      category_id: null
+                      status: awaiting_otp
+                      pending: true
+                      connected: false
+                      hosted_link_url: https://hosted.pay2s.vn/link/sess-123
+                      expires_at: '2026-11-27T10:15:00+07:00'
+                      error_code: null
+                      error_message: null
+                      account: null
+                xong:
+                  summary: Đã liên kết
+                  value:
+                    data:
+                      session_id: sess-123
+                      category_id: null
+                      status: connected
+                      pending: false
+                      connected: true
+                      hosted_link_url: null
+                      expires_at: '2026-11-27T10:15:00+07:00'
+                      error_code: null
+                      error_message: null
+                      account:
+                        configured: true
+                        category_id: null
+                        branch: null
+                        provider: pay2s
+                        has_webhook_token: true
+                        is_active: true
+                        bank_code: VCB
+                        bank_bin: '970436'
+                        account_number: '0011223344'
+                        account_holder: NGUYEN VAN CHU
+                        note: null
+                        eligible: true
+                        webhook_url: https://365home.vn/api/webhook/pay2s
+                        code_prefix: DH
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Không có phiên này của đối tác.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/GatewayError'
+
+  # ===================================================================================
+  #  C. TÀI KHOẢN NHẬN TIỀN (XEM / NHẬP THỦ CÔNG / XOÁ)
+  # ===================================================================================
+  /admin/partners/{partner}/sepay-account:
+    get:
+      tags: [Tài khoản nhận tiền]
+      operationId: getPartnerAccount
+      summary: Xem tài khoản nhận tiền của một phạm vi
+      description: |
+        Trả tài khoản của đối tác (mặc định) hoặc của chi nhánh (`?category_id=`). Chưa có tài khoản ⇒ `configured = false`.
+        Nhân viên của đối tác cũng xem được.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+        - $ref: '#/components/parameters/categoryIdQuery'
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Blocked'
+    post:
+      tags: [Tài khoản nhận tiền]
+      operationId: savePartnerAccount
+      summary: Lưu tài khoản nhận tiền (nhập thủ công / dán token webhook)
+      description: |
+        Dùng cho **cách 3 — nhập thủ công** (`provider = manual`): khách chuyển khoản theo QR, đối tác tự xác nhận đã nhận tiền.
+        Cũng dùng để dán **token webhook** cho tài khoản `provider = pay2s` (`webhook_token`, để trống = giữ token đang lưu).
+
+        - `account_number` không được trùng tài khoản đang gắn cho đối tác / chi nhánh khác.
+        - Đang dùng kênh PayOS riêng (đối tác, hoặc chi nhánh khi gửi `category_id`) ⇒ `422`.
+        - Lưu tài khoản `pay2s` chưa có token: hệ thống tự thử tạo webhook ngay (không làm hỏng việc lưu nếu Pay2S lỗi).
+        - Đổi nơi nhận tiền không được ghi lịch sử ở API này; dùng các API liên kết ở trên nếu cần ghi nhật ký tự động.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_code, account_number, account_holder]
+              properties:
+                provider:
+                  type: string
+                  enum: [manual, pay2s, sepay]
+                  description: Không gửi = giữ cổng đang lưu (mặc định `sepay` nếu chưa có). Đối tác tự nhập dùng `manual`.
+                category_id:
+                  type: integer
+                  nullable: true
+                bank_code:
+                  type: string
+                  description: Mã ngân hàng trong danh mục hệ thống (vd VCB, MB, ACB, BIDV...).
+                  example: VCB
+                account_number:
+                  type: string
+                  example: '0011223344'
+                account_holder:
+                  type: string
+                  example: NGUYEN VAN CHU
+                webhook_token:
+                  type: string
+                  nullable: true
+                  description: Chỉ dùng với `provider = pay2s`.
+                is_active:
+                  type: boolean
+                note:
+                  type: string
+                  nullable: true
+            example:
+              provider: manual
+              bank_code: VCB
+              account_number: '0011223344'
+              account_holder: Nguyen Van Chu
+      responses:
+        '200':
+          description: Đã lưu.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Account'
+              example:
+                message: Đã lưu tài khoản Xác nhận thủ công của đối tác.
+                data:
+                  configured: true
+                  category_id: null
+                  branch: null
+                  provider: manual
+                  has_webhook_token: false
+                  is_active: true
+                  bank_code: VCB
+                  bank_bin: '970436'
+                  account_number: '0011223344'
+                  account_holder: NGUYEN VAN CHU
+                  note: null
+                  eligible: true
+                  webhook_url: null
+                  code_prefix: DH
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Blocked'
+    delete:
+      tags: [Tài khoản nhận tiền]
+      operationId: deletePartnerAccount
+      summary: Xoá tài khoản nhận tiền của một phạm vi
+      description: |
+        Xoá tài khoản mặc định (không gửi `category_id`) hoặc tài khoản riêng của chi nhánh (`?category_id=`).
+        Chi nhánh bị xoá tài khoản riêng sẽ dùng tài khoản mặc định của đối tác (nếu có). Link thanh toán đã tạo vẫn tra cứu được.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+        - $ref: '#/components/parameters/categoryIdQuery'
+      responses:
+        '200':
+          description: Đã xoá.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Đã xoá tài khoản mặc định của đối tác.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Không có tài khoản nhận tiền ở phạm vi này.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Không có tài khoản nhận tiền ở phạm vi này.
+
+  /admin/partners/{partner}/sepay-accounts:
+    get:
+      tags: [Tài khoản nhận tiền]
+      operationId: listPartnerAccounts
+      summary: Mọi tài khoản của đối tác (mặc định + từng chi nhánh)
+      description: Dùng cho bảng tổng quan. Tài khoản mặc định có `category_id = null` và đứng đầu danh sách.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+      responses:
+        '200':
+          description: Thành công.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================================================================================
+  #  D. WEBHOOK & KIỂM TRA
+  # ===================================================================================
+  /admin/partners/{partner}/pay2s-webhook:
+    post:
+      tags: [Webhook & kiểm tra]
+      operationId: pay2sProvisionWebhook
+      summary: Lấy token webhook tự động
+      description: |
+        Dành cho tài khoản `provider = pay2s` **chưa có token** (đã liên kết ở Pay2S bằng cách khác). Hệ thống tìm tài khoản trong danh sách của Pay2S theo số tài khoản,
+        tạo webhook "Nhận tiền" rồi lưu token. Cách 1 và 2 đã tự làm bước này nên thường không cần gọi.
+
+        - `created = true` ⇒ vừa tạo webhook mới. `has_webhook_token` cho biết đã có token chưa.
+        - Pay2S chỉ trả token **một lần** lúc tạo. Webhook đã có mà hệ thống không giữ token ⇒ `422`, cần xoá webhook đó ở my.pay2s.vn rồi gọi lại (hệ thống không tự xoá).
+        - Địa chỉ webhook phải gọi được từ internet (máy chủ nội bộ `.test` có thể bị Pay2S từ chối).
+        Tối đa 10 lần / phút.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+        - $ref: '#/components/parameters/categoryIdQuery'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                  nullable: true
+                  description: Cũng nhận trong body (hoặc query).
+      responses:
+        '200':
+          description: Đã tạo webhook và lưu token.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      created:
+                        type: boolean
+                      has_webhook_token:
+                        type: boolean
+              example:
+                message: Đã tạo webhook nhận tiền và lưu token.
+                data:
+                  created: true
+                  has_webhook_token: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Đối tác chưa có tài khoản dùng cổng Pay2S ở phạm vi này.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Đối tác chưa có tài khoản nhận tiền dùng cổng Pay2S ở phạm vi này.
+        '422':
+          description: Không tạo được webhook (tài khoản không có ở Pay2S, không hoạt động, webhook đã có mà không giữ token, Pay2S từ chối...).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      created:
+                        type: boolean
+                      has_webhook_token:
+                        type: boolean
+              example:
+                message: Pay2S đã có webhook cho tài khoản này nhưng token chỉ hiện một lần lúc tạo nên không lấy lại được. Xoá webhook đó ở my.pay2s.vn → Webhooks rồi bấm lại để tạo mới.
+                data:
+                  created: false
+                  has_webhook_token: false
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /admin/partners/{partner}/pay2s-link-check:
+    get:
+      tags: [Webhook & kiểm tra]
+      operationId: pay2sLinkCheck
+      summary: Kiểm tra liên kết
+      description: |
+        Nút "Kiểm tra liên kết": tài khoản (mặc định hoặc `?category_id=`) đã đủ điều kiện nhận tiền tự động chưa.
+
+        Các mục kiểm tra (`checks[].key`):
+        - `provider` — cổng nhận tiền là Pay2S.
+        - `active` — tài khoản đang bật.
+        - `webhook_token` — đã có token webhook (không có ⇒ webhook bị từ chối).
+        - `pay2s_linked` — Pay2S ghi nhận liên kết còn hoạt động (`ok = null` nếu chưa cấu hình khoá hoặc không hỏi được Pay2S).
+        - `last_transaction` — giao dịch gần nhất đã xác nhận được đơn (`ok = null` nếu chưa có giao dịch; tài khoản mới liên kết là bình thường — chuyển thử 1 khoản nhỏ đúng nội dung).
+
+        `linked = true` khi không mục nào `ok = false`.
+      parameters:
+        - $ref: '#/components/parameters/partner'
+        - $ref: '#/components/parameters/categoryIdQuery'
+      responses:
+        '200':
+          description: Kết quả kiểm tra.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LinkCheck'
+              example:
+                data:
+                  linked: true
+                  checks:
+                    - key: provider
+                      label: Cổng nhận tiền là Pay2S
+                      ok: true
+                      message: Đúng cổng Pay2S.
+                    - key: active
+                      label: Đang bật làm kênh thu tiền
+                      ok: true
+                      message: Đang bật.
+                    - key: webhook_token
+                      label: Có token webhook Pay2S
+                      ok: true
+                      message: Đã có token — webhook Pay2S gửi về sẽ được chấp nhận.
+                    - key: pay2s_linked
+                      label: Pay2S ghi nhận liên kết ngân hàng
+                      ok: true
+                      message: Pay2S báo tài khoản VA0988776655 đang liên kết.
+                    - key: last_transaction
+                      label: Giao dịch gần nhất xác nhận được đơn
+                      ok: null
+                      message: Chưa có giao dịch nào về (bình thường nếu tài khoản mới liên kết — chuyển thử 1 khoản nhỏ đúng nội dung để chắc chắn).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Đối tác chưa khai báo tài khoản nhận tiền.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Đối tác chưa khai báo tài khoản nhận tiền.
